@@ -1,0 +1,1109 @@
+package com.gocavgo.twese.ui
+
+import android.util.Log
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.EventSeat
+import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.RemoveCircle
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.gocavgo.twese.BuildConfig
+import com.gocavgo.twese.data.Package
+import com.gocavgo.twese.ui.common.VehiclePlatePill
+import com.gocavgo.twese.ui.common.adaptiveHorizontalPadding
+import com.gocavgo.twese.ui.common.contentMaxWidth
+import com.gocavgo.twese.ui.common.isLandscape
+import com.gocavgo.twese.ui.common.isWideScreen
+import com.gocavgo.twese.ui.driver.UpcomingPackagesSection
+import com.gocavgo.twese.ui.theme.LocalDriversColors
+import com.gocavgo.twese.viewmodel.AppThemeMode
+import com.gocavgo.twese.viewmodel.CompletedTrip
+import com.gocavgo.twese.viewmodel.DriverProfile
+import com.gocavgo.twese.viewmodel.DriverVehicle
+import com.gocavgo.twese.viewmodel.TripUiState
+import com.gocavgo.twese.viewmodel.TripViewModel
+import kotlinx.coroutines.delay
+import java.util.Locale
+import com.gocavgo.twese.ui.driver.DriverHomeScreen as DriverHomeScreenImpl
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN TRIP SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Reusable trip content (no menus, no overlays) ────────────────────────────
+
+@Composable
+fun TripContent(
+    viewModel: TripViewModel,
+    vehiclePlate: String,
+    onVehicleClick: () -> Unit,
+    onProfileClick: () -> Unit,
+    isVehicleMenuOpen: Boolean = false,
+    vehicle: DriverVehicle = DriverVehicle()
+) {
+    val state by viewModel.state.collectAsState()
+    val colors = LocalDriversColors.current
+    val wide = isWideScreen()
+    val landscape = isLandscape()
+    val maxW = contentMaxWidth()
+    val isCompleted = state.tripCompleted
+
+    val density = LocalDensity.current
+    val statusBarHeightDp = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
+    val gradientHeightDp = (statusBarHeightDp + statusBarHeightDp / 2f).coerceAtLeast(1.dp)
+    val solidStopFraction = (statusBarHeightDp / gradientHeightDp).coerceIn(0f, 1f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding()
+            .imePadding()
+    ) {
+        // ── Scrollable content ──
+        val scrollState = rememberScrollState()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+        ) {
+            // Top spacer (minimal so content starts higher up)
+            Spacer(Modifier.height(0.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (maxW != Dp.Unspecified) Modifier.widthIn(max = maxW).align(Alignment.CenterHorizontally) else Modifier)
+            ) {
+                // ── Completed banner ──
+                if (isCompleted) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = colors.green.copy(alpha = 0.1f),
+                        border = BorderStroke(1.dp, colors.green.copy(alpha = 0.3f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.CheckCircle, null, tint = colors.green, modifier = Modifier.size(28.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Trip Completed", color = colors.green, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("All packages delivered successfully", color = colors.textSecondary, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                // ── Top bar (compact on landscape) ──
+                TripTopBar(state, vehiclePlate,
+                    onVehicleClick, isVehicleMenuOpen = isVehicleMenuOpen, vehicle = vehicle, landscape = landscape)
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── MAIN CONTENT ──
+                UpcomingStopDashboard(viewModel, wide = wide)
+
+                // ── Packages at the upcoming stop (replaces completed trips) ──
+                val upcomingStop = state.trip.stops.getOrNull(state.currentStopIndex)
+                if (upcomingStop != null && (upcomingStop.pickups.isNotEmpty() || upcomingStop.dropoffs.isNotEmpty())) {
+                    Spacer(Modifier.height(24.dp))
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        UpcomingPackagesSection(
+                            stop = upcomingStop,
+                            allPackages = state.driverCurrentPackages,
+                            onPackageClick = { viewModel.openPackageDetail(it) }
+                        )
+                    }
+                }
+
+                // Extra bottom spacing so content scrolls above the floating dock
+                Spacer(Modifier.height(120.dp))
+            }
+        }
+
+        // ── Status bar gradient overlay ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(gradientHeightDp)
+                .background(
+                    Brush.verticalGradient(
+                        0.0f to colors.background,
+                        solidStopFraction to colors.background,
+                        1.0f to colors.background.copy(alpha = 0f)
+                    )
+                )
+        )
+    }
+}
+
+// ── Top Bar ───────────────────────────────────────────────────────────────────
+@Composable
+fun TripTopBar(
+    state: TripUiState,
+    vehiclePlate: String,
+    onVehicleClick: () -> Unit,
+    isVehicleMenuOpen: Boolean = false,
+    vehicle: DriverVehicle = DriverVehicle(),
+    landscape: Boolean = false
+) {
+    val colors = LocalDriversColors.current
+
+    // No Surface wrapper — background flows continuously through the gradient
+    if (landscape) {
+        // ── Compact horizontal layout for landscape ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(28.dp).clip(CircleShape).background(colors.blue),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.LocalShipping, null, tint = Color.White,
+                    modifier = Modifier.size(16.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(state.trip.routeLabel, color = colors.textPrimary,
+                    fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+            // Vehicle plate pill
+            VehiclePlatePill(
+                plateNumber = vehiclePlate,
+                speedKmh = state.driverLocation.speedKmh,
+                onClick = onVehicleClick,
+                isLandscape = true
+            )
+        }
+    } else {
+        // ── Vertical layout for portrait phones / tablets (no background bar) ──
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp)
+                .padding(top = 2.dp, bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Centered vehicle plate pill — height matched to notification FAB (top = 2.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                VehiclePlatePill(
+                    plateNumber = vehiclePlate,
+                    speedKmh = state.driverLocation.speedKmh,
+                    onClick = onVehicleClick,
+                    isLandscape = false
+                )
+            }
+
+            // Inline vehicle info from trip — type + remaining seats
+            if (isVehicleMenuOpen) {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = colors.surface,
+                    border = BorderStroke(1.dp, colors.divider)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Vehicle type
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.LocalShipping, null, tint = colors.blue, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                vehicle.vehicleType ?: "—",
+                                color = colors.textPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        // Remaining seats from trip
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.EventSeat, null, tint = colors.green, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            val remaining = state.activeDriverTrip?.remainingSeats
+                            val total = state.activeDriverTrip?.seats ?: vehicle.seats
+                            Text(
+                                if (remaining != null) "$remaining / $total seats" else "$total seats",
+                                color = colors.textPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // Center-justified title & route label below plate pill
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier.size(28.dp).clip(CircleShape).background(colors.blue),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.LocalShipping, null, tint = Color.White,
+                            modifier = Modifier.size(15.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text("Twese Driver", color = colors.textSecondary, fontSize = 10.sp, letterSpacing = 1.5.sp)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    state.trip.routeLabel,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+fun formatRemainingDistance(distanceMeters: Double?): String? {
+    return distanceMeters?.takeIf { it > 0.0 }?.let { dist ->
+        if (dist < 1000) "${dist.toInt()} m"
+        else "${String.format(Locale.US, "%.1f", dist / 1000.0)} km"
+    }
+}
+
+// ── UPCOMING STOP DASHBOARD ───────────────────────────────────────────────────
+@Composable
+fun UpcomingStopDashboard(viewModel: TripViewModel, wide: Boolean = false) {
+    val state by viewModel.state.collectAsState()
+    val colors = LocalDriversColors.current
+    val padH = adaptiveHorizontalPadding()
+
+    val activeTrip = state.activeDriverTrip
+    val isScheduled = activeTrip?.status.equals("SCHEDULED", ignoreCase = true)
+
+    // Select active target waypoint:
+    // Priority 1: First waypoint where isNext == true
+    // Priority 2: First waypoint where isPassed == false
+    // Fallback: Waypoint at currentStopIndex
+    val activeWp = activeTrip?.waypoints?.firstOrNull { it.isNext }
+        ?: activeTrip?.waypoints?.firstOrNull { !it.isPassed }
+        ?: activeTrip?.waypoints?.getOrNull(state.currentStopIndex)
+
+    val activeStopIndex = if (activeWp != null && activeTrip?.waypoints != null) {
+        activeTrip.waypoints.indexOf(activeWp).coerceAtLeast(0)
+    } else {
+        state.currentStopIndex
+    }
+
+    val stop = state.trip.stops.getOrNull(activeStopIndex) ?: viewModel.currentStop
+    val isUpcoming = !isScheduled && activeStopIndex > 0
+    val accent = if (isUpcoming) colors.amber else colors.blue
+
+    val distMeters = activeWp?.remainingDistance?.takeIf { it > 0.0 }
+        ?: activeTrip?.remainingDistanceToDestination?.takeIf { it > 0.0 }
+    val distanceStr = formatRemainingDistance(distMeters)
+
+    // Retain last known non-null distance value so the pill never blinks or flashes null during network re-syncs
+    var cachedDistanceStr by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(distanceStr) {
+        if (!distanceStr.isNullOrBlank()) {
+            cachedDistanceStr = distanceStr
+        }
+    }
+    val displayDistance = distanceStr ?: cachedDistanceStr
+
+    if (BuildConfig.DEBUG) {
+        Log.d("TripScreen", "UpcomingStopDashboard: stop='${stop.name}' (idx=$activeStopIndex), wpName='${activeWp?.locationName}', isPassed=${activeWp?.isPassed}, isNext=${activeWp?.isNext}, dist=$distMeters, distStr='$distanceStr'")
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = padH),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
+        border = BorderStroke(1.dp, accent.copy(0.35f))
+    ) {
+        Column(modifier = Modifier.padding(if (wide) 20.dp else 16.dp)) {
+
+            // ── Stop label + name + Distance pill ──────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .size(if (wide) 36.dp else 32.dp)
+                            .clip(CircleShape)
+                            .background(accent.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (isUpcoming) Icons.AutoMirrored.Filled.ArrowForward else Icons.Filled.Navigation,
+                            null,
+                            tint = accent,
+                            modifier = Modifier.size(if (wide) 18.dp else 16.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            if (isUpcoming) "UPCOMING STOP" else "CURRENT STOP",
+                            color = accent,
+                            fontSize = if (wide) 11.sp else 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            stop.name,
+                            color = colors.textPrimary,
+                            fontSize = if (wide) 22.sp else 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                if (!displayDistance.isNullOrBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = accent.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, accent.copy(alpha = 0.3f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .animateContentSize(tween(250)),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Filled.NearMe,
+                                contentDescription = null,
+                                tint = accent,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            AnimatedContent(
+                                targetState = displayDistance,
+                                transitionSpec = {
+                                    (fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 3 }) togetherWith
+                                            (fadeOut(tween(150)) + slideOutVertically(tween(150)) { -it / 3 })
+                                },
+                                label = "distanceAnimation"
+                            ) { targetText ->
+                                Text(
+                                    targetText,
+                                    color = accent,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text(stop.address, color = colors.textSecondary,
+                fontSize = if (wide) 13.sp else 12.sp,
+                modifier = Modifier.padding(start = if (wide) 46.dp else 42.dp))
+
+            Spacer(Modifier.height(if (wide) 20.dp else 16.dp))
+            HorizontalDivider(color = colors.divider, thickness = 1.dp)
+            Spacer(Modifier.height(if (wide) 18.dp else 14.dp))
+
+            // ── Pickup / Dropoff side by side ─────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(if (wide) 16.dp else 10.dp)
+            ) {
+                // Pickups column
+                PackageColumn(
+                    modifier = Modifier.weight(1f),
+                    title = "PICK UP",
+                    count = stop.pickups.size,
+                    color = colors.green,
+                    packages = stop.pickups,
+                    icon = Icons.Filled.AddCircle,
+                    wide = wide
+                )
+
+                // Vertical divider
+                Box(
+                    Modifier.width(1.dp).heightIn(min = 60.dp).background(colors.divider)
+                        .align(Alignment.CenterVertically)
+                )
+
+                // Dropoffs column
+                PackageColumn(
+                    modifier = Modifier.weight(1f),
+                    title = "DROP OFF",
+                    count = stop.dropoffs.size,
+                    color = colors.red,
+                    packages = stop.dropoffs,
+                    icon = Icons.Filled.RemoveCircle,
+                    wide = wide
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun PackageColumn(
+    modifier: Modifier,
+    title: String,
+    count: Int,
+    color: Color,
+    packages: List<Package>,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    wide: Boolean = false
+) {
+    val colors = LocalDriversColors.current
+
+    Column(modifier = modifier) {
+        // Header with count badge
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = color, modifier = Modifier.size(if (wide) 16.dp else 14.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(title, color = color, fontSize = if (wide) 11.sp else 10.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+            Spacer(Modifier.weight(1f))
+            // Count badge
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = 0.15f))
+                    .padding(horizontal = if (wide) 9.dp else 7.dp, vertical = if (wide) 3.dp else 2.dp)
+            ) {
+                Text(
+                    count.toString(),
+                    color = color,
+                    fontSize = if (wide) 12.sp else 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(Modifier.height(if (wide) 10.dp else 8.dp))
+
+        when {
+            packages.isEmpty() -> {
+                Text("None", color = colors.textSecondary, fontSize = if (wide) 12.sp else 11.sp)
+            }
+            packages.size == 1 -> {
+                PackagePill(packages[0], color, wide = wide)
+            }
+            else -> {
+                // Multiple packages -> Self-scrolling vertical pager with swipe gestures
+                val pagerState = rememberPagerState(pageCount = { packages.size })
+
+                // Auto-rotate package every 3.5 seconds
+                LaunchedEffect(pagerState, packages.size) {
+                    while (true) {
+                        delay(3500L)
+                        val nextPage = (pagerState.currentPage + 1) % packages.size
+                        pagerState.animateScrollToPage(nextPage)
+                    }
+                }
+
+                Column {
+                    VerticalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (wide) 50.dp else 44.dp)
+                    ) { page ->
+                        val pkg = packages.getOrNull(page) ?: return@VerticalPager
+                        PackagePill(pkg, color, wide = wide)
+                    }
+
+                    // Indicator showing position in carousel (e.g. "1/3")
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "${pagerState.currentPage + 1}/${packages.size}",
+                            color = colors.textSecondary,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PackagePill(pkg: Package, color: Color, wide: Boolean = false) {
+    val colors = LocalDriversColors.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(if (wide) 10.dp else 8.dp))
+            .background(color.copy(alpha = 0.07f))
+            .padding(horizontal = if (wide) 12.dp else 8.dp, vertical = if (wide) 8.dp else 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                pkg.label,
+                color = colors.textPrimary,
+                fontSize = if (wide) 12.sp else 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                pkg.recipient,
+                color = colors.textSecondary,
+                fontSize = if (wide) 11.sp else 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(pkg.weight, color = color,
+            fontSize = if (wide) 11.sp else 10.sp,
+            fontWeight = FontWeight.Bold)
+    }
+}
+
+// ── Route Progress Strip ──────────────────────────────────────────────────────
+@Composable
+fun RouteProgressStrip(state: TripUiState) {
+    val colors = LocalDriversColors.current
+    val stops = state.trip.stops
+    val cur   = state.currentStopIndex
+    val wide = isWideScreen()
+    val padH = adaptiveHorizontalPadding()
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = padH),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surface)
+    ) {
+        Column(Modifier.padding(if (wide) 16.dp else 14.dp)) {
+            Text("ROUTE", color = colors.textSecondary,
+                fontSize = if (wide) 11.sp else 10.sp,
+                letterSpacing = 1.sp)
+            Spacer(Modifier.height(if (wide) 12.dp else 10.dp))
+
+            if (wide) {
+                // ── Wide layout: larger dots with more spacing ──
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    stops.forEachIndexed { idx, stop ->
+                        val isDone    = idx < cur
+                        val isCurrent = idx == cur
+                        val dotColor  = when {
+                            isDone    -> colors.green
+                            isCurrent -> colors.blue
+                            else      -> colors.divider
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(if (isCurrent) 32.dp else 26.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor.copy(alpha = if (isCurrent) 0.2f else 0.1f))
+                                    .border(if (isCurrent) 2.dp else 1.dp, dotColor, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isDone) {
+                                    Icon(Icons.Filled.Check, null, tint = colors.green,
+                                        modifier = Modifier.size(14.dp))
+                                } else {
+                                    Text("${idx + 1}", color = dotColor, fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                stop.name,
+                                color = if (isCurrent) colors.textPrimary else colors.textSecondary,
+                                fontSize = 10.sp,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (idx < stops.lastIndex) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.4f)
+                                    .height(2.dp)
+                                    .background(if (idx < cur) colors.green else colors.divider)
+                            )
+                        }
+                    }
+                }
+            } else {
+                // ── Compact layout for phones — evenly distributed stops ──
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    stops.forEachIndexed { idx, stop ->
+                        val isDone    = idx < cur
+                        val isCurrent = idx == cur
+                        val dotColor  = when {
+                            isDone    -> colors.green
+                            isCurrent -> colors.blue
+                            else      -> colors.divider
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(if (isCurrent) 28.dp else 22.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor.copy(alpha = if (isCurrent) 0.2f else 0.1f))
+                                    .border(if (isCurrent) 2.dp else 1.dp, dotColor, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isDone) {
+                                    Icon(Icons.Filled.Check, null, tint = colors.green,
+                                        modifier = Modifier.size(12.dp))
+                                } else {
+                                    Text("${idx + 1}", color = dotColor, fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                stop.name,
+                                color = if (isCurrent) colors.textPrimary else colors.textSecondary,
+                                fontSize = 8.sp,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (idx < stops.lastIndex) {
+                            // Connector line — fills remaining space between stops
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.15f)
+                                    .height(2.dp)
+                                    .background(if (idx < cur) colors.green else colors.divider)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Trip Status (read-only, driven by backend data) ────────────────────────────
+@Composable
+fun TripActionButton(state: TripUiState, viewModel: TripViewModel) {
+    val colors = LocalDriversColors.current
+    val activeTrip = state.activeDriverTrip
+    val tripStatus = activeTrip?.status
+
+    Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        when {
+            tripStatus == "COMPLETED" -> {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = colors.green.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, colors.green.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Filled.CheckCircle, null, tint = colors.green, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Trip Completed", color = colors.green, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            tripStatus == "IN_PROGRESS" -> {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = colors.blue.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Filled.Navigation, null, tint = colors.blue, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text("Trip In Progress", color = colors.blue, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            val nextWp = activeTrip?.waypoints?.firstOrNull { it.isNext }
+                            if (nextWp != null) {
+                                val distStr = formatRemainingDistance(nextWp.remainingDistance)
+                                Text(
+                                    "Next: ${nextWp.locationName ?: "Stop"}" + (if (distStr != null) " • $distStr" else ""),
+                                    color = colors.textSecondary, fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            tripStatus == "SCHEDULED" -> {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = colors.amber.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, colors.amber.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Filled.Schedule, null, tint = colors.amber, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Trip Scheduled", color = colors.amber, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            else -> {
+                // No active trip — show nothing (the "No active trip" screen is shown by DriverHomeScreen)
+            }
+        }
+    }
+}
+
+// ── Trip Completed ────────────────────────────────────────────────────────────
+@Composable
+fun TripCompletedScreen() {
+    val colors = LocalDriversColors.current
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Filled.CheckCircle, null, tint = colors.green, modifier = Modifier.size(80.dp))
+            Spacer(Modifier.height(16.dp))
+            Text("Trip Completed!", color = colors.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text("All packages delivered.", color = colors.textSecondary, fontSize = 14.sp)
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PIP VIEW — compact version of the upcoming stop dashboard
+// Stop name centred top, pickups left, dropoffs right
+// ══════════════════════════════════════════════════════════════════════════════
+
+@Composable
+fun PipTripView(viewModel: TripViewModel) {
+    val state  by viewModel.state.collectAsState()
+    val colors = LocalDriversColors.current
+    val stop   = viewModel.nextStop ?: viewModel.currentStop
+    val isNext = viewModel.nextStop != null
+    val color  = if (isNext) colors.amber else colors.blue
+
+    val activeTrip = state.activeDriverTrip
+    val nextWp = activeTrip?.waypoints?.firstOrNull { it.isNext }
+        ?: activeTrip?.waypoints?.getOrNull(state.currentStopIndex)
+    val distStr = formatRemainingDistance(nextWp?.remainingDistance)
+
+    // Guard: if stop name is blank, the trip data hasn't loaded yet
+    val hasTripData = stop.name.isNotBlank()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.background)
+            .padding(8.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            if (!hasTripData) {
+                // ── Fallback: no trip data available ──────────────────────
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Filled.LocalShipping, null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "No active trip",
+                            color = colors.textSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            } else {
+                // ── Stop name centred at top ──────────────────────────────
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        if (isNext) "UPCOMING" else "CURRENT",
+                        color = color,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        stop.name,
+                        color = colors.textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!distStr.isNullOrBlank()) {
+                        Text(distStr, color = color, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        Text(stop.address, color = colors.textSecondary, fontSize = 8.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(colors.divider))
+                Spacer(Modifier.height(6.dp))
+
+                // ── Pickups & dropoffs side by side ───────────────────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    PipPackageList(
+                        modifier = Modifier.weight(1f),
+                        title = "PICK UP",
+                        packages = stop.pickups,
+                        color = colors.green
+                    )
+                    Box(Modifier.width(1.dp).fillMaxHeight().background(colors.divider))
+                    PipPackageList(
+                        modifier = Modifier.weight(1f),
+                        title = "DROP OFF",
+                        packages = stop.dropoffs,
+                        color = colors.red
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PipPackageList(
+    modifier: Modifier,
+    title: String,
+    packages: List<Package>,
+    color: Color
+) {
+    val colors = LocalDriversColors.current
+
+    Column(modifier = modifier) {
+        // Header row with count
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = color, fontSize = 7.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+            Spacer(Modifier.weight(1f))
+            Box(
+                Modifier.clip(CircleShape).background(color.copy(0.15f))
+                    .padding(horizontal = 5.dp, vertical = 1.dp)
+            ) {
+                Text(packages.size.toString(), color = color,
+                    fontSize = 8.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        if (packages.isEmpty()) {
+            Text("None", color = colors.textSecondary, fontSize = 8.sp)
+        } else {
+            packages.forEach { pkg ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(color.copy(0.07f))
+                        .padding(horizontal = 5.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        pkg.label,
+                        color = colors.textPrimary,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(pkg.weight, color = color, fontSize = 7.sp)
+                }
+                    Spacer(Modifier.height(2.dp))
+            }
+        }
+    }
+}
+
+// ── Driver Home Screen forward ───────────────────────────────────────────────────
+// Implementation in ui/driver/DriverHomeScreen.kt; forward keeps old import path working.
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DriverHomeScreen(
+    viewModel: TripViewModel,
+    profile: DriverProfile,
+    vehicle: DriverVehicle,
+    driverHomeTab: Int,
+    isDriverProfileMenuOpen: Boolean,
+    isDriverSettingsOpen: Boolean,
+    themeMode: AppThemeMode,
+    isPipEnabled: Boolean = false,
+    completedTrips: List<CompletedTrip> = emptyList(),
+    isVehicleMenuOpen: Boolean = false,
+    isProfileMenuOpen: Boolean = false,
+    isSettingsOpen: Boolean = false,
+    defaultPage: String = "trips",
+    keepScreenAwake: Boolean = false,
+    onCreatePackage: () -> Unit,
+    onTabChange: (Int) -> Unit,
+    onProfileMenuClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    onCloseSettings: () -> Unit,
+    onLogout: () -> Unit,
+    onDismissMenus: () -> Unit,
+    onProfileClick: () -> Unit,
+    onVehicleClick: () -> Unit = {},
+    onEditProfileClick: () -> Unit = {},
+    onCompletedTripsClick: () -> Unit = {},
+    onPipEnabledChange: (Boolean) -> Unit = {},
+    onDefaultPageChange: (String) -> Unit = {},
+    onKeepScreenAwakeChange: (Boolean) -> Unit = {},
+    onNoticesClick: () -> Unit = {},
+    noticeCount: Int = 0
+) = DriverHomeScreenImpl(
+    viewModel = viewModel, profile = profile, vehicle = vehicle,
+    driverHomeTab = driverHomeTab, isDriverProfileMenuOpen = isDriverProfileMenuOpen,
+    isDriverSettingsOpen = isDriverSettingsOpen, themeMode = themeMode,
+    isPipEnabled = isPipEnabled, completedTrips = completedTrips,
+    isVehicleMenuOpen = isVehicleMenuOpen, isProfileMenuOpen = isProfileMenuOpen,
+    isSettingsOpen = isSettingsOpen, defaultPage = defaultPage,
+    keepScreenAwake = keepScreenAwake, onCreatePackage = onCreatePackage,
+    onTabChange = onTabChange, onProfileMenuClick = onProfileMenuClick,
+    onSettingsClick = onSettingsClick, onThemeModeChange = onThemeModeChange,
+    onCloseSettings = onCloseSettings, onLogout = onLogout,
+    onDismissMenus = onDismissMenus, onProfileClick = onProfileClick,
+    onVehicleClick = onVehicleClick, onEditProfileClick = onEditProfileClick,
+    onPipEnabledChange = onPipEnabledChange, onDefaultPageChange = onDefaultPageChange,
+    onKeepScreenAwakeChange = onKeepScreenAwakeChange,
+    onNoticesClick = onNoticesClick, noticeCount = noticeCount
+)
+
+// ── End of TripScreen.kt ───────────────────────────────────────────────────────────
+// DriverHomeScreen impl → ui/driver/DriverHomeScreen.kt
+// Driver packages + dialogs → ui/driver/DriverPackagesTab.kt + DeliveryDialogs.kt
+// Package detail sheet → ui/driver/PackageDetailSheet.kt
+// Completed trips history → ui/driver/CompletedTripsHistory.kt
+

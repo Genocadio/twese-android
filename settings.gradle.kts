@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ikuriye"
+rootProject.name = "twese"
 include(":app")
  

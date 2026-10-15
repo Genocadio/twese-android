@@ -45,7 +45,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Ikuriye">
+        android:theme="@style/Theme.Twese">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -53,7 +53,7 @@
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
-            android:theme="@style/Theme.Ikuriye"
+            android:theme="@style/Theme.Twese"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -68,7 +68,7 @@
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
-            android:theme="@style/Theme.Ikuriye" />
+            android:theme="@style/Theme.Twese" />
 
         <!-- ── Location Foreground Service ───────────────────────────────── -->
         <service

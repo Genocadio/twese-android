@@ -1,0 +1,4827 @@
+package com.gocavgo.twese.viewmodel
+
+import android.content.Context
+import android.os.Build
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.os.VibrationEffect
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.gocavgo.twese.BuildConfig
+import com.gocavgo.twese.data.AuthRepository
+import com.gocavgo.twese.data.SettingsRepository
+import com.gocavgo.twese.data.ClientPackage
+import com.gocavgo.twese.data.ClientUser
+import com.gocavgo.twese.data.PackageCache
+import com.gocavgo.twese.data.PackageRepository
+import com.gocavgo.twese.data.FetchPackagesResult
+import com.gocavgo.twese.data.SingleResult
+import com.gocavgo.twese.data.Notice
+import com.gocavgo.twese.data.NoticeRepository
+import com.gocavgo.twese.data.PackageStatus
+import com.gocavgo.twese.data.PagedResult
+import com.gocavgo.twese.data.StatusUpdate
+import com.gocavgo.twese.data.isActive
+import com.gocavgo.twese.data.hasOpenTransfer
+import com.gocavgo.twese.data.shouldAutoShowDeliveryConfirmation
+import com.gocavgo.twese.type.CreatePackageInput
+import com.gocavgo.twese.type.DeliveryType
+import com.gocavgo.twese.type.DetailInput
+import com.gocavgo.twese.type.LocationInput
+import com.gocavgo.twese.type.LocationType
+import com.gocavgo.twese.type.PersonInput
+import com.gocavgo.twese.type.PersonRole
+import com.apollographql.apollo.api.Optional
+import com.gocavgo.twese.data.Trip
+import com.gocavgo.twese.data.TripStop
+import com.gocavgo.twese.data.dto.AuthResult
+import com.gocavgo.twese.data.dto.AuthUserDto
+import com.gocavgo.twese.data.dto.SignInInput
+import com.gocavgo.twese.data.dto.SignUpInput
+import com.gocavgo.twese.SearchUsersQuery
+import com.gocavgo.twese.nexx.NexxAuth
+import com.gocavgo.twese.network.ApolloClientProvider
+import com.gocavgo.twese.network.BackendStorage
+import com.gocavgo.twese.service.MqttLocationPublisher
+import com.gocavgo.twese.service.MqttTripSubscriber
+import com.gocavgo.twese.service.MqttTripUpdate
+import com.gocavgo.twese.service.LocationKeepaliveWorker
+import com.gocavgo.twese.service.PackageSyncWorker
+import com.gocavgo.twese.util.AppUpdateManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+
+class TripViewModel : ViewModel() {
+
+    private companion object {
+        private const val TAG = "TripViewModel"
+
+        // DONE/ARRIVED waypoints are only trusted when the live GPS sample is within
+        // this distance of the waypoint. A bogus far-away coordinate (e.g. emulator
+        // default GPS on another continent) must never mark a stop as passed — this is
+        // the client-side "no-miss" guard against skips like trip 25's Kwa Lando.
+        private const val MAX_WAYPOINT_REACH_KM = 5.0
+    }
+
+    private val _state = MutableStateFlow(TripUiState())
+    val state: StateFlow<TripUiState> = _state.asStateFlow()
+
+    private val _toastEvent = MutableSharedFlow<String>()
+    val toastEvent: SharedFlow<String> = _toastEvent.asSharedFlow()
+
+    // ── New package subscription (driver-side real-time) ────────────────────
+    private var subscriptionJob: kotlinx.coroutines.Job? = null
+    private var transferSubscriptionJob: kotlinx.coroutines.Job? = null
+
+    // Polls the driver-request status while a DRIVER awaits company approval so
+    // the company gate unlocks automatically the moment a fleet manager approves.
+    private var driverCompanyGatePoll: kotlinx.coroutines.Job? = null
+
+    // Polls for new trips every 30 s when the driver has no active trip.
+    // Acts as a fallback when the MQTT trip subscriber is unavailable.
+    private var tripPollJob: kotlinx.coroutines.Job? = null
+    private val TRIP_POLL_INTERVAL_MS = 30_000L
+
+    // Serializes loadDriverTrips() runs. MQTT events, polling, and the company
+    // gate all trigger loads; without a lock, overlapping runs interleave and the
+    // last writer can clobber fresher data (e.g. restore an old flag set).
+    private val tripLoadMutex = Mutex()
+
+    // Debounce full network reloads triggered by MQTT — the backend publishes
+    // trip/updates roughly every 10s while moving, and refetching the whole
+    // GraphQL set per message is waste that also causes flag flap on screen.
+    @Volatile private var lastMqttTripReloadAtMs = 0L
+    private val MQTT_RELOAD_COOLDOWN_MS = 4_000L
+
+    // Most recent live MQTT progress (tripId-matched). Re-applied after every full
+    // refetch so a lagging GraphQL response can't clobber the live waypoint data.
+    @Volatile private var latestMqttTripUpdate: MqttTripUpdate? = null
+
+    // Invalidates in-flight data loads whenever the session/role changes so a
+    // slow fetch that completes AFTER logout cannot repopulate the logged-out UI.
+    // Using StateFlow for atomic reads/writes across coroutine contexts.
+    private val _sessionGeneration = MutableStateFlow(0L)
+    private val sessionGeneration: Long get() = _sessionGeneration.value
+
+    private fun bumpSessionGeneration() {
+        _sessionGeneration.update { it + 1 }
+    }
+
+    // Notice IDs whose delivery-confirmation popup was already shown once.
+    // Seeded from SharedPreferences so a popup that was confirmed or dismissed
+    // does not reappear after the app is killed and reopened.
+    private val autoShownDeliveryNotices =
+        SettingsRepository.getAutoShownDeliveryNotices().toMutableSet()
+
+    init {
+        // ── Listen for JWT session expiry events — force logout ──
+        viewModelScope.launch {
+            AuthRepository.sessionExpired.collect {
+                if (BuildConfig.DEBUG) Log.d("TripViewModel", "Session expired — forcing logout")
+                stopPackageSubscription()
+                logout()
+            }
+        }
+        // ── Listen for verified in-app update ready state ──
+        viewModelScope.launch {
+            AppUpdateManager.updateReadyState.collect { ready ->
+                _state.update { it.copy(readyUpdate = ready) }
+            }
+        }
+        // ── Silently check for in-app updates in background on app startup for all users ──
+        AuthRepository.getAppContext()?.let { ctx ->
+            viewModelScope.launch {
+                AppUpdateManager.checkForUpdatesAndDownload(ctx)
+            }
+        }
+    }
+
+    val stops get() = _state.value.trip.stops
+
+    val currentStop: TripStop
+        get() = stops.getOrNull(_state.value.currentStopIndex) ?: TripStop(id = 0, name = "", address = "", lat = 0.0, lng = 0.0, pickups = emptyList(), dropoffs = emptyList())
+
+    val nextStop: TripStop?
+        get() {
+            val next = _state.value.currentStopIndex + 1
+            return if (next < stops.size) stops[next] else null
+        }
+
+    fun restoreAuthSession() {
+        // Load persisted settings immediately so the correct tab/theme is ready
+        // even before the auth check completes
+        _state.update {
+            it.copy(
+                defaultPage      = SettingsRepository.getDefaultPage(),
+                keepScreenAwake  = SettingsRepository.getKeepScreenAwake(),
+                themeMode        = SettingsRepository.getThemeMode(),
+                isPipEnabled     = SettingsRepository.getPipEnabled(),
+                createPackageForm = SettingsRepository.getCreatePackageDraft()
+            )
+        }
+        // Apply the persisted default page to the tab state
+        applyDefaultPage(SettingsRepository.getDefaultPage())
+
+        // Use cached user immediately — no loading spinner.
+        // We DO NOT call AuthRepository.isLoggedIn() here because the Nexxauth
+        // session is restored asynchronously. Instead, we check the
+        // SharedPreferences-based cached user.
+        val cached = AuthRepository.getCachedUser()
+        if (cached != null) {
+            // Wire up MQTT publisher with user identity immediately on app launch
+            MqttLocationPublisher.userId = cached.id
+
+            // Show UI immediately with cached user data.
+            // CRITICAL: Do NOT call applyUser(cached) here because that triggers
+            // fetchClientPackages() which makes a GraphQL request with null token
+            // (Supabase session hasn't been restored yet). Instead, only set the
+            // UI-relevant state fields, and defer network calls to the background block.
+            _state.update {
+                it.copy(
+                    authUser = cached,
+                    appRole = when (cached.role.name) {
+                        "DRIVER" -> AppRole.DRIVER
+                        else -> AppRole.CLIENT
+                    },
+                    isLoggedIn = cached.role.name == "DRIVER",
+                    isClientLoggedIn = cached.role.name != "DRIVER"
+                )
+            }
+            // Apply driver/client profile from cached data
+            val fullName = listOfNotNull(cached.firstName, cached.lastName)
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+                .ifBlank { if (cached.role.name == "DRIVER") "Driver" else "Customer" }
+            when (cached.role.name) {
+                "DRIVER" -> {
+                    val cachedDriverState = com.gocavgo.twese.data.DriverTripCache.get()
+                    val cachedVid = cachedDriverState?.vehicleId
+                    if (cachedVid != null && cachedVid > 0L) {
+                        MqttLocationPublisher.vehicleId = cachedVid.toString()
+                        MqttTripSubscriber.subscribe(cachedVid.toString()) { update ->
+                            onTripMqttMessage(update)
+                        }
+                    }
+                    _state.update {
+                        it.copy(
+                            driverProfile = DriverProfile(
+                                name = fullName,
+                                phone = cached.phone ?: it.driverProfile.phone,
+                                email = cached.email,
+                                username = cached.username,
+                                avatarUrl = cached.avatarUrl
+                            ),
+                            vehicle = if (cachedDriverState != null && (cachedVid != null || cachedDriverState.vehiclePlate.isNotBlank())) DriverVehicle(
+                                id = cachedVid,
+                                plateNumber = cachedDriverState.vehiclePlate,
+                                model = cachedDriverState.vehicleModel,
+                                vehicleType = cachedDriverState.vehicleType,
+                                seats = cachedDriverState.vehicleSeats
+                            ) else it.vehicle,
+                            driverHasVehicle = cachedDriverState?.driverHasVehicle == true,
+                            activeDriverTrip = cachedDriverState?.activeTrip,
+                            driverTripHistory = cachedDriverState?.tripHistory ?: emptyList(),
+                            driverMetrics = cachedDriverState?.metrics,
+                            driverCompletedTrips = cachedDriverState?.driverCompletedTrips ?: emptyList(),
+                            hasActiveTrip = cachedDriverState?.activeTrip != null,
+                            trip = if (cachedDriverState?.activeTrip != null) mapBackendTripToTrip(cachedDriverState.activeTrip) else Trip(id = "", routeLabel = "", stops = emptyList()),
+                            driverCompanyGate = if (cachedDriverState != null) DriverCompanyGate.APPROVED else DriverCompanyGate.UNKNOWN,
+                            driverCompanyGateLoaded = cachedDriverState != null
+                        )
+                    }
+                    restoreNavigationState()
+                }
+                else -> {
+                    _state.update {
+                        it.copy(
+                            clientProfile = ClientUser(
+                                id = cached.id,
+                                name = fullName,
+                                email = cached.email,
+                                phone = cached.phone ?: it.clientProfile.phone,
+                                password = "",
+                                username = cached.username,
+                                avatarUrl = cached.avatarUrl
+                            )
+                        )
+                    }
+                    restoreNavigationState()
+                }
+            }
+            _state.update { it.copy(isAuthInitialized = true) }
+
+            // Background: verify the SDK auto-loaded the session from storage,
+            // then sync with backend. Network calls (fetchClientPackages,
+            // preloadDriverPackages) are deferred until the token is confirmed.
+            viewModelScope.launch {
+                // Step 1: check the persisted Nexxauth session; refresh if expired.
+                if (NexxAuth.getAccessToken() == null) {
+                    Log.w("TripViewModel", "restoreSession: no token persisted, trying refresh")
+                    val refreshed = NexxAuth.refreshSession()
+                    if (!refreshed) {
+                        Log.e("TripViewModel", "restoreSession: refresh also failed — session is invalid, logging out silently")
+                        logout()
+                        return@launch
+                    }
+                    Log.d("TripViewModel", "restoreSession: refresh succeeded — token now available")
+                } else {
+                    Log.d("TripViewModel", "restoreSession: session loaded from storage, token available")
+                }
+
+                // Step 2: start proactive session observation (refresh near expiry).
+                NexxAuth.observeSession(this@TripViewModel.viewModelScope)
+
+                // Step 2b: reset Apollo client and start notice feed (Realtime subscription + initial fetch)
+                ApolloClientProvider.resetClient()
+                NoticeRepository.restart(this@TripViewModel.viewModelScope, AuthRepository.getAppContext())
+                collectNotices()
+
+                // Step 3: fetch initial data now that we have a valid session
+                when (cached.role.name) {
+                    "DRIVER" -> {
+                        preloadDriverPackages()
+                        startPackageSubscription()
+                        refreshDriverCompanyGate()
+                    }
+                    else -> {
+                        fetchClientPackages(isFreshLogin = false)
+                        checkDriverRequestStatus()
+                    }
+                }
+                // Schedule background sync worker & check for silent in-app updates
+                AuthRepository.getAppContext()?.let { ctx ->
+                    PackageSyncWorker.schedule(ctx)
+                    viewModelScope.launch {
+                        AppUpdateManager.checkForUpdatesAndDownload(ctx)
+                    }
+                }
+
+                // Step 4: sync with backend — if offline, keep cached user, just notify
+                val syncResult = AuthRepository.restoreSession()
+                when (syncResult) {
+                    is AuthResult.Success -> {
+                        // Never downgrade role during restore — if the backend says
+                        // CUSTOMER but we cached DRIVER, keep the cached role. This
+                        // prevents a stale/failed profile fetch from flipping a driver
+                        // to the client screen on app open.
+                        val backendRole = syncResult.user.role.name
+                        val cachedRole = cached.role.name
+                        if (cachedRole == "DRIVER" && backendRole != "DRIVER") {
+                            Log.w(TAG, "restoreSession: backend role $backendRole < cached DRIVER — keeping DRIVER")
+                            applyUser(syncResult.user.copy(
+                                role = com.gocavgo.twese.data.dto.RoleDto.DRIVER
+                            ))
+                        } else {
+                            applyUser(syncResult.user)
+                        }
+                    }
+                    is AuthResult.VerificationRequired -> {
+                        // Session restored but user not fully confirmed
+                    }
+                    is AuthResult.EmailAlreadyExists -> {
+                        // Not applicable during session restore — ignore
+                    }
+                    is AuthResult.Error -> {
+                        Log.e("TripViewModel", "restoreSession: sync failed — ${syncResult.message}")
+                        // Offline or backend unavailable — DO NOT sign out or reset state.
+                        // The cached user is already applied above. Just notify so the
+                        // user knows data may be stale.
+                        if (!AuthRepository.isNetworkAvailable()) {
+                            _toastEvent.emit("No internet connection — showing cached data")
+                        } else {
+                            _toastEvent.emit("Could not sync with server: ${syncResult.message}")
+                        }
+                    }
+                    is AuthResult.Loading -> {}
+                }
+            }
+        } else {
+            _state.update { it.copy(isAuthInitialized = true) }
+        }
+    }
+
+    private fun applyUser(user: AuthUserDto) {
+        _state.update { it.copy(authUser = user) }
+        val fullName = listOfNotNull(user.firstName, user.lastName)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .ifBlank { "" }
+
+        // Wire up MQTT publisher with user identity for all logged-in users
+        MqttLocationPublisher.userId = user.id
+
+        // Schedule WorkManager keepalive to restart LocationService if OEM kills it
+        AuthRepository.getAppContext()?.let { ctx ->
+            LocationKeepaliveWorker.schedule(ctx)
+        }
+
+        when (user.role.name) {
+            "DRIVER" -> {
+                _state.update {
+                    it.copy(
+                        appRole = AppRole.DRIVER,
+                        isLoggedIn = true,
+                        driverProfile = DriverProfile(
+                            name = fullName.ifBlank { "Driver" },
+                            phone = user.phone ?: it.driverProfile.phone,
+                            email = user.email,
+                            username = user.username,
+                            avatarUrl = user.avatarUrl
+                        )
+                    )
+                }
+                restoreNavigationState()
+                // DRIVER users must belong to an approved company — refreshDriverCompanyGate()
+                // verifies company status first and ONLY loads vehicle, trips, and packages
+                // after company approval is confirmed.
+                refreshDriverCompanyGate()
+            }
+            else -> {
+                _state.update {
+                    it.copy(
+                        appRole = AppRole.CLIENT,
+                        isClientLoggedIn = true,
+                        clientProfile = ClientUser(
+                            id = user.id,
+                            name = fullName.ifBlank { "Customer" },
+                            email = user.email,
+                            phone = user.phone ?: it.clientProfile.phone,
+                            password = "",
+                            username = user.username,
+                            avatarUrl = user.avatarUrl
+                        )
+                    )
+                }
+                restoreNavigationState()
+                // NOTE: fetchClientPackages() is NOT called here during restoreAuthSession()
+                // because it's handled separately after session restoration.
+                // It IS called during fresh login (handleAuthResult -> applyUser -> fetchClientPackages)
+                // where the session is already available.
+            }
+        }
+    }
+
+    fun signUp(email: String, password: String, fullName: String, phone: String?) {
+        viewModelScope.launch {
+            _state.update { it.copy(isAuthLoading = true, authResult = null) }
+            val result = AuthRepository.signUp(SignUpInput(email, password, fullName, phone))
+            _state.update { it.copy(isAuthLoading = false, authResult = result) }
+            handleAuthResult(result)
+        }
+    }
+
+    fun signIn(email: String, password: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(isAuthLoading = true, authResult = null) }
+            val result = AuthRepository.signIn(SignInInput(email, password))
+            _state.update { it.copy(isAuthLoading = false, authResult = result) }
+            handleAuthResult(result)
+            // Auto-show forgot password dialog after first invalid credentials attempt
+            if (result is AuthResult.Error) {
+                val msg = result.message
+                if (msg.contains("Invalid", ignoreCase = true) &&
+                    !msg.contains("Email not confirmed", ignoreCase = true)) {
+                    _state.update { it.copy(showForgotPassword = true) }
+                }
+            }
+        }
+    }
+
+    fun verifyOtp(code: String) {
+        val email = _state.value.otpEmail
+        if (email.isBlank()) return
+        viewModelScope.launch {
+            _state.update { it.copy(isAuthLoading = true, authResult = null) }
+            val result = AuthRepository.verifyEmailOtpAndSync(email, code.trim())
+            _state.update { it.copy(isAuthLoading = false, authResult = result, showOtpScreen = false, otpEmail = "") }
+            handleAuthResult(result)
+        }
+    }
+
+    fun resendOtp() {
+        // Email OTP verification no longer exists with Nexxauth — kept as a no-op.
+        viewModelScope.launch {
+            _toastEvent.emit("Verification is not required with Nexxauth")
+        }
+    }
+
+    fun dismissOtpScreen() {
+        _state.update { it.copy(showOtpScreen = false, otpEmail = "") }
+    }
+
+    fun dismissUpdatePrompt() {
+        AppUpdateManager.dismissUpdatePrompt()
+    }
+
+    fun installUpdate(context: Context) {
+        val ready = _state.value.readyUpdate ?: return
+        AppUpdateManager.installUpdate(context, ready.apkFile)
+    }
+
+    fun sendPasswordResetCode(email: String) {
+        viewModelScope.launch {
+            val error = AuthRepository.sendPasswordResetCode(email)
+            if (error != null) {
+                Log.e("TripViewModel", "sendPasswordResetCode failed for $email: $error")
+                _toastEvent.emit(error)
+            } else {
+                _state.update { it.copy(forgotPasswordEmail = email, forgotPasswordStep = 1) }
+                _toastEvent.emit("Reset code sent to $email")
+            }
+        }
+    }
+
+    fun completePasswordReset(code: String, newPassword: String) {
+        val email = _state.value.forgotPasswordEmail
+        if (email.isBlank()) return
+        viewModelScope.launch {
+            _state.update { it.copy(isAuthLoading = true) }
+            val error = AuthRepository.completePasswordReset(email, code.trim(), newPassword)
+            _state.update { it.copy(isAuthLoading = false) }
+            if (error != null) {
+                Log.e("TripViewModel", "completePasswordReset failed: $error")
+                _toastEvent.emit(error)
+            } else {
+                _state.update { it.copy(forgotPasswordStep = 2) }
+                _toastEvent.emit("Password reset successful")
+            }
+        }
+    }
+
+    fun showForgotPassword() {
+        _state.update { it.copy(showForgotPassword = true, forgotPasswordEmail = "", forgotPasswordStep = 0) }
+    }
+
+    fun hideForgotPassword() {
+        _state.update { it.copy(showForgotPassword = false, forgotPasswordEmail = "", forgotPasswordStep = 0) }
+    }
+
+    fun clearAuthResult() {
+        _state.update { it.copy(authResult = null) }
+    }
+
+    fun clearSignInPrefill() {
+        _state.update { it.copy(signInPrefillEmail = "") }
+    }
+
+    private fun handleAuthResult(result: AuthResult) {
+        when (result) {
+            is AuthResult.Success -> {
+                val user = result.user
+                _state.update { it.copy(authUser = user) }
+                // Reset Apollo client so new token is used for all HTTP and WebSocket connections
+                ApolloClientProvider.resetClient()
+
+                when (user.role.name) {
+                    "DRIVER" -> {
+                        _state.update {
+                            it.copy(
+                                appRole = AppRole.DRIVER,
+                                isLoggedIn = true,
+                                driverCompanyGateLoaded = false,
+                                driverCompanyGate = DriverCompanyGate.UNKNOWN,
+                                driverProfile = DriverProfile(
+                                    name = listOfNotNull(user.firstName, user.lastName)
+                                        .filter { it.isNotBlank() }
+                                        .joinToString(" ")
+                                        .ifBlank { "Driver" },
+                                    phone = user.phone ?: it.driverProfile.phone,
+                                    email = user.email
+                                )
+                            )
+                        }
+                        refreshDriverCompanyGate()
+                    }
+                    else -> {
+                        _state.update {
+                            it.copy(
+                                appRole = AppRole.CLIENT,
+                                isClientLoggedIn = true,
+                                clientProfile = ClientUser(
+                                    id = user.id,
+                                    name = listOfNotNull(user.firstName, user.lastName)
+                                        .filter { it.isNotBlank() }
+                                        .joinToString(" ")
+                                        .ifBlank { "Customer" },
+                                    email = user.email,
+                                    phone = user.phone ?: it.clientProfile.phone,
+                                    password = ""
+                                )
+                            )
+                        }
+                        fetchClientPackages(isFreshLogin = true)
+                        checkDriverRequestStatus()
+                    }
+                }
+                // Start notice feed on fresh login with fresh subscription
+                NoticeRepository.restart(this@TripViewModel.viewModelScope, AuthRepository.getAppContext())
+                collectNotices()
+                // Schedule background sync worker
+                AuthRepository.getAppContext()?.let { ctx ->
+                    com.gocavgo.twese.service.PackageSyncWorker.schedule(ctx)
+                }
+            }
+            is AuthResult.Loading -> { /* no-op */ }
+            is AuthResult.VerificationRequired -> {
+                Log.d("TripViewModel", "Email verification required for: ${result.email}")
+                _state.update {
+                    it.copy(showOtpScreen = true, otpEmail = result.email)
+                }
+            }
+            is AuthResult.EmailAlreadyExists -> {
+                Log.d("TripViewModel", "Email already exists, pre-filling login: ${result.email}")
+                _state.update {
+                    it.copy(signInPrefillEmail = result.email, authResult = null)
+                }
+            }
+            is AuthResult.Error -> {
+                Log.e("TripViewModel", "Auth error: ${result.message}")
+                viewModelScope.launch {
+                    _toastEvent.emit(result.message)
+                }
+            }
+        }
+    }
+
+    fun logout() {
+        bumpSessionGeneration()
+        driverCompanyGatePoll?.cancel()
+        driverCompanyGatePoll = null
+        tripPollJob?.cancel()
+        tripPollJob = null
+        MqttTripSubscriber.disconnect()
+        NoticeRepository.stop()
+        stopPackageSubscription()
+        autoShownDeliveryNotices.clear()
+        ApolloClientProvider.resetClient()
+        MqttLocationPublisher.disconnect()
+        viewModelScope.launch {
+            AuthRepository.signOut()
+        }
+        SettingsRepository.clear()
+        PackageCache.clear()
+        // Clear the driver trip/vehicle cache so the next login starts completely
+        // fresh — otherwise the previous user's active trip, history and car leak
+        // onto the driver screen after re-login.
+        com.gocavgo.twese.data.DriverTripCache.clear()
+        latestMqttTripUpdate = null
+        lastMqttTripReloadAtMs = 0L
+        // Cancel background sync + keepalive workers
+        AuthRepository.getAppContext()?.let { ctx ->
+            com.gocavgo.twese.service.PackageSyncWorker.cancel(ctx)
+            LocationKeepaliveWorker.cancel(ctx)
+        }
+        _state.update {
+            it.copy(
+                isLoggedIn = false,
+                isProfileOpen = false,
+                isProfileMenuOpen = false,
+                isSettingsOpen = false,
+                isCompletedTripsOpen = false,
+                isVehicleMenuOpen = false,
+                appRole = AppRole.NONE,
+                authResult = null,
+                authUser = null,
+                // Reset settings to defaults after logout
+                defaultPage     = "trips",
+                keepScreenAwake = false,
+                themeMode       = AppThemeMode.SYSTEM,
+                isPipEnabled    = false,
+                driverHomeTab   = 0,
+                driverPackageSubTab = 0,
+                clientPackages = emptyList(),
+                clientDataState = DataState.UNKNOWN,
+                clientPackagesFetchedOnce = false,
+                isClientInitialLoading = false,
+                driverCurrentPackages = emptyList(),
+                driverAvailableOffers = emptyList(),
+                driverCompanyGateLoaded = false,
+                driverCompanyGate = DriverCompanyGate.UNKNOWN,
+                driverCompanyName = null,
+                driverCompanyCode = null,
+                driverCompanyRejectionReason = null,
+                isSubmittingDriverCompanyRequest = false,
+                driverCompanyGateError = null,
+                // Reset all driver trip/vehicle state so nothing from the previous
+                // user survives into the next login.
+                driverProfile = DriverProfile(),
+                vehicle = DriverVehicle(),
+                driverHasVehicle = false,
+                activeDriverTrip = null,
+                driverTripHistory = emptyList(),
+                driverMetrics = null,
+                driverCompletedTrips = emptyList(),
+                trip = Trip(id = "", routeLabel = "", stops = emptyList()),
+                currentStopIndex = 0,
+                arrivedAtStop = false,
+                tripCompleted = false,
+                isTripDataStale = false,
+                isLoadingDriverTrips = false,
+                isDriverInitialLoading = false
+            )
+        }
+    }
+
+    fun openProfile() {
+        _state.update {
+            it.copy(
+                isProfileOpen = true,
+                isProfileMenuOpen = false,
+                isSettingsOpen = false,
+                isCompletedTripsOpen = false,
+                isVehicleMenuOpen = false,
+                isClientProfileMenuOpen = false,
+                isClientSettingsOpen = false
+            )
+        }
+        saveNavigationState()
+    }
+
+    fun closeProfile() {
+        _state.update { it.copy(isProfileOpen = false) }
+        saveNavigationState()
+    }
+
+    fun toggleProfileMenu() {
+        _state.update {
+            it.copy(
+                isProfileMenuOpen = !it.isProfileMenuOpen,
+                isSettingsOpen = false,
+                isVehicleMenuOpen = false
+            )
+        }
+    }
+
+    fun closeFloatingMenus() {
+        _state.update {
+            it.copy(
+                isProfileMenuOpen = false,
+                isVehicleMenuOpen = false,
+                isSettingsOpen = false,
+                isCompletedTripsOpen = false
+            )
+        }
+    }
+
+    fun openSettings() {
+        _state.update { it.copy(isSettingsOpen = true, isProfileMenuOpen = false, isVehicleMenuOpen = false, isCompletedTripsOpen = false) }
+    }
+
+    fun closeSettings() {
+        _state.update { it.copy(isSettingsOpen = false, isCompletedTripsOpen = false) }
+    }
+
+    fun toggleCompletedTrips() {
+        _state.update { it.copy(isCompletedTripsOpen = !it.isCompletedTripsOpen) }
+    }
+
+    fun setThemeMode(mode: AppThemeMode) {
+        _state.update { it.copy(themeMode = mode) }
+        SettingsRepository.saveThemeMode(mode)
+    }
+
+    fun setPipEnabled(enabled: Boolean) {
+        _state.update { it.copy(isPipEnabled = enabled) }
+        SettingsRepository.savePipEnabled(enabled)
+    }
+
+    fun toggleVehicleMenu() {
+        _state.update {
+            it.copy(
+                isVehicleMenuOpen = !it.isVehicleMenuOpen,
+                isProfileMenuOpen = false,
+                isSettingsOpen = false,
+                isCompletedTripsOpen = false
+            )
+        }
+    }
+
+    fun closeVehicleMenu() {
+        _state.update { it.copy(isVehicleMenuOpen = false) }
+    }
+
+    fun updateProfile(name: String, phone: String) {
+        _state.update {
+            it.copy(
+                driverProfile = it.driverProfile.copy(
+                    name = name.ifBlank { it.driverProfile.name },
+                    phone = phone.ifBlank { it.driverProfile.phone }
+                )
+            )
+        }
+    }
+
+    fun changePassword(password: String) {
+        if (password.length >= 4) {
+            _state.update { it.copy(password = password) }
+        }
+    }
+
+    fun updatePassword(currentPassword: String, newPassword: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(isUpdatingProfile = true) }
+            val error = NexxAuth.changePassword(currentPassword, newPassword)
+            _state.update { it.copy(isUpdatingProfile = false) }
+            if (error == null) {
+                _toastEvent.emit("Password updated successfully")
+            } else {
+                Log.e("TripViewModel", "updatePassword failed: $error")
+                _toastEvent.emit(error)
+            }
+        }
+    }
+
+    fun onProfileImageSelected(byteArray: ByteArray, mimeType: String) {
+        _state.update { it.copy(selectedProfileImage = byteArray, profileImageMimeType = mimeType) }
+        
+        viewModelScope.launch {
+            _state.update { it.copy(isUploadingProfileImage = true, profileUpdateError = "") }
+
+            val uploadResult = com.gocavgo.twese.network.BackendStorage.uploadFile(
+                byteArray = byteArray,
+                mimeType = mimeType,
+                purpose = "avatar"
+            )
+
+            if (uploadResult != null) {
+                // Link the uploaded media to this user's avatar via GraphQL mutation
+                val response = ApolloClientProvider.client
+                    .mutation(com.gocavgo.twese.UpdateAvatarMutation(
+                        mediaId = uploadResult.mediaId
+                    ))
+                    .execute()
+
+                if (response.errors != null && response.errors!!.isNotEmpty()) {
+                    Log.e("TripViewModel", "updateAvatar: ${response.errors!!.joinToString { it.message ?: "" }}")
+                    _state.update { it.copy(isUploadingProfileImage = false, selectedProfileImage = null) }
+                    _toastEvent.emit("Failed to save profile picture")
+                    return@launch
+                }
+
+                val gqlUser = response.data?.updateAvatar
+                if (gqlUser != null) {
+                    val avatarUrl = gqlUser.avatarUrl
+                    // Update cached user with the new avatar URL
+                    if (avatarUrl != null) {
+                        val ctx = AuthRepository.getAppContext()
+                        if (ctx != null) {
+                            try {
+                                com.gocavgo.twese.cache.MediaCache.getInstance(ctx).cacheBytes(avatarUrl, byteArray)
+                            } catch (e: Exception) {
+                                Log.e("TripViewModel", "Failed to cache profile image: ${e.message}")
+                            }
+                        }
+                    }
+                    applyUser(AuthUserDto(
+                        id = gqlUser.id,
+                        email = gqlUser.email,
+                        phone = gqlUser.phone,
+                        firstName = gqlUser.firstName,
+                        lastName = gqlUser.lastName,
+                        username = gqlUser.username,
+                        avatarUrl = avatarUrl,
+                        role = when (gqlUser.role) {
+                            com.gocavgo.twese.type.Role.DRIVER -> com.gocavgo.twese.data.dto.RoleDto.DRIVER
+                            com.gocavgo.twese.type.Role.CUSTOMER -> com.gocavgo.twese.data.dto.RoleDto.CUSTOMER
+                            com.gocavgo.twese.type.Role.WORKER -> com.gocavgo.twese.data.dto.RoleDto.WORKER
+                            com.gocavgo.twese.type.Role.ADMIN -> com.gocavgo.twese.data.dto.RoleDto.ADMIN
+                            com.gocavgo.twese.type.Role.SUPER_ADMIN -> com.gocavgo.twese.data.dto.RoleDto.SUPER_ADMIN
+                            else -> com.gocavgo.twese.data.dto.RoleDto.CUSTOMER
+                        },
+                        status = when (gqlUser.status) {
+                            com.gocavgo.twese.type.UserStatus.ACTIVE -> com.gocavgo.twese.data.dto.UserStatusDto.ACTIVE
+                            com.gocavgo.twese.type.UserStatus.DISABLED -> com.gocavgo.twese.data.dto.UserStatusDto.DISABLED
+                            com.gocavgo.twese.type.UserStatus.PENDING -> com.gocavgo.twese.data.dto.UserStatusDto.PENDING
+                            else -> com.gocavgo.twese.data.dto.UserStatusDto.PENDING
+                        }
+                    ))
+                    _state.update { it.copy(isUploadingProfileImage = false, selectedProfileImage = null) }
+                    _toastEvent.emit("Profile picture updated")
+                } else {
+                    _state.update { it.copy(isUploadingProfileImage = false, selectedProfileImage = null) }
+                    _toastEvent.emit("Failed to save profile picture")
+                }
+            } else {
+                _state.update { it.copy(isUploadingProfileImage = false, selectedProfileImage = null) }
+                _toastEvent.emit("Failed to upload profile picture")
+            }
+        }
+    }
+
+    fun updateUserProfile(fullName: String, phone: String, username: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(isUpdatingProfile = true, profileUpdateError = "") }
+
+            val result = AuthRepository.updateProfile(
+                fullName = fullName.ifBlank { null },
+                phone = phone.ifBlank { null },
+                username = username.ifBlank { null }
+            )
+
+            when (result) {
+                is AuthResult.Success -> {
+                    applyUser(result.user)
+                    _state.update { it.copy(isUpdatingProfile = false) }
+                    _toastEvent.emit("Profile updated successfully")
+                }
+                is AuthResult.Error -> {
+                    _state.update { it.copy(isUpdatingProfile = false, profileUpdateError = result.message) }
+                    _toastEvent.emit("Update failed: ${result.message}")
+                }
+                else -> {
+                    _state.update { it.copy(isUpdatingProfile = false) }
+                }
+            }
+        }
+    }
+
+    fun updateLocation(lat: Double, lng: Double, accuracy: Float, speedKmh: Float) {
+        _state.update { it.copy(driverLocation = DriverLocation(lat, lng, accuracy, speedKmh)) }
+    }
+
+    fun arriveAtCurrentStop() {
+        _state.update { it.copy(arrivedAtStop = true) }
+    }
+
+    fun advanceToNextStop() {
+        val next = _state.value.currentStopIndex + 1
+        if (next >= stops.size) {
+            _state.update { it.copy(tripCompleted = true) }
+        } else {
+            _state.update { it.copy(currentStopIndex = next, arrivedAtStop = false) }
+        }
+    }
+
+    fun departCurrentStop() {
+        advanceToNextStop()
+    }
+
+    // ── Driver Home Methods ───────────────────────────────────────────────────
+
+    fun setDriverHomeTab(tab: Int) {
+        _state.update { it.copy(driverHomeTab = tab) }
+    }
+    
+    fun setDefaultPage(page: String) {
+        _state.update { it.copy(defaultPage = page) }
+        applyDefaultPage(page)
+        SettingsRepository.saveDefaultPage(page)
+    }
+
+    private fun applyDefaultPage(page: String) {
+        when (page) {
+            "trips"              -> _state.update { it.copy(driverHomeTab = 0) }
+            "packages/current"   -> _state.update { it.copy(driverHomeTab = 1, driverPackageSubTab = 0) }
+            "packages/available" -> _state.update { it.copy(driverHomeTab = 1, driverPackageSubTab = 1) }
+        }
+    }
+
+    fun setKeepScreenAwake(keep: Boolean) {
+        _state.update { it.copy(keepScreenAwake = keep) }
+        SettingsRepository.saveKeepScreenAwake(keep)
+    }
+
+    fun toggleKeepScreenAwake() {
+        val next = !_state.value.keepScreenAwake
+        _state.update { it.copy(keepScreenAwake = next) }
+        SettingsRepository.saveKeepScreenAwake(next)
+    }
+
+    /**
+     * Driver "+" dispatch.
+     * - Active trip  → create a package whose pickup/drop-off are constrained to
+     *   the trip's eligible stops (see refreshDriverPackageLocations).
+     * - No active trip → create a trip (requires a car; see openDriverCreateTrip).
+     */
+    fun openDriverCreatePackage() {
+        if (!_state.value.hasActiveTrip) {
+            openDriverCreateTrip()
+            return
+        }
+        refreshDriverPackageLocations()
+        _state.update { it.copy(isDriverCreatingPackage = true) }
+        saveNavigationState()
+    }
+
+    fun closeDriverCreatePackage() {
+        _state.update { it.copy(isDriverCreatingPackage = false) }
+        saveNavigationState()
+    }
+
+    // ── Package creation on the active trip ───────────────────────────────────
+
+    /**
+     * Recomputes the pickup/drop-off options offered while creating a package
+     * during an active trip, based on the trip's stops and progress:
+     *
+     * - Pickup (origin) may be any stop the driver has not passed yet, plus the
+     *   last stop he just passed (he may still be at it). If nothing has been
+     *   passed yet the driver is still at the trip origin, so every stop except
+     *   the final destination is available. Once the trip departs and the first
+     *   waypoint is passed, the origin drops off.
+     * - Drop-off (destination) may only be a stop the driver has not passed
+     *   yet (current + upcoming stops, including the final destination).
+     *
+     * The route's origin/destination are included as options when the trip's
+     * waypoint list does not already contain them (deduped by name).
+     */
+    fun refreshDriverPackageLocations() {
+        val s = _state.value
+        val activeTrip = s.activeDriverTrip
+        val stops = s.trip.stops
+        val n = stops.size
+        // Index of the driver's current stop (0 = trip start, n = everything passed).
+        val cur = s.currentStopIndex.coerceIn(0, n)
+
+        if (!s.hasActiveTrip) {
+            _state.update {
+                it.copy(driverPackageOriginOptions = emptyList(), driverPackageDestinationOptions = emptyList())
+            }
+            return
+        }
+
+        val originName = activeTrip?.origin?.trim()?.takeIf { it.isNotBlank() }
+        val destinationName = activeTrip?.destination?.trim()?.takeIf { it.isNotBlank() }
+        val firstStopName = stops.firstOrNull()?.name?.trim()
+        val lastStopName = stops.lastOrNull()?.name?.trim()
+
+        fun sameName(a: String?, b: String?): Boolean =
+            !a.isNullOrBlank() && !b.isNullOrBlank() && a.equals(b, ignoreCase = true)
+
+        val originIsInStops = sameName(originName, firstStopName)
+        val destinationIsInStops = sameName(destinationName, lastStopName)
+
+        // Ordered trip locations: [route origin] + trip stops + [route destination],
+        // deduped by name. kind: 0 = origin, 1 = stop, 2 = final destination.
+        data class Entry(
+            val index: Int,        // stop index, or -1 for route origin, -2 for route destination
+            val kind: Int,
+            val name: String,
+            val lat: Double,
+            val lng: Double
+        )
+
+        val entries = mutableListOf<Entry>()
+        if (originName != null && !originIsInStops) {
+            entries.add(Entry(-1, 0, originName, activeTrip?.originLatitude ?: 0.0, activeTrip?.originLongitude ?: 0.0))
+        }
+        stops.forEachIndexed { i, stop -> entries.add(Entry(i, 1, stop.name, stop.lat, stop.lng)) }
+        if (destinationName != null && !destinationIsInStops) {
+            entries.add(Entry(-2, 2, destinationName, activeTrip?.destinationLatitude ?: 0.0, activeTrip?.destinationLongitude ?: 0.0))
+        }
+
+        // Fallback when the trip has no waypoint stops at all (express route):
+        // still offer origin → destination while the trip is active.
+        if (entries.isEmpty()) {
+            if (originName != null) {
+                entries.add(Entry(-1, 0, originName, activeTrip?.originLatitude ?: 0.0, activeTrip?.originLongitude ?: 0.0))
+            }
+            if (destinationName != null) {
+                entries.add(Entry(-2, 2, destinationName, activeTrip?.destinationLatitude ?: 0.0, activeTrip?.destinationLongitude ?: 0.0))
+            }
+        }
+
+        val origins = mutableListOf<TripPackageLocation>()
+        val destinations = mutableListOf<TripPackageLocation>()
+
+        entries.forEach { entry ->
+            val isRouteOrigin = entry.kind == 0
+            val isRouteDestination = entry.kind == 2
+            val stopIndex = entry.index
+            val isStop = entry.kind == 1
+            // True when this entry is the trip's starting location (whether it
+            // came from the route or is the first stop of the trip).
+            val isOriginEntry = isRouteOrigin ||
+                (isStop && stopIndex == 0 && (originName == null || originIsInStops))
+            // True when this entry is the trip's final destination (route
+            // destination or the last stop of the trip).
+            val isFinalEntry = isRouteDestination ||
+                (isStop && stopIndex == n - 1 && (destinationName == null || destinationIsInStops))
+
+            // Passed state: stop is passed when its index < cur; the route
+            // origin is treated as passed once the driver has left it (cur >= 1).
+            val passed = if (isStop) stopIndex < cur else isRouteOrigin && cur >= 1
+            val isCurrent = if (isStop) stopIndex == cur else isRouteOrigin && cur == 0
+            // Last stop the driver just passed (he may still be at it).
+            val isLastPassed = if (isStop) cur >= 1 && stopIndex == cur - 1 else isRouteOrigin && cur == 1
+
+            val role = when {
+                isRouteOrigin -> "Trip origin"
+                isRouteDestination -> "Trip destination"
+                isStop && stopIndex == 0 && (originName == null || originIsInStops) -> "Trip origin"
+                isStop && stopIndex == n - 1 && (destinationName == null || destinationIsInStops) -> "Trip destination"
+                else -> "Stop ${stopIndex + 1}"
+            }
+            val badge = when {
+                isCurrent -> " — your current stop"
+                isLastPassed && passed -> " — last stop passed"
+                else -> ""
+            }
+            val loc = TripPackageLocation(
+                index = entry.index,
+                name = entry.name,
+                subtitle = role + badge,
+                lat = entry.lat,
+                lng = entry.lng
+            )
+
+            // Pickup candidates: current + unpassed stops, never the trip's
+            // final destination (unless the driver is there), plus the last
+            // passed stop — the driver may still be at it.
+            val canPickupHere = when {
+                passed -> isLastPassed
+                isFinalEntry -> isCurrent
+                else -> true
+            }
+            if (canPickupHere) origins.add(loc)
+
+            // Drop-off candidates: only locations not passed yet (current +
+            // upcoming, incl. the final destination), never the trip origin.
+            if (!passed && !isOriginEntry) destinations.add(loc)
+        }
+
+        _state.update {
+            it.copy(
+                driverPackageOriginOptions = origins,
+                driverPackageDestinationOptions = destinations
+            )
+        }
+    }
+
+    /** User picked a trip stop as the package pickup location. */
+    fun selectDriverPackageOrigin(choice: TripPackageLocation) {
+        _state.update {
+            it.copy(createPackageForm = it.createPackageForm.copy(
+                fromAddress = choice.name,
+                originLatitude = choice.lat,
+                originLongitude = choice.lng,
+                originPlaceId = null
+            ))
+        }
+        saveCreatePackageDraft()
+    }
+
+    /** User picked a trip stop as the package delivery location. */
+    fun selectDriverPackageDestination(choice: TripPackageLocation) {
+        _state.update {
+            it.copy(createPackageForm = it.createPackageForm.copy(
+                toAddress = choice.name,
+                destLatitude = choice.lat,
+                destLongitude = choice.lng,
+                destPlaceId = null
+            ))
+        }
+        saveCreatePackageDraft()
+    }
+
+    // ── Driver Trip Creation (cavgotrips via gateway) ────────────────────────
+
+    /**
+     * Open the create-trip modal. Gated: only when the driver has no active trip
+     * AND a car is assigned to them.
+     */
+    fun openDriverCreateTrip() {
+        val s = _state.value
+        if (s.hasActiveTrip) {
+            viewModelScope.launch { _toastEvent.emit("You already have an active trip") }
+            return
+        }
+        if (!s.driverHasVehicle) {
+            // Re-check the assignment first — the worker fetch may still be in flight
+            // (or stale) when the driver taps "+" right after login.
+            viewModelScope.launch {
+                refreshDriverVehicle()
+                if (!_state.value.driverHasVehicle) {
+                    _toastEvent.emit("You have no car assigned to you")
+                } else {
+                    openDriverCreateTripModal()
+                }
+            }
+            return
+        }
+        openDriverCreateTripModal()
+    }
+
+    private fun openDriverCreateTripModal() {
+        _state.update {
+            it.copy(
+                isDriverCreatingTrip = true,
+                driverTripOriginSearch = "",
+                driverTripDestinationSearch = "",
+                driverTripOriginResults = emptyList(),
+                driverTripDestinationResults = emptyList(),
+                isSearchingDriverTripLocations = false,
+                driverRouteSearchResults = emptyList(),
+                isSearchingDriverRoutes = false,
+                driverSelectedRoute = null,
+                driverTripIsReversed = false,
+                driverTripDepartureTime = (System.currentTimeMillis() / 1000) + 3600, // default 1h from now
+                driverTripError = null
+            )
+        }
+    }
+
+    fun closeDriverCreateTrip() {
+        tripOriginSearchJob?.cancel()
+        tripDestSearchJob?.cancel()
+        routeSearchJob?.cancel()
+        _state.update { it.copy(isDriverCreatingTrip = false) }
+    }
+
+    fun setDriverTripReversed(reversed: Boolean) {
+        _state.update { it.copy(driverTripIsReversed = reversed) }
+    }
+
+    fun setDriverTripDepartureTime(epochSeconds: Long) {
+        _state.update { it.copy(driverTripDepartureTime = epochSeconds) }
+    }
+
+    /**
+     * Create the trip on cavgotrips, then refresh the active-trip state so the
+     * driver home screen immediately shows the new trip.
+     */
+    fun createDriverTrip() {
+        val s = _state.value
+        val route = s.driverSelectedRoute ?: run {
+            viewModelScope.launch { _toastEvent.emit("Select a route first") }
+            return
+        }
+        val vehicleId = s.vehicle.id ?: run {
+            viewModelScope.launch { _toastEvent.emit("You have no car assigned to you") }
+            return
+        }
+        val departure = s.driverTripDepartureTime ?: run {
+            viewModelScope.launch { _toastEvent.emit("Pick a departure time") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isCreatingDriverTrip = true, driverTripError = null) }
+            val error = com.gocavgo.twese.network.BackendStorage.createTrip(
+                routeId = route.id,
+                vehicleId = vehicleId,
+                departureTimeSeconds = departure,
+                isReversed = s.driverTripIsReversed
+            )
+            if (error == null) {
+                _state.update { it.copy(isCreatingDriverTrip = false, isDriverCreatingTrip = false) }
+                _toastEvent.emit("Trip created successfully")
+                loadDriverTrips()
+            } else {
+                _state.update { it.copy(isCreatingDriverTrip = false, driverTripError = error) }
+                _toastEvent.emit(error)
+            }
+        }
+    }
+
+    // ── Trip-modal location & route searches ────────────────────────────────
+
+    private var tripOriginSearchJob: kotlinx.coroutines.Job? = null
+    private var tripDestSearchJob: kotlinx.coroutines.Job? = null
+    private var routeSearchJob: kotlinx.coroutines.Job? = null
+
+    fun searchDriverTripOrigin(query: String) {
+        tripOriginSearchJob?.cancel()
+        _state.update { it.copy(driverTripOriginSearch = query, driverTripOriginResults = emptyList()) }
+        if (query.isBlank()) {
+            _state.update { it.copy(isSearchingDriverTripLocations = false) }
+            return
+        }
+        _state.update { it.copy(isSearchingDriverTripLocations = true) }
+        tripOriginSearchJob = viewModelScope.launch {
+            val results = com.gocavgo.twese.network.BackendStorage.searchLocations(query)
+            _state.update { it.copy(
+                driverTripOriginResults = results.map { loc ->
+                    LocationSearchResult(
+                        id = loc.id,
+                        latitude = loc.latitude,
+                        longitude = loc.longitude,
+                        customName = loc.customName,
+                        googlePlaceName = loc.googlePlaceName,
+                        province = loc.province,
+                        district = loc.district,
+                        placeId = loc.placeId,
+                        code = loc.code
+                    )
+                },
+                isSearchingDriverTripLocations = false
+            ) }
+        }
+    }
+
+    fun searchDriverTripDestination(query: String) {
+        tripDestSearchJob?.cancel()
+        _state.update { it.copy(driverTripDestinationSearch = query, driverTripDestinationResults = emptyList()) }
+        if (query.isBlank()) {
+            _state.update { it.copy(isSearchingDriverTripLocations = false) }
+            return
+        }
+        _state.update { it.copy(isSearchingDriverTripLocations = true) }
+        tripDestSearchJob = viewModelScope.launch {
+            val results = com.gocavgo.twese.network.BackendStorage.searchLocations(query)
+            _state.update { it.copy(
+                driverTripDestinationResults = results.map { loc ->
+                    LocationSearchResult(
+                        id = loc.id,
+                        latitude = loc.latitude,
+                        longitude = loc.longitude,
+                        customName = loc.customName,
+                        googlePlaceName = loc.googlePlaceName,
+                        province = loc.province,
+                        district = loc.district,
+                        placeId = loc.placeId,
+                        code = loc.code
+                    )
+                },
+                isSearchingDriverTripLocations = false
+            ) }
+        }
+    }
+
+    /** Select an origin location: pins its display name for the route search. */
+    fun selectDriverTripOrigin(loc: LocationSearchResult) {
+        _state.update {
+            it.copy(
+                driverTripOriginSearch = loc.displayName(),
+                driverTripOriginResults = emptyList(),
+                isSearchingDriverTripLocations = false,
+                driverSelectedRoute = null,
+                driverRouteSearchResults = emptyList()
+            )
+        }
+    }
+
+    /** Select a destination location: pins its display name for the route search. */
+    fun selectDriverTripDestination(loc: LocationSearchResult) {
+        _state.update {
+            it.copy(
+                driverTripDestinationSearch = loc.displayName(),
+                driverTripDestinationResults = emptyList(),
+                isSearchingDriverTripLocations = false,
+                driverSelectedRoute = null,
+                driverRouteSearchResults = emptyList()
+            )
+        }
+    }
+
+    fun clearDriverTripOrigin() {
+        tripOriginSearchJob?.cancel()
+        _state.update {
+            it.copy(
+                driverTripOriginSearch = "",
+                driverTripOriginResults = emptyList(),
+                isSearchingDriverTripLocations = false,
+                driverSelectedRoute = null,
+                driverRouteSearchResults = emptyList()
+            )
+        }
+    }
+
+    fun clearDriverTripDestination() {
+        tripDestSearchJob?.cancel()
+        _state.update {
+            it.copy(
+                driverTripDestinationSearch = "",
+                driverTripDestinationResults = emptyList(),
+                isSearchingDriverTripLocations = false,
+                driverSelectedRoute = null,
+                driverRouteSearchResults = emptyList()
+            )
+        }
+    }
+
+    /**
+     * Search routes matching the current origin + destination text.
+     * Runs automatically from the UI once both fields are filled.
+     */
+    fun searchDriverRoutes() {
+        routeSearchJob?.cancel()
+        val s = _state.value
+        val origin = s.driverTripOriginSearch.trim()
+        val destination = s.driverTripDestinationSearch.trim()
+        if (origin.isBlank() || destination.isBlank()) {
+            _state.update { it.copy(driverRouteSearchResults = emptyList(), isSearchingDriverRoutes = false) }
+            return
+        }
+        _state.update { it.copy(isSearchingDriverRoutes = true, driverRouteSearchResults = emptyList()) }
+        routeSearchJob = viewModelScope.launch {
+            val results = com.gocavgo.twese.network.BackendStorage.searchRoutes(origin, destination)
+            _state.update { it.copy(driverRouteSearchResults = results, isSearchingDriverRoutes = false) }
+        }
+    }
+
+    /** User picked a route from the search results. */
+    fun selectDriverRoute(route: com.gocavgo.twese.network.BackendStorage.DriverRoute) {
+        _state.update { it.copy(driverSelectedRoute = route) }
+    }
+
+    fun toggleDriverProfileMenu() {
+        _state.update { it.copy(isDriverProfileMenuOpen = !_state.value.isDriverProfileMenuOpen) }
+    }
+
+    fun openDriverSettings() {
+        _state.update { it.copy(isDriverSettingsOpen = true, isDriverProfileMenuOpen = false) }
+    }
+
+    fun closeDriverSettings() {
+        _state.update { it.copy(isDriverSettingsOpen = false) }
+    }
+
+    fun dismissDriverMenus() {
+        _state.update { it.copy(isDriverProfileMenuOpen = false, isDriverSettingsOpen = false) }
+    }
+
+    // ── Driver Package Methods ──────────────────────────────────────────────
+
+    fun setDriverPackageSubTab(tab: Int) {
+        _state.update { it.copy(driverPackageSubTab = tab) }
+    }
+
+    fun updateDriverPackageSearch(query: String) {
+        _state.update { it.copy(driverPackageSearchQuery = query) }
+    }
+
+    fun acceptOffer(offerId: String) {
+        _state.update { s ->
+            val offer = s.driverAvailableOffers.find { it.id == offerId } ?: return@update s
+            val accepted = offer.copy(
+                status = PackageStatus.PICKED_UP,
+                driverName = s.driverProfile.name,
+                driverPhone = s.driverProfile.phone,
+                driverCompany = "QuickCargo Ltd",
+                vehicleType = "car",
+                deliveryCode = offer.id.replace("PKG", "DLV"),
+                statusHistory = listOf(StatusUpdate(PackageStatus.PICKED_UP, "Just now", offer.fromAddress, "Offer accepted — heading to pickup"))
+            )
+            s.copy(
+                    driverCurrentPackages = listOf(accepted) + s.driverCurrentPackages,
+                driverAvailableOffers = s.driverAvailableOffers.filter { it.id != offerId }
+            )
+        }
+    }
+
+    fun openDeliverDialog(packageId: String) {
+        val pkg = _state.value.driverCurrentPackages.find { it.id == packageId } ?: return
+        if (pkg.status == PackageStatus.PENDING_CONFIRMATION) {
+            // Delivery already initiated — just open the code entry dialog
+            _state.update { it.copy(isDeliverDialogOpen = true, selectedDriverPackageId = packageId, deliverCodeInput = "", deliverCodeError = "") }
+            return
+        }
+        if (pkg.packageUuid.isBlank()) {
+            viewModelScope.launch { _toastEvent.emit("Missing package UUID — cannot initiate delivery") }
+            return
+        }
+        // Driver initiates delivery — no code required. The sender/receiver
+        // receives the PACKAGE_DELIVERY_INITIATED notice with the delivery code
+        // and confirms in-app (or shares the code with the driver).
+        viewModelScope.launch {
+            _state.update { it.copy(isInitiatingDelivery = true) }
+            val result = PackageRepository.initiateDelivery(pkg.packageUuid)
+            if (result != null) {
+                _state.update { s ->
+                    s.copy(
+                        isInitiatingDelivery = false,
+                        isDeliverDialogOpen = true,
+                        selectedDriverPackageId = packageId,
+                        deliverCodeInput = "",
+                        deliverCodeError = "",
+                        driverCurrentPackages = s.driverCurrentPackages.map {
+                            if (it.id == packageId) it.copy(
+                                status = PackageStatus.PENDING_CONFIRMATION,
+                                statusHistory = it.statusHistory + StatusUpdate(
+                                    PackageStatus.PENDING_CONFIRMATION, "Just now", it.toAddress,
+                                    "Delivery initiated — awaiting confirmation"
+                                )
+                            ) else it
+                        }
+                    )
+                }
+                _toastEvent.emit("Delivery initiated. Ask the recipient to confirm in their app, or enter the code they share with you.")
+            } else {
+                _state.update { it.copy(isInitiatingDelivery = false) }
+                _toastEvent.emit("Failed to initiate delivery")
+            }
+        }
+    }
+
+    fun closeDeliverDialog() {
+        _state.update { it.copy(isDeliverDialogOpen = false, selectedDriverPackageId = null, deliverCodeInput = "", deliverCodeError = "") }
+    }
+
+    fun updateDeliverCode(code: String) {
+        _state.update { it.copy(deliverCodeInput = code, deliverCodeError = "") }
+    }
+
+    /**
+     * Driver confirms delivery by entering the code the recipient shared.
+     * Calls [PackageRepository.confirmDelivery] against the backend.
+     */
+    fun confirmDeliver(): Boolean {
+        val s = _state.value
+        if (s.isConfirmingDelivery) return false
+        val pkg = s.driverCurrentPackages.find { it.id == s.selectedDriverPackageId } ?: return false
+        val code = s.deliverCodeInput.trim()
+        if (code.isEmpty()) {
+            _state.update { it.copy(deliverCodeError = "Enter the code shared by the recipient, or ask them to confirm in their app") }
+            return false
+        }
+        if (pkg.packageUuid.isBlank()) {
+            _state.update { it.copy(deliverCodeError = "Missing package UUID") }
+            return false
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isConfirmingDelivery = true, deliverCodeError = "") }
+            val updated = PackageRepository.confirmDelivery(pkg.packageUuid, code)
+            if (updated != null) {
+                _state.update { s2 ->
+                    s2.copy(
+                        isConfirmingDelivery = false,
+                        isDeliverDialogOpen = false,
+                        selectedDriverPackageId = null,
+                        deliverCodeInput = "",
+                        deliverCodeError = "",
+                        driverCurrentPackages = s2.driverCurrentPackages.map {
+                            if (it.id == pkg.id) it.copy(
+                                status = PackageStatus.DELIVERED,
+                                receivedAt = "Just now",
+                                statusHistory = it.statusHistory + StatusUpdate(
+                                    PackageStatus.DELIVERED, "Just now", it.toAddress, "Delivered successfully"
+                                )
+                            ) else it
+                        }
+                    )
+                }
+                _toastEvent.emit("Package delivered")
+            } else {
+                _state.update { it.copy(isConfirmingDelivery = false, deliverCodeError = "Invalid or expired confirmation code") }
+            }
+        }
+        return true
+    }
+
+    fun openTransferDialog(packageId: String) {
+        val existing = _state.value.driverCurrentPackages.find { it.id == packageId }
+        if (existing?.hasOpenTransfer == true) {
+            viewModelScope.launch { _toastEvent.emit("This package already has an open transfer") }
+            return
+        }
+        _state.update { it.copy(isTransferDialogOpen = true, selectedDriverPackageId = packageId) }
+    }
+
+    fun closeTransferDialog() {
+        _state.update { it.copy(isTransferDialogOpen = false, selectedDriverPackageId = null) }
+    }
+
+    /**
+     * Driver picks up a package: transitions ASSIGNED_DRIVER → IN_TRANSIT
+     * (or ORIGIN_OFFICE → IN_TRANSIT for FIXED_ROUTE when driver picks up directly).
+     */
+    fun pickupPackage(packageId: String) {
+        val s = _state.value
+        if (s.pickingUpPackageId != null) return
+        val pkg = s.driverCurrentPackages.find { it.id == packageId }
+            ?: s.driverAvailableOffers.find { it.id == packageId }
+            ?: s.driverIncomingTransfers.flatMap { it.packages }.find { it.id == packageId }
+            ?: return
+        if (pkg.packageUuid.isBlank()) {
+            viewModelScope.launch { _toastEvent.emit("Missing package UUID") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(pickingUpPackageId = packageId) }
+            try {
+                val result = PackageRepository.updatePackageStatus(pkg.packageUuid, "IN_TRANSIT", "Driver picked up package")
+                if (result != null) {
+                    _state.update { s2 ->
+                        s2.copy(
+                            driverCurrentPackages = s2.driverCurrentPackages.map {
+                                if (it.id == packageId) it.copy(
+                                    status = result.status,
+                                    backendStatus = "IN_TRANSIT"
+                                ) else it
+                            }
+                        )
+                    }
+                    _toastEvent.emit("Package picked up — heading to destination")
+                } else {
+                    _toastEvent.emit("Failed to pick up package")
+                }
+            } catch (e: Exception) {
+                _toastEvent.emit("Error picking up package: ${e.message}")
+            } finally {
+                _state.update { it.copy(pickingUpPackageId = null) }
+            }
+        }
+    }
+
+    fun confirmTransfer() {
+        val s = _state.value
+        if (s.isCreatingTransfer) return
+        val pkg = s.driverCurrentPackages.find { it.id == s.selectedDriverPackageId } ?: return
+        if (pkg.packageUuid.isBlank()) {
+            viewModelScope.launch { _toastEvent.emit("Missing package UUID — cannot create transfer") }
+            return
+        }
+        // Never create a transfer on top of an already-open transfer.
+        if (pkg.hasOpenTransfer) {
+            _state.update { it.copy(isTransferDialogOpen = false, selectedDriverPackageId = null) }
+            viewModelScope.launch { _toastEvent.emit("This package already has an open transfer") }
+            return
+        }
+
+        // Initiate an AUTO transfer to the office — only workers can accept.
+        viewModelScope.launch {
+            _state.update { it.copy(isCreatingTransfer = true) }
+            val result = PackageRepository.createTransfer(
+                packageIds = listOf(pkg.packageUuid),
+                ruleType = "AUTO"
+            )
+            if (result != null) {
+                val updated = pkg.copy(
+                    transferId = result.id,
+                    transferStatus = result.status,
+                    statusHistory = pkg.statusHistory + StatusUpdate(
+                        PackageStatus.IN_TRANSIT, "Just now", pkg.toAddress,
+                        "Transfer initiated — awaiting office pickup"
+                    )
+                )
+                // Persist the open transfer so the UI stays consistent across restarts.
+                withContext(Dispatchers.IO) { PackageCache.mergeDriverUpdate(updated) }
+                _state.update { s2 ->
+                    s2.copy(
+                        isCreatingTransfer = false,
+                        isTransferDialogOpen = false,
+                        selectedDriverPackageId = null,
+                        driverCurrentPackages = s2.driverCurrentPackages.map {
+                            if (it.id == pkg.id) updated else it
+                        }
+                    )
+                }
+                _toastEvent.emit("Transfer initiated — the office can now pick it up")
+            } else {
+                _state.update { it.copy(isCreatingTransfer = false) }
+                _toastEvent.emit("Failed to create transfer")
+            }
+        }
+    }
+
+    fun openPackageDetail(packageId: String) {
+        _state.update { it.copy(isPackageDetailSheetOpen = true, selectedDriverPackageId = packageId) }
+        refreshSinglePackage(packageId)
+        markNoticesForPackageAsRead(packageId)
+    }
+
+    fun closePackageDetail() {
+        _state.update { it.copy(isPackageDetailSheetOpen = false, selectedDriverPackageId = null) }
+    }
+
+    fun getSelectedDriverPackage(): ClientPackage? {
+        val s = _state.value
+        val id = s.selectedDriverPackageId ?: return null
+        return s.driverCurrentPackages.find { it.id == id || it.packageUuid == id }
+            ?: s.driverAvailableOffers.find { it.id == id || it.packageUuid == id }
+    }
+
+    // ── Client Methods ────────────────────────────────────────────────────────
+
+    // ── Navigation State Persistence (survives process death) ────────────────
+
+    private fun saveNavigationState() {
+        val s = _state.value
+        when (s.appRole) {
+            AppRole.CLIENT -> {
+                val key = when {
+                    s.showOtpScreen -> "otp"
+                    s.isCreatingPackage -> "create"
+                    s.isTrackingPackage -> "track"
+                    s.isProfileOpen -> "profile"
+                    !s.isClientLoggedIn -> "login"
+                    else -> null // home screen — no restore needed
+                }
+                SettingsRepository.saveResumeState(key, s.clientSelectedPackageId)
+            }
+            AppRole.DRIVER -> {
+                val key = when {
+                    s.showOtpScreen -> "driver_otp"
+                    s.isDriverCreatingPackage -> "driver_create"
+                    s.isProfileOpen -> "driver_profile"
+                    !s.isLoggedIn -> "driver_login"
+                    else -> null
+                }
+                SettingsRepository.saveResumeState(key, null)
+            }
+            else -> SettingsRepository.clearResumeState()
+        }
+    }
+
+    private fun restoreNavigationState() {
+        val screenKey = SettingsRepository.getResumeScreenKey() ?: return
+        when (screenKey) {
+            // Don't restore create modal on relaunch — let fetchClientPackages() 
+            // determine via clientDataState whether to auto-open it.
+            "create" -> { /* handled by auto-open logic in ClientHomeScreen */ }
+            "track" -> {
+                val pkgId = SettingsRepository.getResumePackageId()
+                if (pkgId != null) trackPackage(pkgId)
+            }
+            "profile" -> openProfile()
+            "driver_create" -> openDriverCreatePackage()
+        }
+        // Clear restore state after use so it doesn't re-apply on subsequent init
+        SettingsRepository.clearResumeState()
+    }
+
+    fun goBackToRoleSelect() {
+        bumpSessionGeneration()
+        NoticeRepository.stop()
+        ApolloClientProvider.resetClient()
+        viewModelScope.launch {
+            AuthRepository.signOut()
+        }
+        SettingsRepository.clear()
+        _state.update {
+            it.copy(
+                appRole = AppRole.NONE,
+                isLoggedIn = false,
+                isClientLoggedIn = false,
+                isProfileOpen = false,
+                isProfileMenuOpen = false,
+                isSettingsOpen = false,
+                isCompletedTripsOpen = false,
+                isVehicleMenuOpen = false,
+                isCreatingPackage = false,
+                isTrackingPackage = false,
+                publicTrackingPackage = null,
+                publicTrackingError = "",
+                authResult = null,
+                authUser = null
+            )
+        }
+    }
+
+    fun clientLogout() {
+        bumpSessionGeneration()
+        NoticeRepository.stop()
+        autoShownDeliveryNotices.clear()
+        ApolloClientProvider.resetClient()
+        MqttLocationPublisher.disconnect()
+        viewModelScope.launch {
+            AuthRepository.signOut()
+        }
+        SettingsRepository.clear()
+        PackageCache.clear()
+        // Cancel background sync worker
+        AuthRepository.getAppContext()?.let { ctx ->
+            com.gocavgo.twese.service.PackageSyncWorker.cancel(ctx)
+            LocationKeepaliveWorker.cancel(ctx)
+        }
+        _state.update {
+            it.copy(
+                isClientLoggedIn = false,
+                isCreatingPackage = false,
+                isTrackingPackage = false,
+                clientSelectedPackageId = null,
+                isClientProfileMenuOpen = false,
+                isClientSettingsOpen = false,
+                appRole = AppRole.NONE,
+                authResult = null,
+                authUser = null,
+                clientPackages = emptyList(),
+                clientDataState = DataState.UNKNOWN,
+                clientPackagesFetchedOnce = false,
+                isClientInitialLoading = false
+            )
+        }
+    }
+
+    fun toggleClientProfileMenu() {
+        _state.update {
+            it.copy(
+                isClientProfileMenuOpen = !it.isClientProfileMenuOpen,
+                isClientSettingsOpen = false
+            )
+        }
+        // Refresh the driver-request status each time the menu opens so an
+        // approval/rejection is picked up quickly.
+        if (_state.value.isClientProfileMenuOpen) {
+            checkDriverRequestStatus()
+        }
+    }
+
+    fun openClientSettings() {
+        _state.update { it.copy(isClientSettingsOpen = true, isClientProfileMenuOpen = false) }
+    }
+
+    fun closeClientSettings() {
+        _state.update { it.copy(isClientSettingsOpen = false) }
+    }
+
+    fun dismissClientMenus() {
+        _state.update { it.copy(isClientProfileMenuOpen = false, isClientSettingsOpen = false) }
+    }
+
+    // ── Driver request ──────────────────────────────────────────────────────
+
+    /**
+     * Check if the user already has a driver request (pending/approved/rejected).
+     * Called after client login so the profile menu shows the right state.
+     *
+     * While the request is PENDING it keeps polling every few seconds so that,
+     * once a fleet manager approves, the app automatically refreshes the
+     * session/profile and flips the user to the DRIVER home — no re-login needed.
+     */
+    fun checkDriverRequestStatus() {
+        viewModelScope.launch {
+            try {
+                val result = com.gocavgo.twese.network.BackendStorage.getMyDriverRequestStatus()
+                val status = when (result) {
+                    is com.gocavgo.twese.network.BackendStorage.DriverRequestStatusResult.Found -> result.status
+                    else -> null
+                }
+                _state.update {
+                    it.copy(
+                        driverRequestStatus = status?.status,
+                        driverRequestCompanyCode = status?.companyCode,
+                        driverRequestCompanyName = status?.companyName,
+                        driverRequestRejectionReason = status?.rejectionReason
+                    )
+                }
+                when (status?.status) {
+                    "PENDING" -> {
+                        // Keep polling while awaiting approval.
+                        kotlinx.coroutines.delay(20_000)
+                        checkDriverRequestStatus()
+                    }
+                    "APPROVED" -> {
+                        if (_state.value.appRole != AppRole.DRIVER) {
+                            Log.i(TAG, "checkDriverRequestStatus: approved — refreshing session to pick up DRIVER role")
+                            val refreshed = NexxAuth.refreshSession()
+                            if (refreshed) {
+                                when (val result = AuthRepository.restoreSession()) {
+                                    is AuthResult.Success -> {
+                                        if (result.user.role.name == "DRIVER") {
+                                            applyUser(result.user)
+                                        }
+                                    }
+                                    else -> Log.w(TAG, "checkDriverRequestStatus: approved but profile resync did not succeed")
+                                }
+                            }
+                        }
+                    }
+                    else -> Unit
+                }
+            } catch (e: Exception) {
+                // Non-critical — just leave status as null
+            }
+        }
+    }
+
+    fun openRequestDriverDialog() {
+        // Don't open if there's already a pending request
+        val currentStatus = _state.value.driverRequestStatus
+        if (currentStatus == "PENDING") {
+            viewModelScope.launch {
+                _toastEvent.emit("You already have a pending driver request. Please wait for approval.")
+            }
+            return
+        }
+        _state.update { it.copy(showRequestDriverDialog = true, driverRequestError = null, isClientProfileMenuOpen = false) }
+    }
+
+    fun closeRequestDriverDialog() {
+        _state.update { it.copy(showRequestDriverDialog = false, driverRequestError = null) }
+    }
+
+    fun submitDriverRequest(companyCode: String) {
+        if (companyCode.isBlank()) return
+        viewModelScope.launch {
+            _state.update { it.copy(isSubmittingDriverRequest = true, driverRequestError = null) }
+            try {
+                val result = com.gocavgo.twese.network.BackendStorage.submitDriverRequest(companyCode)
+                if (result == null) {
+                    _state.update { it.copy(
+                        isSubmittingDriverRequest = false,
+                        showRequestDriverDialog = false,
+                        driverRequestStatus = "PENDING"
+                    ) }
+                } else {
+                    _state.update { it.copy(isSubmittingDriverRequest = false, driverRequestError = result) }
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(isSubmittingDriverRequest = false, driverRequestError = e.message ?: "Failed to submit request") }
+            }
+        }
+    }
+
+    // ── Driver company gate ────────────────────────────────────────────────
+
+    /**
+     * Evaluates the DRIVER company gate: a DRIVER-role user must have an
+     * APPROVED driver request (i.e. belong to a company) before the app unlocks.
+     * - APPROVED → gate opens, driver home is shown
+     * - PENDING  → gate shows the "waiting for approval" screen and keeps polling
+     * - REJECTED → gate shows the rejection screen (user is kept out)
+     * - null     → gate shows the request-company form
+     */
+    fun refreshDriverCompanyGate() {
+        if (_state.value.appRole != AppRole.DRIVER) return
+        driverCompanyGatePoll?.cancel()
+        driverCompanyGatePoll = viewModelScope.launch {
+            try {
+                // Single profile entry point: POST /main/users/sync resolves the
+                // user's company. A driver who already belongs to a company is
+                // approved — no company-code entry. Only drivers without a company
+                // fall through to the driver-request check (PENDING/REJECTED/no
+                // request), and an old request may still be pending even when the
+                // sync reports no company.
+                val sync = BackendStorage.getUserSync()
+                if (sync?.hasCompany == true) {
+                    _state.update {
+                        it.copy(
+                            driverCompanyGate = DriverCompanyGate.APPROVED,
+                            driverCompanyGateLoaded = true,
+                            driverCompanyName = sync.companyName,
+                            driverCompanyCode = sync.companyCode,
+                            driverCompanyRejectionReason = null,
+                            driverCompanyGateError = null
+                        )
+                    }
+                    // Company access is APPROVED — now load packages, vehicle, and active trips in strict sequence
+                    preloadDriverPackages()
+                    loadDriverTrips()
+                    startPackageSubscription()
+                } else {
+                    // No company (or sync unavailable) — fall back to the legacy
+                    // driver-request check so existing requests are still honored.
+                    checkDriverRequestForGate()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "refreshDriverCompanyGate failed: ${e.message}")
+                val currentGate = _state.value.driverCompanyGate
+                if (currentGate != DriverCompanyGate.APPROVED) {
+                    _state.update {
+                        it.copy(
+                            driverCompanyGate = DriverCompanyGate.UNKNOWN,
+                            driverCompanyGateLoaded = true,
+                            driverCompanyGateError = "Could not check your company status. Check your connection and try again."
+                        )
+                    }
+                } else {
+                    // Pre-existing approved session offline fallback
+                    _state.update { it.copy(driverCompanyGateLoaded = true) }
+                    preloadDriverPackages()
+                    loadDriverTrips()
+                }
+                delay(10_000)
+                driverCompanyGatePoll = viewModelScope.launch { refreshDriverCompanyGate() }
+            }
+        }
+    }
+
+    private fun checkDriverRequestForGate() {
+        driverCompanyGatePoll = viewModelScope.launch {
+            try {
+                when (val result = BackendStorage.getMyDriverRequestStatus()) {
+                    is BackendStorage.DriverRequestStatusResult.Found -> {
+                        val status = result.status.status
+                        val gate = when (status) {
+                            "APPROVED" -> DriverCompanyGate.APPROVED
+                            "PENDING" -> DriverCompanyGate.PENDING
+                            "REJECTED" -> DriverCompanyGate.REJECTED
+                            else -> DriverCompanyGate.REQUEST
+                        }
+                        _state.update {
+                            it.copy(
+                                driverCompanyGate = gate,
+                                driverCompanyGateLoaded = true,
+                                driverCompanyName = result.status.companyName,
+                                driverCompanyCode = result.status.companyCode,
+                                driverCompanyRejectionReason = result.status.rejectionReason,
+                                driverCompanyGateError = null
+                            )
+                        }
+                        if (gate == DriverCompanyGate.APPROVED) {
+                            preloadDriverPackages()
+                            loadDriverTrips()
+                            startPackageSubscription()
+                        } else {
+                            _state.update {
+                                it.copy(
+                                    hasActiveTrip = false,
+                                    activeDriverTrip = null,
+                                    driverHasVehicle = false,
+                                    isLoadingDriverTrips = false
+                                )
+                            }
+                            if (gate == DriverCompanyGate.PENDING && _state.value.appRole == AppRole.DRIVER) {
+                                delay(20_000)
+                                driverCompanyGatePoll = viewModelScope.launch { checkDriverRequestForGate() }
+                            }
+                        }
+                    }
+                    BackendStorage.DriverRequestStatusResult.NoRequest -> {
+                        _state.update {
+                            it.copy(
+                                driverCompanyGate = DriverCompanyGate.REQUEST,
+                                driverCompanyGateLoaded = true,
+                                driverCompanyName = null,
+                                driverCompanyCode = null,
+                                driverCompanyRejectionReason = null,
+                                driverCompanyGateError = null,
+                                hasActiveTrip = false,
+                                activeDriverTrip = null,
+                                driverHasVehicle = false,
+                                isLoadingDriverTrips = false
+                            )
+                        }
+                    }
+                    is BackendStorage.DriverRequestStatusResult.Error -> {
+                        Log.w(TAG, "checkDriverRequestForGate failed — ${result.message}")
+                        val currentGate = _state.value.driverCompanyGate
+                        if (currentGate != DriverCompanyGate.APPROVED) {
+                            _state.update {
+                                it.copy(
+                                    driverCompanyGate = DriverCompanyGate.UNKNOWN,
+                                    driverCompanyGateLoaded = true,
+                                    driverCompanyGateError = "Could not check your company status. Check your connection and try again."
+                                )
+                            }
+                        } else {
+                            _state.update { it.copy(driverCompanyGateLoaded = true) }
+                            preloadDriverPackages()
+                            loadDriverTrips()
+                        }
+                        delay(10_000)
+                        driverCompanyGatePoll = viewModelScope.launch { checkDriverRequestForGate() }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "checkDriverRequestForGate failed: ${e.message}")
+                val currentGate = _state.value.driverCompanyGate
+                if (currentGate != DriverCompanyGate.APPROVED) {
+                    _state.update {
+                        it.copy(
+                            driverCompanyGate = DriverCompanyGate.UNKNOWN,
+                            driverCompanyGateLoaded = true,
+                            driverCompanyGateError = "Could not check your company status. Check your connection and try again."
+                        )
+                    }
+                } else {
+                    _state.update { it.copy(driverCompanyGateLoaded = true) }
+                    preloadDriverPackages()
+                    loadDriverTrips()
+                }
+            }
+        }
+    }
+
+    /**
+     * Submits a company request from the driver gate screen (same backend as the
+     * client-side "Request Driver" flow — POST /main/driver-requests).
+     */
+    fun submitDriverCompanyRequest(companyCode: String) {
+        if (companyCode.isBlank() || _state.value.isSubmittingDriverCompanyRequest) return
+        viewModelScope.launch {
+            _state.update { it.copy(isSubmittingDriverCompanyRequest = true, driverCompanyGateError = null) }
+            try {
+                val result = BackendStorage.submitDriverRequest(companyCode)
+                if (result == null) {
+                    _state.update {
+                        it.copy(
+                            isSubmittingDriverCompanyRequest = false,
+                            driverCompanyGate = DriverCompanyGate.PENDING,
+                            driverCompanyGateLoaded = true,
+                            driverCompanyCode = companyCode,
+                            driverCompanyName = null,
+                            driverCompanyRejectionReason = null
+                        )
+                    }
+                    refreshDriverCompanyGate()
+                } else {
+                    _state.update { it.copy(isSubmittingDriverCompanyRequest = false, driverCompanyGateError = result) }
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(isSubmittingDriverCompanyRequest = false, driverCompanyGateError = e.message ?: "Failed to submit request") }
+            }
+        }
+    }
+
+    fun openCreatePackage() {
+        _state.update { it.copy(isCreatingPackage = true, isTrackingPackage = false) }
+        saveNavigationState()
+    }
+
+    fun closeCreatePackage() {
+        _state.update { it.copy(isCreatingPackage = false) }
+        saveNavigationState()
+    }
+
+    fun trackPackage(packageId: String) {
+        _state.update {
+            it.copy(
+                isTrackingPackage = true,
+                isCreatingPackage = false,
+                clientSelectedPackageId = packageId
+            )
+        }
+        saveNavigationState()
+        refreshSinglePackage(packageId)
+        markNoticesForPackageAsRead(packageId)
+    }
+
+    fun closeTrackPackage() {
+        _state.update {
+            it.copy(
+                isTrackingPackage = false,
+                clientSelectedPackageId = null
+            )
+        }
+        saveNavigationState()
+    }
+
+    fun createPackage(pkg: ClientPackage) {
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "createPackage: mediaUrls=${pkg.mediaUrls}, count=${pkg.mediaUrls.size}")
+        }
+
+        viewModelScope.launch {
+            // Double-submit guard: never send the same package twice.
+            if (_state.value.isSubmittingPackage) return@launch
+
+            // Offline guard: keep the draft intact (already persisted as the user
+            // types) and tell the user why the submit did not go through.
+            if (!AuthRepository.isNetworkAvailable()) {
+                _toastEvent.emit("You need an internet connection to create a package — your draft has been saved")
+                return@launch
+            }
+
+            // Wait for any in-flight media uploads before submitting; otherwise
+            // the media can't be attached to the package.
+            if (_state.value.mediaUploads.any { it.isUploading }) {
+                _toastEvent.emit("Media is still uploading — please wait a moment and try again")
+                return@launch
+            }
+            _state.update { it.copy(isSubmittingPackage = true) }
+            val gen = sessionGeneration
+
+            // Re-upload any media that failed to upload when it was added (e.g.
+            // added while offline). Only media with a mediaId reaches the server.
+            val failedMedia = _state.value.mediaUploads.filter { it.mediaId == null && it.byteArray != null }
+            for (media in failedMedia) {
+                val uploadResult = com.gocavgo.twese.network.BackendStorage.uploadFile(
+                    byteArray = media.byteArray!!,
+                    mimeType = media.mimeType,
+                    purpose = "package-media"
+                )
+                if (uploadResult == null) {
+                    _toastEvent.emit("Failed to upload attached media — your draft has been saved. Please check your connection and try again.")
+                    _state.update { it.copy(isSubmittingPackage = false) }
+                    return@launch
+                }
+                _state.update { s ->
+                    s.copy(mediaUploads = s.mediaUploads.map { m ->
+                        if (m.id == media.id) m.copy(
+                            mediaId = uploadResult.mediaId,
+                            url = uploadResult.url,
+                            isUploading = false,
+                            progress = 100.0,
+                            error = null
+                        ) else m
+                    })
+                }
+            }
+            if (gen != sessionGeneration) {
+                // Session changed (e.g. token refresh) — abort but leave form
+                // intact so the user can retry without losing their work.
+                _state.update { it.copy(isSubmittingPackage = false) }
+                _toastEvent.emit("Session refreshed — please try again")
+                return@launch
+            }
+
+            val s = _state.value
+            val authUser = s.authUser
+
+            val sender = if (s.appRole == AppRole.DRIVER) {
+                PersonInput(
+                    role = PersonRole.SENDER,
+                    userId = Optional.absent(),
+                    name = if (pkg.senderName.isNotBlank()) Optional.present(pkg.senderName) else Optional.absent(),
+                    phone = if (pkg.senderPhone.isNotBlank()) Optional.present(pkg.senderPhone) else Optional.absent()
+                )
+            } else {
+                val senderName = listOfNotNull(authUser?.firstName, authUser?.lastName)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+                    .ifBlank { null }
+                PersonInput(
+                    role = PersonRole.SENDER,
+                    userId = if (authUser?.id != null) Optional.present(authUser.id) else Optional.absent(),
+                    name = if (senderName != null) Optional.present(senderName) else Optional.absent(),
+                    phone = if (authUser?.phone?.isNotBlank() == true) Optional.present(authUser.phone) else Optional.absent()
+                )
+            }
+
+            val receiver = PersonInput(
+                role = PersonRole.RECEIVER,
+                name = if (pkg.recipientName.isNotBlank()) Optional.present(pkg.recipientName) else Optional.absent(),
+                phone = if (pkg.recipientPhone.isNotBlank()) Optional.present(pkg.recipientPhone) else Optional.absent()
+            )
+
+            val formState = _state.value.createPackageForm
+            val origin = LocationInput(
+                type = LocationType.ORIGIN,
+                latitude = formState.originLatitude,
+                longitude = formState.originLongitude,
+                placeName = if (pkg.fromAddress.isNotBlank()) Optional.present(pkg.fromAddress) else Optional.absent(),
+                placeId = if (formState.originPlaceId != null) Optional.present(formState.originPlaceId) else Optional.absent()
+            )
+
+            val destination = LocationInput(
+                type = LocationType.DESTINATION,
+                latitude = formState.destLatitude,
+                longitude = formState.destLongitude,
+                placeName = if (pkg.toAddress.isNotBlank()) Optional.present(pkg.toAddress) else Optional.absent(),
+                placeId = if (formState.destPlaceId != null) Optional.present(formState.destPlaceId) else Optional.absent()
+            )
+
+            val weightStr = pkg.weight.trim()
+            val weightValue = weightStr.toDoubleOrNull()
+                ?: Regex("[\\d.]+").find(weightStr)?.value?.toDoubleOrNull()
+
+            val mediaInputs = s.mediaUploads
+                .filter { it.mediaId != null }
+                .map { upload ->
+                    com.gocavgo.twese.type.MediaInput(
+                        mediaId = upload.mediaId!!
+                    )
+                }
+            if (BuildConfig.DEBUG) Log.d(TAG, "createPackage: mediaIds=${mediaInputs.map { it.mediaId }}")
+
+            val details = DetailInput(
+                category = if (pkg.category.isNotBlank()) Optional.present(pkg.category) else Optional.absent(),
+                description = if (pkg.description.isNotBlank()) Optional.present(pkg.description) else Optional.absent(),
+                fragile = Optional.present(pkg.fragile),
+                weight = if (weightValue != null) Optional.present(weightValue) else Optional.absent(),
+                media = if (mediaInputs.isNotEmpty()) Optional.present(mediaInputs) else Optional.absent()
+            )
+
+            val transferRuleType = pkg.transferRuleType?.let { type ->
+                try {
+                    com.gocavgo.twese.type.TransferRuleType.valueOf(type)
+                } catch (_: IllegalArgumentException) { null }
+            }
+
+            val input = CreatePackageInput(
+                deliveryType = DeliveryType.FIXED_ROUTE,
+                sender = Optional.present(sender),
+                receiver = receiver,
+                origin = origin,
+                destination = destination,
+                details = Optional.present(details),
+                transferRuleType = if (transferRuleType != null) Optional.present(transferRuleType) else Optional.Absent,
+                transferMatchUserId = if (pkg.transferMatchUserId?.isNotBlank() == true) Optional.present(pkg.transferMatchUserId) else Optional.Absent
+            )
+
+            val result = PackageRepository.createPackage(input)
+            if (BuildConfig.DEBUG) Log.d(TAG, "createPackage: success=${result != null}, mediaUrls=${result?.mediaUrls}")
+            if (result != null) {
+                if (gen != sessionGeneration) {
+                    _state.update { it.copy(isSubmittingPackage = false) }
+                    return@launch
+                }
+                val isDriver = s.appRole == AppRole.DRIVER
+                _state.update {
+                    it.copy(
+                        clientPackages = listOf(result) + it.clientPackages,
+                        // Drivers also need to see the package in their packages tab
+                        driverCurrentPackages = if (isDriver) {
+                            listOf(result) + it.driverCurrentPackages
+                        } else it.driverCurrentPackages,
+                        isCreatingPackage = false,
+                        isDriverCreatingPackage = false,
+                        isSubmittingPackage = false,
+                        createPackageForm = CreatePackageFormState(),
+                        mediaUploads = emptyList(),
+                        clientDataState = DataState.HAS_DATA
+                    )
+                }
+                SettingsRepository.clearCreatePackageDraft()
+            } else {
+                if (gen == sessionGeneration) {
+                    _state.update { it.copy(isSubmittingPackage = false) }
+                    _toastEvent.emit("Failed to create package. Please try again.")
+                }
+            }
+        }
+    }
+
+    fun getSelectedPackage(): ClientPackage? {
+        val id = _state.value.clientSelectedPackageId ?: return null
+        return _state.value.clientPackages.find { it.id == id || it.packageUuid == id }
+    }
+
+    /**
+     * Refreshes a single package fresh from the backend and merges into in-memory state and disk cache.
+     */
+    fun refreshSinglePackage(packageIdOrUuid: String) {
+        if (!AuthRepository.isNetworkAvailable()) return
+        viewModelScope.launch {
+            try {
+                val currentPkg = _state.value.clientPackages.find { it.id == packageIdOrUuid || it.packageUuid == packageIdOrUuid }
+                    ?: _state.value.driverCurrentPackages.find { it.id == packageIdOrUuid || it.packageUuid == packageIdOrUuid }
+                val targetUuid = currentPkg?.packageUuid?.ifBlank { packageIdOrUuid } ?: packageIdOrUuid
+                val freshPkg = when (val result = PackageRepository.fetchPackageById(targetUuid)) {
+                    is SingleResult.Success -> result.data
+                    is SingleResult.NotFound -> { _toastEvent.emit("Package not found"); return@launch }
+                    is SingleResult.Failure -> { _toastEvent.emit("Failed to load package"); return@launch }
+                }
+                withContext(Dispatchers.IO) {
+                    if (_state.value.appRole == AppRole.CLIENT) {
+                        PackageCache.mergeClientUpdate(freshPkg)
+                    } else {
+                        PackageCache.mergeDriverUpdate(freshPkg)
+                    }
+                }
+                _state.update { s ->
+                    when (s.appRole) {
+                        AppRole.CLIENT -> {
+                            val updated = s.clientPackages.map {
+                                if (it.id == freshPkg.id || it.packageUuid == freshPkg.packageUuid) freshPkg else it
+                            }
+                            s.copy(clientPackages = updated)
+                        }
+                        AppRole.DRIVER -> {
+                            val updated = s.driverCurrentPackages.map {
+                                if (it.id == freshPkg.id || it.packageUuid == freshPkg.packageUuid) freshPkg else it
+                            }
+                            s.copy(driverCurrentPackages = updated)
+                        }
+                        else -> s
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d("TripViewModel", "refreshSinglePackage failed: ${e.message}")
+            }
+        }
+    }
+
+    fun findPackageByCode(code: String): ClientPackage? {
+        return _state.value.clientPackages.find {
+            it.id.equals(code.trim(), ignoreCase = true)
+        }
+    }
+
+    fun fetchClientPackages(isFreshLogin: Boolean = false) {
+        viewModelScope.launch {
+            val gen = sessionGeneration
+            _state.update { it.copy(clientCurrentPage = 0, clientDataState = DataState.LOADING) }
+
+            var hasActiveCached = false
+            if (!isFreshLogin) {
+                // Pre-logged in / session restore: Check cache first
+                val cached = withContext(Dispatchers.IO) { PackageCache.getClientCached() }
+                if (cached != null && cached.items.isNotEmpty()) {
+                    hasActiveCached = cached.items.any { it.isActive() }
+                    _state.update { it.copy(
+                        clientPackages = cached.items,
+                        clientCurrentPage = 0,
+                        clientHasMore = cached.currentPage + 1 < cached.totalPages,
+                        clientTotalPages = cached.totalPages,
+                        clientTotalCount = cached.totalCount,
+                        clientPackagesFetchedOnce = true,
+                        // If cached has active packages, we know data exists; otherwise keep LOADING until backend confirms
+                        clientDataState = if (hasActiveCached) DataState.HAS_DATA else DataState.LOADING,
+                        isClientInitialLoading = false
+                    ) }
+                } else {
+                    // Cache is empty or missing — we DON'T know yet if user has packages.
+                    // Keep initial loading active and fetchedOnce false until the 1st network response!
+                    _state.update { it.copy(
+                        isClientInitialLoading = true,
+                        clientPackagesFetchedOnce = false,
+                        clientDataState = DataState.LOADING
+                    ) }
+                }
+            } else {
+                // Fresh login: Check backend first, show initial loading
+                _state.update { it.copy(
+                    isClientInitialLoading = true,
+                    clientPackagesFetchedOnce = false,
+                    clientDataState = DataState.LOADING
+                ) }
+            }
+
+            // Always fetch fresh data from backend
+            try {
+                when (val result = PackageRepository.fetchMyPackages(page = 0, order = com.gocavgo.twese.type.SortOrder.DESC)) {
+                    is FetchPackagesResult.Success -> {
+                        val page = result.page
+                        withContext(Dispatchers.IO) { PackageCache.saveClient(page) }
+                        if (gen != sessionGeneration) return@launch
+                        val hasActive = page.items.any { it.isActive() }
+                        _state.update { it.copy(
+                            clientPackages = page.items,
+                            clientCurrentPage = 0,
+                            clientHasMore = page.currentPage + 1 < page.totalPages,
+                            clientTotalPages = page.totalPages,
+                            clientTotalCount = page.totalCount,
+                            clientPackagesFetchedOnce = true,
+                            // Definitive: If no active packages exist, set NO_DATA to trigger create modal
+                            clientDataState = if (!hasActive) DataState.NO_DATA else DataState.HAS_DATA
+                        ) }
+                    }
+                    is FetchPackagesResult.Error -> {
+                        Log.e("TripViewModel", "fetchClientPackages: server fetch failed — ${result.message}")
+                        if (gen != sessionGeneration) return@launch
+                        // Never overwrite the cache with an error/empty result.
+                        // If cached data exists keep showing it; otherwise UNKNOWN (not NO_DATA).
+                        if (!AuthRepository.isNetworkAvailable()) {
+                            _toastEvent.emit("You need an internet connection — showing saved data")
+                        }
+                        _state.update { it.copy(
+                            clientPackagesFetchedOnce = true,
+                            clientDataState = if (hasActiveCached) DataState.HAS_DATA else DataState.UNKNOWN
+                        ) }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TripViewModel", "fetchClientPackages: ${e.message}", e)
+                if (!AuthRepository.isNetworkAvailable()) {
+                    _toastEvent.emit("You need an internet connection — showing saved data")
+                }
+                _state.update { it.copy(
+                    clientPackagesFetchedOnce = true,
+                    clientDataState = if (hasActiveCached) DataState.HAS_DATA else DataState.UNKNOWN
+                ) }
+            } finally {
+                if (gen == sessionGeneration) _state.update { it.copy(isClientInitialLoading = false) }
+            }
+        }
+    }
+
+    fun refreshClientPackages() {
+        // Don't clear cache if offline — just show existing data
+        if (!AuthRepository.isNetworkAvailable()) {
+            viewModelScope.launch { _toastEvent.emit("You need an internet connection to refresh — showing saved data") }
+            return
+        }
+        _state.update { it.copy(isRefreshingPackages = true) }
+        viewModelScope.launch {
+            val gen = sessionGeneration
+            try {
+                when (val result = PackageRepository.fetchMyPackages(page = 0, order = com.gocavgo.twese.type.SortOrder.DESC)) {
+                    is FetchPackagesResult.Success -> {
+                        val page = result.page
+                        withContext(Dispatchers.IO) { PackageCache.saveClient(page) }
+                        if (gen != sessionGeneration) return@launch
+                        val hasActive = page.items.any { it.isActive() }
+                        _state.update { it.copy(
+                            clientPackages = page.items,
+                            clientCurrentPage = 0,
+                            clientHasMore = page.currentPage + 1 < page.totalPages,
+                            clientTotalPages = page.totalPages,
+                            clientTotalCount = page.totalCount,
+                            clientDataState = if (!hasActive) DataState.NO_DATA else DataState.HAS_DATA
+                        ) }
+                    }
+                    is FetchPackagesResult.Error -> {
+                        Log.e("TripViewModel", "refreshClientPackages: ${result.message}")
+                        if (gen != sessionGeneration) return@launch
+                        // Don't clear existing data on failure — keep showing what we have
+                        if (!AuthRepository.isNetworkAvailable()) {
+                            _toastEvent.emit("You need an internet connection to refresh — showing saved data")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TripViewModel", "refreshClientPackages: ${e.message}", e)
+                // Don't clear existing data on failure — keep showing what we have
+                if (!AuthRepository.isNetworkAvailable()) {
+                    _toastEvent.emit("You need an internet connection to refresh — showing saved data")
+                }
+            } finally {
+                if (gen == sessionGeneration) _state.update { it.copy(isRefreshingPackages = false) }
+            }
+        }
+    }
+
+    fun loadMoreClientPackages() {
+        val s = _state.value
+        if (s.isLoadingMorePackages || !s.clientHasMore) return
+        viewModelScope.launch {
+            val gen = sessionGeneration
+            _state.update { it.copy(isLoadingMorePackages = true) }
+            try {
+                val nextPage = s.clientCurrentPage + 1
+                val result = PackageRepository.fetchMyPackages(page = nextPage, order = com.gocavgo.twese.type.SortOrder.DESC)
+                when (result) {
+                    is FetchPackagesResult.Success -> {
+                        val page = result.page
+                        val combined = s.clientPackages + page.items
+                        withContext(Dispatchers.IO) {
+                            PackageCache.saveClient(
+                                PagedResult(
+                                    items = combined,
+                                    totalCount = page.totalCount,
+                                    totalPages = page.totalPages,
+                                    currentPage = nextPage
+                                )
+                            )
+                        }
+                        if (gen != sessionGeneration) return@launch
+                        _state.update { it.copy(
+                            clientPackages = combined,
+                            clientCurrentPage = nextPage,
+                            clientHasMore = page.currentPage + 1 < page.totalPages,
+                            clientTotalPages = page.totalPages,
+                            clientTotalCount = page.totalCount
+                        ) }
+                    }
+                    is FetchPackagesResult.Error -> {
+                        Log.w("TripViewModel", "loadMoreClientPackages: ${result.message}")
+                        if (gen == sessionGeneration) _toastEvent.emit("Couldn't load more packages")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TripViewModel", "loadMoreClientPackages: ${e.message}", e)
+            } finally {
+                _state.update { it.copy(isLoadingMorePackages = false) }
+            }
+        }
+    }
+
+    // ── New Package Subscription (driver-side real-time) ───────────────────
+
+    /**
+     * Start listening for real-time new-package-transfer events.
+     * Called after driver login and on app resume.
+     */
+    fun startPackageSubscription() {
+        stopPackageSubscription() // avoid duplicate subscriptions
+
+        // Seed seen-ids from current offers so we don't re-emit existing ones
+        val initialIds = _state.value.driverAvailableOffers.map { it.id }.toSet()
+        com.gocavgo.twese.data.PackageTransferSubscription.seedSeenIds(initialIds)
+
+        // Start the real-time GraphQL subscription (+ polling fallback)
+        com.gocavgo.twese.data.PackageTransferSubscription.start(viewModelScope)
+
+        // Start transfer-created subscription for incoming transfers from workers
+        startTransferSubscription()
+
+        // Collect events from the subscription
+        subscriptionJob = viewModelScope.launch {
+            com.gocavgo.twese.data.PackageTransferSubscription.events.collect { pkg ->
+                // Guard: skip if this package has already been accepted and moved
+                // to current packages (prevents race with acceptAUTOTransfer/etc).
+                val alreadyAccepted = _state.value.driverCurrentPackages.any { it.id == pkg.id }
+                if (alreadyAccepted) return@collect
+
+                val currentState = _state.value
+                val isOnOffersTab = currentState.driverHomeTab == 1 && currentState.driverPackageSubTab == 1
+                val pkgId = pkg.id
+                _state.update { s ->
+                    val existing = s.driverAvailableOffers.any { it.id == pkg.id }
+                    val updatedOffers = if (existing) s.driverAvailableOffers else listOf(pkg) + s.driverAvailableOffers
+                    if (isOnOffersTab) {
+                        s.copy(
+                            driverAvailableOffers = updatedOffers,
+                            newPackageFromSubscription = pkg
+                        )
+                    } else {
+                        s.copy(
+                            driverAvailableOffers = updatedOffers,
+                            newPackageFromSubscription = pkg,
+                            showNewPackageToast = true
+                        )
+                    }
+                }
+                if (isOnOffersTab) {
+                    // Auto-clear the "new" flag after 8 seconds so the border animation stops.
+                    kotlinx.coroutines.delay(8_000)
+                    _state.update { s ->
+                        if (s.newPackageFromSubscription?.id == pkgId) {
+                            s.copy(newPackageFromSubscription = null)
+                        } else s
+                    }
+                }
+            }
+        }
+    }
+
+    fun stopPackageSubscription() {
+        subscriptionJob?.cancel()
+        subscriptionJob = null
+        com.gocavgo.twese.data.PackageTransferSubscription.stop()
+        transferSubscriptionJob?.cancel()
+        transferSubscriptionJob = null
+        com.gocavgo.twese.data.TransferCreatedSubscriptionHandler.stop()
+    }
+
+    /**
+     * Subscribes to incoming transfers (worker-to-driver) in real-time.
+     */
+    private fun startTransferSubscription() {
+        transferSubscriptionJob?.cancel()
+
+        // Seed seen-ids from current incoming transfers
+        val initialIds = _state.value.driverIncomingTransfers.map { it.transferId }.toSet()
+        com.gocavgo.twese.data.TransferCreatedSubscriptionHandler.seedSeenIds(initialIds)
+
+        com.gocavgo.twese.data.TransferCreatedSubscriptionHandler.start(viewModelScope)
+
+        transferSubscriptionJob = viewModelScope.launch {
+            com.gocavgo.twese.data.TransferCreatedSubscriptionHandler.events.collect { event ->
+                val matched = event.matched
+                // Skip if transfer already in the list
+                val alreadyPresent = _state.value.driverIncomingTransfers.any { it.transferId == matched.transferId }
+                if (alreadyPresent) return@collect
+
+                // Prepend the new transfer to the incoming list
+                _state.update { s ->
+                    s.copy(
+                        driverIncomingTransfers = listOf(matched) + s.driverIncomingTransfers
+                    )
+                }
+                Log.d(TAG, "Incoming transfer received: ${matched.transferId}")
+            }
+        }
+    }
+
+    /**
+     * Called when the user taps the floating new-package toast.
+     * Navigates to the Available Offers tab and dismisses the toast.
+     */
+    fun onNewPackageToastClicked() {
+        val pkg = _state.value.newPackageFromSubscription
+        _state.update {
+            it.copy(
+                showNewPackageToast = false,
+                newPackageFromSubscription = null,
+                driverHomeTab = 1,
+                driverPackageSubTab = 1,
+                driverAvailableOffers = if (pkg != null) listOf(pkg) + it.driverAvailableOffers else it.driverAvailableOffers
+            )
+        }
+    }
+
+    fun dismissNewPackageToast() {
+        _state.update { it.copy(showNewPackageToast = false, newPackageFromSubscription = null) }
+    }
+
+    fun clearNewPackageFlag() {
+        _state.update { it.copy(newPackageFromSubscription = null) }
+    }
+
+    /**
+     * Directly accept an AUTO transfer — no code, no confirmation dialog.
+     * Calls the server and moves the package from offers to active packages.
+     */
+    fun acceptAUTOTransfer(packageId: String, transferId: String) {
+        val s = _state.value
+        if (s.isAcceptingTransfer) return
+        if (!s.hasActiveTrip) {
+            viewModelScope.launch { _toastEvent.emit("No active trip — you cannot accept package offers until a trip is scheduled for you") }
+            return
+        }
+        val tripId = s.activeDriverTrip?.id?.toString()
+        viewModelScope.launch {
+            _state.update { it.copy(isAcceptingTransfer = true, acceptTransferPackageId = packageId) }
+            try {
+                val result = PackageRepository.acceptPackageByTransfer(transferId, tripId = tripId)
+                if (result.success) {
+                    _state.update { s2 ->
+                        val offer = s2.driverAvailableOffers.find { it.id == packageId }
+                            ?: s2.driverIncomingTransfers.flatMap { it.packages }.find { it.id == packageId }
+                        val accepted = offer?.copy(
+                            status = PackageStatus.PICKED_UP,
+                            driverName = s2.driverProfile.name,
+                            driverPhone = s2.driverProfile.phone,
+                            driverCompany = "QuickCargo Ltd",
+                            vehicleType = "car",
+                            deliveryCode = packageId.replace("PKG", "DLV"),
+                            statusHistory = listOf(StatusUpdate(PackageStatus.PICKED_UP, "Just now", offer.fromAddress, "Offer accepted"))
+                        ) ?: result.acceptedPackages.firstOrNull()
+
+                        s2.copy(
+                            driverCurrentPackages = if (accepted != null) listOf(accepted) + s2.driverCurrentPackages else s2.driverCurrentPackages,
+                            driverAvailableOffers = s2.driverAvailableOffers.filter { it.id != packageId },
+                            driverIncomingTransfers = s2.driverIncomingTransfers.filter { it.transferId != transferId },
+                            acceptTransferPackageId = null,
+                            isAcceptingTransfer = false
+                        )
+                    }
+                    loadDriverPackages()
+                    _toastEvent.emit("Offer accepted")
+                } else {
+                    _state.update { it.copy(isAcceptingTransfer = false, acceptTransferPackageId = null) }
+                    _toastEvent.emit(result.errorMessage ?: "Failed to accept offer")
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(isAcceptingTransfer = false, acceptTransferPackageId = null) }
+                _toastEvent.emit("Error accepting offer: ${e.message}")
+            }
+        }
+    }
+
+    private fun preloadDriverPackages() {
+        viewModelScope.launch {
+            // Local-first: show cached data immediately
+            val cached = withContext(Dispatchers.IO) { PackageCache.getDriverCached() }
+            if (cached != null) {
+                _state.update { it.copy(
+                    driverCurrentPackages = cached.items,
+                    driverCurrentPage = 0,
+                    driverCurrentHasMore = cached.currentPage + 1 < cached.totalPages,
+                    driverCurrentTotalPages = cached.totalPages,
+                    driverCurrentTotalCount = cached.totalCount
+                ) }
+            }
+            // Preload incoming transfers in background
+            loadDriverIncomingTransfers()
+        }
+    }
+
+    /**
+     * Load real driver trips from cavgotrips via the gateway.
+     * Called on login and whenever the driver trip list needs refreshing.
+     * Fetches the active trip (SCHEDULED or IN_PROGRESS) and recent history.
+     */
+    /**
+     * MQTT trip channel callback (runs on the MQTT executor thread). Applies the
+     * live waypoint progress fast-path immediately, then debounces a full network
+     * reload so DB flags converge without a request storm.
+     */
+    private fun onTripMqttMessage(update: MqttTripUpdate?) {
+        if (_state.value.appRole != AppRole.DRIVER) return
+        viewModelScope.launch {
+            if (update != null) {
+                applyMqttTripProgress(update)
+            }
+            maybeReloadDriverTrips()
+        }
+    }
+
+    private fun maybeReloadDriverTrips() {
+        val now = System.currentTimeMillis()
+        if (now - lastMqttTripReloadAtMs < MQTT_RELOAD_COOLDOWN_MS) return
+        lastMqttTripReloadAtMs = now
+        loadDriverTrips()
+    }
+
+    private fun fuzzyWaypointNameMatch(a: String?, b: String?): Boolean {
+        if (a.isNullOrBlank() || b.isNullOrBlank()) return false
+        val normA = a.lowercase().replace("\\s+".toRegex(), "").trim()
+        val normB = b.lowercase().replace("\\s+".toRegex(), "").trim()
+        return normA == normB || normA.contains(normB) || normB.contains(normA)
+    }
+
+    /** Haversine distance in km. */
+    private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        return r * 2 * Math.asin(Math.min(1.0, Math.sqrt(a)))
+    }
+
+    // A DONE/ARRIVED waypoint whose reported remaining position is farther than this
+    // from the live GPS sample is bogus (e.g. fake emulator coordinates on another
+    // continent). Such waypoints must NOT be marked as passed — no-miss invariant.
+    private fun isReachPlausible(wp: BackendStorage.DriverTripWaypoint, update: MqttTripUpdate): Boolean {
+        val lat = update.latitude ?: return true // no position in update → trust server state
+        val lng = update.longitude ?: return true
+        if (wp.latitude == 0.0 && wp.longitude == 0.0) return true // waypoint has no coords
+        return haversineKm(lat, lng, wp.latitude, wp.longitude) <= MAX_WAYPOINT_REACH_KM
+    }
+
+    /**
+     * Fast-path: applies the server's live waypoint progress (travel-ordered,
+     * sent ~every 10s) onto the displayed active trip and recomputes the stop
+     * index immediately, so the UI no longer depends on the lagging DB flags
+     * fetched via GraphQL ("trip upcoming waypoint changes" instability).
+     */
+    private fun applyMqttTripProgress(update: MqttTripUpdate) {
+        val trip = _state.value.activeDriverTrip ?: return
+        if (update.tripId != null && update.tripId != trip.id) return
+        latestMqttTripUpdate = update
+        val patched = patchTripProgress(trip, update) ?: return
+        val newIndex = calculateCurrentStopIndex(patched)
+        _state.update {
+            it.copy(
+                activeDriverTrip = patched,
+                hasActiveTrip = true,
+                trip = mapBackendTripToTrip(patched),
+                currentStopIndex = newIndex,
+                driverLocation = if (update.latitude != null && update.longitude != null)
+                    it.driverLocation.copy(lat = update.latitude, lng = update.longitude)
+                else it.driverLocation
+            )
+        }
+        Log.d(TAG, "applyMqttTripProgress: trip=${trip.id}, next=${update.waypoints.firstOrNull { it.state == "APPROACHING" }?.waypointName}, idx=$newIndex")
+    }
+
+    /**
+     * Pure merge of a live [MqttTripUpdate] onto a backend trip. Matching uses the
+     * backend mapping waypointIndex -> DB order (index + 1), falling back to fuzzy
+     * name comparison so origin/destination naming differences don't break it.
+     */
+    private fun patchTripProgress(trip: BackendStorage.DriverTrip, update: MqttTripUpdate): BackendStorage.DriverTrip? {
+        if (update.waypoints.isEmpty()) return null
+        val byIndex = update.waypoints.mapNotNull { wp ->
+            wp.waypointIndex.takeIf { it >= 0 }?.let { it to wp }
+        }.toMap()
+
+        val nextProgress = update.waypoints.firstOrNull { it.state == "APPROACHING" }
+        val allReached = update.waypoints.isNotEmpty() && update.waypoints.all { it.state == "DONE" || it.state == "ARRIVED" }
+
+        val patched = trip.waypoints.map { wp ->
+            val progress = byIndex[(wp.order ?: -1) - 1]
+                ?: update.waypoints.firstOrNull { fuzzyWaypointNameMatch(it.waypointName, wp.locationName) }
+            if (progress == null) {
+                wp
+            } else {
+                // No-miss guard: an already-passed stop stays passed (monotonic), but a
+                // NEWLY DONE/ARRIVED stop is only trusted when the live GPS sample is
+                // plausibly near it. A bogus far-away coordinate (e.g. emulator default
+                // GPS on another continent) can therefore never mark a waiting stop as
+                // passed.
+                val newlyReached = progress.state == "DONE" || progress.state == "ARRIVED"
+                val reached = wp.isPassed || (newlyReached && isReachPlausible(wp, update))
+                val isNext = !allReached && !reached && when {
+                    nextProgress == null -> false
+                    nextProgress.waypointIndex >= 0 && (wp.order ?: -1) == nextProgress.waypointIndex + 1 -> true
+                    fuzzyWaypointNameMatch(wp.locationName, nextProgress.waypointName) -> true
+                    else -> false
+                }
+                wp.copy(
+                    isPassed = reached,
+                    isNext = isNext,
+                    remainingDistance = progress.remainingDistance ?: wp.remainingDistance,
+                    remainingTime = progress.remainingTime ?: wp.remainingTime
+                )
+            }
+        }
+
+        val destProgress = update.waypoints.lastOrNull()
+        return trip.copy(
+            waypoints = patched,
+            currentLatitude = update.latitude ?: trip.currentLatitude,
+            currentLongitude = update.longitude ?: trip.currentLongitude,
+            currentSpeed = update.speed ?: trip.currentSpeed,
+            remainingDistanceToDestination = destProgress?.remainingDistance ?: trip.remainingDistanceToDestination,
+            remainingTimeToDestination = destProgress?.remainingTime ?: trip.remainingTimeToDestination
+        )
+    }
+
+    fun loadDriverTrips() {
+        viewModelScope.launch {
+            tripLoadMutex.withLock {
+            val userId = _state.value.authUser?.id?.toLongOrNull() ?: return@launch
+
+            // ── Step 1: Load from cache silently (no spinner) ──────────────
+            val cached = withContext(Dispatchers.IO) { com.gocavgo.twese.data.DriverTripCache.get() }
+            if (cached != null) {
+                val c = cached
+                val cachedActiveTrip = if (c.driverHasVehicle) c.activeTrip else null
+                _state.update {
+                    it.copy(
+                        activeDriverTrip = cachedActiveTrip,
+                        driverTripHistory = c.tripHistory,
+                        driverMetrics = c.metrics,
+                        hasActiveTrip = cachedActiveTrip != null,
+                        isLoadingDriverTrips = false, // no spinner — user sees cached data
+                        trip = if (cachedActiveTrip != null) mapBackendTripToTrip(cachedActiveTrip) else Trip(id = "", routeLabel = "", stops = emptyList()),
+                        currentStopIndex = calculateCurrentStopIndex(cachedActiveTrip),
+                        arrivedAtStop = false,
+                        tripCompleted = false,
+                        driverCompletedTrips = c.driverCompletedTrips
+                    )
+                }
+                // Restore vehicle from cache if not yet loaded by refreshDriverVehicle
+                if (!_state.value.driverHasVehicle && c.driverHasVehicle) {
+                    _state.update {
+                        it.copy(
+                            vehicle = com.gocavgo.twese.viewmodel.DriverVehicle(
+                                id = c.vehicleId,
+                                plateNumber = c.vehiclePlate.ifBlank { it.vehicle.plateNumber },
+                                model = c.vehicleModel.ifBlank { it.vehicle.model },
+                                vehicleType = c.vehicleType ?: it.vehicle.vehicleType,
+                                seats = c.vehicleSeats.takeIf { s -> s > 0 } ?: it.vehicle.seats
+                            ),
+                            driverHasVehicle = c.driverHasVehicle
+                        )
+                    }
+                }
+                refreshDriverPackageLocations()
+            } else {
+                // No cache — show loading only on very first load
+                if (!_state.value.hasActiveTrip && !_state.value.driverHasVehicle) {
+                    _state.update { it.copy(isLoadingDriverTrips = true) }
+                }
+            }
+
+            // ── Step 2: Refresh from network (silent if cache existed) ─────
+            val isOnline = com.gocavgo.twese.data.AuthRepository.isNetworkAvailable()
+            if (!isOnline) {
+                _state.update { it.copy(isTripDataStale = cached != null) }
+                if (cached != null) {
+                    Log.d(TAG, "loadDriverTrips: offline — showing cached data")
+                } else {
+                    Log.w(TAG, "loadDriverTrips: offline, no cache")
+                }
+                _state.update { it.copy(isLoadingDriverTrips = false) }
+                startTripPolling()
+                return@launch
+            }
+
+            try {
+                // Fetch driver profile + assigned vehicle from cavgomain
+                refreshDriverVehicle()
+
+                // Fetch driver's active/scheduled trips and completed history by driver ID
+                val activeTripsRes = BackendStorage.fetchDriverTrips(userId, "SCHEDULED,IN_PROGRESS", limit = 10)
+                val historyTripsRes = BackendStorage.fetchDriverTrips(userId, "COMPLETED", limit = 20)
+
+                // If either call could not reach the trips backend, do NOT interpret
+                // that as "driver has no trips" — keep the current trip/vehicle on
+                // screen (and in cache) and retry on the next poll.
+                if (activeTripsRes is BackendStorage.DriverTripsResult.Unreachable ||
+                    historyTripsRes is BackendStorage.DriverTripsResult.Unreachable) {
+                    val msg = (activeTripsRes as? BackendStorage.DriverTripsResult.Unreachable)?.message
+                        ?: (historyTripsRes as BackendStorage.DriverTripsResult.Unreachable).message
+                    Log.w(TAG, "loadDriverTrips: trips backend unreachable ($msg) — keeping current state")
+                    _state.update { it.copy(isLoadingDriverTrips = false, isTripDataStale = cached != null) }
+                    startTripPolling()
+                    return@launch
+                }
+                val driverTripsRes = (activeTripsRes as BackendStorage.DriverTripsResult.Success).data
+                val historyTrips = (historyTripsRes as BackendStorage.DriverTripsResult.Success).data
+
+                // Only consider active trip if driver HAS an assigned car
+                val hasCar = _state.value.driverHasVehicle
+                val activeTrip: BackendStorage.DriverTrip? = if (hasCar) {
+                    // Priority 1: IN_PROGRESS trip
+                    driverTripsRes.trips.firstOrNull { it.status.equals("IN_PROGRESS", ignoreCase = true) }
+                        // Priority 2: Closest SCHEDULED trip by departure time
+                        ?: driverTripsRes.trips.filter { it.status.equals("SCHEDULED", ignoreCase = true) }
+                            .minByOrNull { it.departureTime ?: Long.MAX_VALUE }
+                        // Fallback to first trip if any
+                        ?: driverTripsRes.trips.firstOrNull()
+                } else {
+                    // No car assigned -> driver cannot have an active trip
+                    null
+                }
+
+                Log.d(TAG, "loadDriverTrips OK: hasCar=$hasCar, active=${activeTrip?.id ?: "none"}, history=${historyTrips.trips.size}")
+
+                // Re-apply the latest live MQTT progress onto the freshly fetched trip
+                // so lagging DB flags never replace the real-time waypoint state.
+                val latestUpdate = latestMqttTripUpdate
+                val resolvedActive = if (activeTrip != null && latestUpdate?.tripId == activeTrip.id) {
+                    patchTripProgress(activeTrip, latestUpdate) ?: activeTrip
+                } else {
+                    activeTrip
+                }
+
+                val completedTrips = historyTrips.trips.map { t ->
+                    CompletedTrip(
+                        origin = t.origin ?: "Unknown",
+                        destination = t.destination ?: "Unknown",
+                        plateNumber = t.vehicleLicensePlate ?: ""
+                    )
+                }
+                val v = _state.value.vehicle
+
+                _state.update {
+                    it.copy(
+                        activeDriverTrip = resolvedActive,
+                        driverTripHistory = historyTrips.trips,
+                        driverMetrics = driverTripsRes.metrics ?: historyTrips.metrics,
+                        hasActiveTrip = resolvedActive != null,
+                        isLoadingDriverTrips = false,
+                        isTripDataStale = false, // fresh data arrived
+                        trip = if (resolvedActive != null) mapBackendTripToTrip(resolvedActive) else Trip(id = "", routeLabel = "", stops = emptyList()),
+                        currentStopIndex = calculateCurrentStopIndex(resolvedActive),
+                        arrivedAtStop = false,
+                        tripCompleted = false,
+                        driverCompletedTrips = completedTrips
+                    )
+                }
+
+                // Save to cache
+                withContext(Dispatchers.IO) {
+                    com.gocavgo.twese.data.DriverTripCache.save(
+                        com.gocavgo.twese.data.DriverTripCache.CachedDriverTripState(
+                            activeTrip = resolvedActive,
+                            tripHistory = historyTrips.trips,
+                            metrics = driverTripsRes.metrics ?: historyTrips.metrics,
+                            driverCompletedTrips = completedTrips,
+                            vehicleId = v.id,
+                            vehiclePlate = v.plateNumber,
+                            vehicleModel = v.model,
+                            vehicleType = v.vehicleType,
+                            vehicleSeats = v.seats,
+                            driverHasVehicle = _state.value.driverHasVehicle
+                        )
+                    )
+                }
+
+                // Keep package pickup/drop-off choices in sync
+                refreshDriverPackageLocations()
+                // Subscribe to MQTT trip channel for real-time updates & ensure vehicle publisher is active
+                val vId = _state.value.vehicle.id ?: activeTrip?.vehicleId ?: historyTrips.trips.firstOrNull()?.vehicleId
+                if (vId != null && vId > 0) {
+                    val vidStr = vId.toString()
+                    MqttLocationPublisher.vehicleId = vidStr
+                    MqttTripSubscriber.subscribe(vidStr) { update ->
+                        onTripMqttMessage(update)
+                    }
+                }
+                // Ensure background polling is running with dynamic interval (3m no car / 5m idle car / 15m active trip)
+                startTripPolling()
+            } catch (e: Exception) {
+                Log.w(TAG, "loadDriverTrips failed: ${e.message}")
+                // On network error, mark stale if we have cached data
+                _state.update { it.copy(
+                    isLoadingDriverTrips = false,
+                    isTripDataStale = cached != null
+                ) }
+                if (cached == null) _state.update { it.copy(isLoadingDriverTrips = false) }
+            }
+            }
+        }
+    }
+
+    // ── Driver polling strategy ──────────────────────────────────────────────
+
+    private fun getDriverPollingIntervalMs(): Long {
+        val s = _state.value
+        return when {
+            s.hasActiveTrip -> 15 * 60 * 1000L       // 15 mins during active trip
+            s.driverHasVehicle -> 5 * 60 * 1000L     // 5 mins when driver has a car (idle)
+            else -> 3 * 60 * 1000L                   // 3 mins when driver has no car
+        }
+    }
+
+    private fun startTripPolling() {
+        if (_state.value.appRole != AppRole.DRIVER) return
+        tripPollJob?.cancel()
+        tripPollJob = viewModelScope.launch {
+            while (true) {
+                if (_state.value.appRole != AppRole.DRIVER) break
+                val intervalMs = getDriverPollingIntervalMs()
+                val hasCar = _state.value.driverHasVehicle
+                val hasActiveTrip = _state.value.hasActiveTrip
+                Log.d(TAG, "Driver poll scheduled: next check in ${intervalMs / 1000}s (hasCar=$hasCar, activeTrip=$hasActiveTrip)")
+                delay(intervalMs)
+                if (_state.value.appRole != AppRole.DRIVER) break
+                Log.d(TAG, "Driver poll executing silently...")
+                loadDriverTrips()
+            }
+        }
+    }
+
+    private fun stopTripPolling() {
+        tripPollJob?.cancel()
+        tripPollJob = null
+    }
+
+    /**
+     * Refreshes the driver's profile + assigned vehicle from the single sync
+     * endpoint (POST /main/users/sync), which carries the user's identity,
+     * company, and active vehicle — no separate /main my-vehicle call.
+     * Also keeps MQTT publishing pointed at the assigned vehicle.
+     */
+    private suspend fun refreshDriverVehicle() {
+        val sync = BackendStorage.getUserSync() ?: return
+        if (!sync.hasCompany) {
+            // Approved driver but sync reports no company — transient/inconsistent;
+            // the gate polling surfaces the real membership state. Keep current.
+            return
+        }
+        val v = sync.vehicle
+        _state.update {
+            it.copy(
+                driverProfile = it.driverProfile.copy(
+                    name = sync.displayName.ifBlank { it.driverProfile.name },
+                    phone = sync.phone ?: it.driverProfile.phone,
+                    email = sync.email ?: it.driverProfile.email
+                )
+            )
+        }
+        if (v != null) {
+            _state.update {
+                it.copy(
+                    vehicle = DriverVehicle(
+                        id = v.id?.takeIf { id -> id > 0 },
+                        plateNumber = v.licensePlate ?: it.vehicle.plateNumber,
+                        model = listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { it.vehicle.model },
+                        vehicleType = v.vehicleType ?: it.vehicle.vehicleType,
+                        seats = v.capacity.takeIf { it > 0 } ?: it.vehicle.seats
+                    ),
+                    driverHasVehicle = true
+                )
+            }
+            // Keep MQTT location publishing and trip subscriber pointed at the assigned vehicle
+            val assignedVid = v.id?.takeIf { it > 0 }?.toString()
+            MqttLocationPublisher.vehicleId = assignedVid
+            if (assignedVid != null) {
+                MqttTripSubscriber.subscribe(assignedVid) { update ->
+                    onTripMqttMessage(update)
+                }
+            } else {
+                MqttTripSubscriber.disconnect()
+            }
+        } else {
+            // Sync CONFIRMED the driver belongs to a company but has no active
+            // vehicle — clearing is correct here.
+            Log.i(TAG, "refreshDriverVehicle: sync confirms no assigned vehicle — clearing")
+            _state.update { it.copy(vehicle = it.vehicle.copy(id = null), driverHasVehicle = false) }
+            MqttLocationPublisher.vehicleId = null
+            MqttTripSubscriber.disconnect()
+        }
+    }
+
+    private fun sameLocation(a: String?, b: String?): Boolean {
+        if (a.isNullOrBlank() || b.isNullOrBlank()) return false
+        val normA = a.trim().lowercase()
+        val normB = b.trim().lowercase()
+        return normA == normB || normA.contains(normB) || normB.contains(normA)
+    }
+
+    private fun calculateCurrentStopIndex(backendTrip: BackendStorage.DriverTrip?): Int {
+        if (backendTrip == null) return 0
+        val isScheduled = backendTrip.status.equals("SCHEDULED", ignoreCase = true)
+        if (isScheduled) return 0 // SCHEDULED: driver is still at trip origin (index 0)
+
+        val isDeparted = backendTrip.status.equals("IN_PROGRESS", ignoreCase = true)
+
+        // Empty waypoints: origin (index 0) passed when departed, heading to destination (index 1)
+        if (backendTrip.waypoints.isEmpty()) {
+            val idx = if (isDeparted) 1 else 0
+            Log.d(TAG, "calculateCurrentStopIndex (empty waypoints): status=${backendTrip.status}, index=$idx")
+            return idx
+        }
+
+        // Check intermediate waypoints (index 0 is origin, so intermediate starts at 1).
+        // Prefer the backend's explicit isNext marker (set for the true next stop in
+        // travel order), then fall back to the first unpassed waypoint. Waypoints are
+        // already sorted by travel order, so this is stable across refetch slumps.
+        // No-miss invariant: always take the EARLIEST indicator — an isNext pointing at
+        // a later stop must never skip an earlier unpassed waypoint (data inconsistency).
+        val isNextIdx = backendTrip.waypoints.indexOfFirst { it.isNext }
+        val firstUnpassed = backendTrip.waypoints.indexOfFirst { !it.isPassed }
+        val idx = when {
+            isNextIdx != -1 && firstUnpassed != -1 -> minOf(isNextIdx, firstUnpassed) + 1
+            isNextIdx != -1 -> isNextIdx + 1
+            firstUnpassed != -1 -> firstUnpassed + 1
+            else -> backendTrip.waypoints.size + 1 // All waypoints passed -> destination (last index)
+        }
+        Log.d(TAG, "calculateCurrentStopIndex: status=${backendTrip.status}, index=$idx, waypoints=${backendTrip.waypoints.mapIndexed { i, wp -> "[$i]: ${wp.locationName} (isPassed=${wp.isPassed}, isNext=${wp.isNext}, dist=${wp.remainingDistance})" }}")
+        return idx
+    }
+
+    private fun ClientPackage.toTripPackage(): com.gocavgo.twese.data.Package {
+        return com.gocavgo.twese.data.Package(
+            id = this.id,
+            label = this.description.ifBlank { "Pkg #${this.trackingCode.ifBlank { this.id }}" },
+            recipient = this.recipientName.ifBlank { "Client" },
+            weight = this.weight.ifBlank { "Standard" },
+            notes = if (this.fragile) "Fragile" else ""
+        )
+    }
+
+    /**
+     * Maps a backend DriverTrip to the existing Trip model used by the UI.
+     * Constructs full sequence: Origin (0) -> Intermediate Waypoints (1..N) -> Destination (N+1).
+     * Origin is marked isPassed = true when trip is IN_PROGRESS (departed).
+     * Destination uses remainingDistanceToDestination / remainingTimeToDestination.
+     */
+    private fun mapBackendTripToTrip(
+        backendTrip: BackendStorage.DriverTrip,
+        driverPackages: List<ClientPackage> = _state.value.driverCurrentPackages
+    ): Trip {
+        val isScheduled = backendTrip.status.equals("SCHEDULED", ignoreCase = true)
+        val isDeparted = backendTrip.status.equals("IN_PROGRESS", ignoreCase = true)
+        val isCompleted = backendTrip.status.equals("COMPLETED", ignoreCase = true)
+
+        val waypoints = if (backendTrip.waypoints.isNotEmpty()) {
+            val allInterpassed = isDeparted && backendTrip.waypoints.all { it.isPassed }
+            listOfNotNull(
+                // Origin stop (Order 0)
+                backendTrip.origin?.let {
+                    BackendStorage.DriverTripWaypoint(
+                        locationName = it,
+                        latitude = backendTrip.originLatitude ?: 0.0,
+                        longitude = backendTrip.originLongitude ?: 0.0,
+                        isPassed = isDeparted || isCompleted,
+                        isNext = !isDeparted && !isCompleted,
+                        remainingDistance = if (isDeparted) 0.0 else backendTrip.remainingDistanceToDestination,
+                        remainingTime = null
+                    )
+                }
+            ) + backendTrip.waypoints + listOfNotNull(
+                // Destination stop (Order N+1)
+                backendTrip.destination?.let {
+                    BackendStorage.DriverTripWaypoint(
+                        locationName = it,
+                        latitude = backendTrip.destinationLatitude ?: 0.0,
+                        longitude = backendTrip.destinationLongitude ?: 0.0,
+                        isPassed = isCompleted,
+                        isNext = isDeparted && allInterpassed,
+                        remainingDistance = backendTrip.remainingDistanceToDestination,
+                        remainingTime = backendTrip.remainingTimeToDestination
+                    )
+                }
+            )
+        } else {
+            listOfNotNull(
+                backendTrip.origin?.let {
+                    BackendStorage.DriverTripWaypoint(
+                        locationName = it,
+                        latitude = backendTrip.originLatitude ?: 0.0,
+                        longitude = backendTrip.originLongitude ?: 0.0,
+                        isPassed = isDeparted || isCompleted,
+                        isNext = !isDeparted && !isCompleted,
+                        remainingDistance = if (isDeparted) 0.0 else backendTrip.remainingDistanceToDestination,
+                        remainingTime = null
+                    )
+                },
+                backendTrip.destination?.let {
+                    BackendStorage.DriverTripWaypoint(
+                        locationName = it,
+                        latitude = backendTrip.destinationLatitude ?: 0.0,
+                        longitude = backendTrip.destinationLongitude ?: 0.0,
+                        isPassed = isCompleted,
+                        isNext = isDeparted,
+                        remainingDistance = backendTrip.remainingDistanceToDestination,
+                        remainingTime = backendTrip.remainingTimeToDestination
+                    )
+                }
+            )
+        }
+
+        val stops = waypoints.mapIndexed { index, wp ->
+            val stopName = wp.locationName ?: "Stop ${index + 1}"
+            val pickups = driverPackages
+                .filter { sameLocation(it.fromAddress, stopName) }
+                .map { it.toTripPackage() }
+            val dropoffs = if (isScheduled) {
+                emptyList() // No dropoffs when trip is SCHEDULED (not departed yet)
+            } else {
+                driverPackages
+                    .filter { sameLocation(it.toAddress, stopName) }
+                    .map { it.toTripPackage() }
+            }
+
+            TripStop(
+                id = index,
+                name = stopName,
+                address = stopName,
+                lat = wp.latitude,
+                lng = wp.longitude,
+                pickups = pickups,
+                dropoffs = dropoffs
+            )
+        }
+
+        val label = listOfNotNull(backendTrip.origin, backendTrip.destination)
+            .joinToString(" → ")
+            .ifBlank { backendTrip.routeName ?: "Trip #${backendTrip.id}" }
+
+        return Trip(id = backendTrip.id.toString(), routeLabel = label, stops = stops)
+    }
+
+    /**
+     * Refresh the driver's active trip and history.
+     * Call this from pull-to-refresh or after status changes.
+     */
+    fun refreshDriverTrips() {
+        if (!AuthRepository.isNetworkAvailable()) {
+            viewModelScope.launch { _toastEvent.emit("No internet connection — showing cached data") }
+            return
+        }
+        _state.update { it.copy(isRefreshingDriverTrips = true) }
+        viewModelScope.launch {
+            try {
+                loadDriverTrips()
+            } finally {
+                _state.update { it.copy(isRefreshingDriverTrips = false) }
+            }
+        }
+    }
+
+    fun loadDriverPackages() {
+        viewModelScope.launch {
+            val gen = sessionGeneration
+            _state.update { it.copy(
+                driverCurrentPage = 0,
+                driverOffersPage = 0
+            ) }
+            // Local-first: show cached driver packages immediately on cold start (when in-memory list is empty)
+            if (_state.value.driverCurrentPackages.isEmpty()) {
+                val cached = withContext(Dispatchers.IO) { PackageCache.getDriverCached() }
+                if (cached != null) {
+                    val activeCached = _state.value.activeDriverTrip
+                    _state.update { it.copy(
+                        driverCurrentPackages = cached.items,
+                        trip = if (activeCached != null) mapBackendTripToTrip(activeCached, cached.items) else it.trip,
+                        driverCurrentPage = 0,
+                        driverCurrentHasMore = cached.currentPage + 1 < cached.totalPages,
+                        driverCurrentTotalPages = cached.totalPages,
+                        driverCurrentTotalCount = cached.totalCount
+                    ) }
+                    // Don't show loading spinner — user sees cached data immediately
+                } else {
+                    // No cache — show loading on first load only
+                    _state.update { it.copy(isDriverInitialLoading = true) }
+                }
+            }
+            try {
+                // Fetch driver's packages (cached locally)
+                when (val current = PackageRepository.fetchMyPackages(page = 0, order = com.gocavgo.twese.type.SortOrder.DESC)) {
+                    is FetchPackagesResult.Success -> {
+                        withContext(Dispatchers.IO) { PackageCache.saveDriver(current.page) }
+                        if (gen != sessionGeneration) return@launch
+                        val activeNet = _state.value.activeDriverTrip
+                        _state.update { it.copy(
+                            driverCurrentPackages = current.page.items,
+                            trip = if (activeNet != null) mapBackendTripToTrip(activeNet, current.page.items) else it.trip,
+                            driverCurrentPage = 0,
+                            driverCurrentHasMore = current.page.currentPage + 1 < current.page.totalPages,
+                            driverCurrentTotalPages = current.page.totalPages,
+                            driverCurrentTotalCount = current.page.totalCount
+                        ) }
+                    }
+                    is FetchPackagesResult.Error -> {
+                        Log.w("TripViewModel", "loadDriverPackages current: ${current.message}")
+                        if (!AuthRepository.isNetworkAvailable()) {
+                            _toastEvent.emit("No internet connection — showing cached data")
+                        } else {
+                            _toastEvent.emit("Couldn't refresh packages")
+                        }
+                    }
+                }
+                // Fetch offers (NOT cached — always fresh)
+                when (val offers = PackageRepository.fetchAvailablePackages(page = 0, order = com.gocavgo.twese.type.SortOrder.DESC)) {
+                    is FetchPackagesResult.Success -> {
+                        if (gen != sessionGeneration) return@launch
+                        _state.update { it.copy(
+                            driverAvailableOffers = offers.page.items,
+                            driverOffersPage = 0,
+                            driverOffersHasMore = offers.page.currentPage + 1 < offers.page.totalPages,
+                            driverOffersTotalPages = offers.page.totalPages,
+                            driverOffersTotalCount = offers.page.totalCount
+                        ) }
+                    }
+                    is FetchPackagesResult.Error -> {
+                        Log.w("TripViewModel", "loadDriverPackages offers: ${offers.message}")
+                    }
+                }
+                // Fetch incoming transfers (worker-to-driver assignments)
+                loadDriverIncomingTransfers()
+            } catch (e: Exception) {
+                Log.e("TripViewModel", "loadDriverPackages: ${e.message}", e)
+                if (!AuthRepository.isNetworkAvailable()) {
+                    _toastEvent.emit("No internet connection — showing cached data")
+                }
+                // Network failed — mark as fetched so UI doesn't show spinner forever
+            } finally {
+                if (gen == sessionGeneration) _state.update { it.copy(isDriverInitialLoading = false) }
+            }
+        }
+    }
+
+    fun refreshDriverPackages() {
+        // Don't clear cache if offline — just show existing data
+        if (!AuthRepository.isNetworkAvailable()) {
+            viewModelScope.launch { _toastEvent.emit("You need an internet connection to refresh — showing saved data") }
+            return
+        }
+        _state.update { it.copy(isRefreshingPackages = true) }
+        viewModelScope.launch {
+            val gen = sessionGeneration
+            try {
+                // Fetch driver's packages (cached locally)
+                when (val current = PackageRepository.fetchMyPackages(page = 0, order = com.gocavgo.twese.type.SortOrder.DESC)) {
+                    is FetchPackagesResult.Success -> {
+                        withContext(Dispatchers.IO) { PackageCache.saveDriver(current.page) }
+                        if (gen != sessionGeneration) return@launch
+                        _state.update { it.copy(
+                            driverCurrentPackages = current.page.items,
+                            driverCurrentPage = 0,
+                            driverCurrentHasMore = current.page.currentPage + 1 < current.page.totalPages,
+                            driverCurrentTotalPages = current.page.totalPages,
+                            driverCurrentTotalCount = current.page.totalCount
+                        ) }
+                    }
+                    is FetchPackagesResult.Error -> {
+                        Log.w("TripViewModel", "refreshDriverPackages current: ${current.message}")
+                        if (gen == sessionGeneration) _toastEvent.emit("Couldn't refresh packages")
+                    }
+                }
+                // Fetch offers (NOT cached — always fresh)
+                when (val offers = PackageRepository.fetchAvailablePackages(page = 0, order = com.gocavgo.twese.type.SortOrder.DESC)) {
+                    is FetchPackagesResult.Success -> {
+                        if (gen != sessionGeneration) return@launch
+                        _state.update { it.copy(
+                            driverAvailableOffers = offers.page.items,
+                            driverOffersPage = 0,
+                            driverOffersHasMore = offers.page.currentPage + 1 < offers.page.totalPages,
+                            driverOffersTotalPages = offers.page.totalPages,
+                            driverOffersTotalCount = offers.page.totalCount
+                        ) }
+                    }
+                    is FetchPackagesResult.Error -> {
+                        Log.w("TripViewModel", "refreshDriverPackages offers: ${offers.message}")
+                    }
+                }
+                // Refresh incoming transfers
+                loadDriverIncomingTransfers()
+            } catch (e: Exception) {
+                Log.e("TripViewModel", "refreshDriverPackages: ${e.message}", e)
+                // Don't clear existing data on failure — keep showing what we have
+                if (!AuthRepository.isNetworkAvailable()) {
+                    _toastEvent.emit("You need an internet connection to refresh — showing saved data")
+                }
+            } finally {
+                if (gen == sessionGeneration) _state.update { it.copy(isRefreshingPackages = false) }
+            }
+        }
+    }
+
+    fun loadMoreDriverCurrent() {
+        val s = _state.value
+        if (s.isLoadingMorePackages || !s.driverCurrentHasMore) return
+        viewModelScope.launch {
+            val gen = sessionGeneration
+            _state.update { it.copy(isLoadingMorePackages = true) }
+            try {
+                val nextPage = s.driverCurrentPage + 1
+                when (val result = PackageRepository.fetchMyPackages(page = nextPage, order = com.gocavgo.twese.type.SortOrder.DESC)) {
+                    is FetchPackagesResult.Success -> {
+                        val page = result.page
+                        val combined = s.driverCurrentPackages + page.items
+                        withContext(Dispatchers.IO) {
+                            PackageCache.saveDriver(
+                                PagedResult(
+                                    items = combined,
+                                    totalCount = page.totalCount,
+                                    totalPages = page.totalPages,
+                                    currentPage = nextPage
+                                )
+                            )
+                        }
+                        if (gen != sessionGeneration) return@launch
+                        _state.update { it.copy(
+                            driverCurrentPackages = combined,
+                            driverCurrentPage = nextPage,
+                            driverCurrentHasMore = page.currentPage + 1 < page.totalPages,
+                            driverCurrentTotalPages = page.totalPages,
+                            driverCurrentTotalCount = page.totalCount,
+                            isLoadingMorePackages = false
+                        ) }
+                    }
+                    is FetchPackagesResult.Error -> {
+                        Log.w("TripViewModel", "loadMoreDriverCurrent: ${result.message}")
+                        if (gen == sessionGeneration) {
+                            _state.update { it.copy(isLoadingMorePackages = false) }
+                            _toastEvent.emit("Couldn't load more packages")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TripViewModel", "loadMoreDriverCurrent: ${e.message}", e)
+                if (gen == sessionGeneration) _state.update { it.copy(isLoadingMorePackages = false) }
+            }
+        }
+    }
+
+    fun loadMoreDriverOffers() {
+        val s = _state.value
+        if (s.isLoadingMorePackages || !s.driverOffersHasMore) return
+        viewModelScope.launch {
+            val gen = sessionGeneration
+            _state.update { it.copy(isLoadingMorePackages = true) }
+            try {
+                val nextPage = s.driverOffersPage + 1
+                when (val result = PackageRepository.fetchAvailablePackages(page = nextPage, order = com.gocavgo.twese.type.SortOrder.DESC)) {
+                    is FetchPackagesResult.Success -> {
+                        val page = result.page
+                        if (gen != sessionGeneration) return@launch
+                        _state.update { it.copy(
+                            driverAvailableOffers = s.driverAvailableOffers + page.items,
+                            driverOffersPage = nextPage,
+                            driverOffersHasMore = page.currentPage + 1 < page.totalPages,
+                            driverOffersTotalPages = page.totalPages,
+                            driverOffersTotalCount = page.totalCount,
+                            isLoadingMorePackages = false
+                        ) }
+                    }
+                    is FetchPackagesResult.Error -> {
+                        Log.w("TripViewModel", "loadMoreDriverOffers: ${result.message}")
+                        if (gen == sessionGeneration) {
+                            _state.update { it.copy(isLoadingMorePackages = false) }
+                            _toastEvent.emit("Couldn't load more offers")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TripViewModel", "loadMoreDriverOffers: ${e.message}", e)
+                if (gen == sessionGeneration) _state.update { it.copy(isLoadingMorePackages = false) }
+            }
+        }
+    }
+
+    // ── Driver Incoming Transfers (packages assigned by workers) ───────────
+
+    /**
+     * Fetches transfers targeted at the current driver (via matchUserId).
+     * These are packages that a worker has explicitly assigned to this driver
+     * and the driver needs to accept.
+     */
+    fun loadDriverIncomingTransfers() {
+        viewModelScope.launch {
+            val gen = sessionGeneration
+            _state.update { it.copy(isLoadingTransfers = true) }
+            try {
+                val transfers = PackageRepository.fetchTransfersForMe()
+                if (gen != sessionGeneration) return@launch
+                _state.update { it.copy(
+                    driverIncomingTransfers = transfers,
+                    isLoadingTransfers = false
+                ) }
+            } catch (e: Exception) {
+                Log.e("TripViewModel", "loadDriverIncomingTransfers: ${e.message}", e)
+                if (gen == sessionGeneration) {
+                    _state.update { it.copy(isLoadingTransfers = false) }
+                    _toastEvent.emit("Couldn't load transfers")
+                }
+            }
+        }
+    }
+
+    /**
+     * Accepts a transfer targeted at this driver (AUTO or SECURE).
+     * Moves the package from incoming transfers to current packages.
+     */
+    fun acceptIncomingTransfer(transferId: String, packageId: String, transferCode: String? = null) {
+        val s = _state.value
+        if (s.isAcceptingTransfer) return
+        val tripId = s.activeDriverTrip?.id?.toString()
+        viewModelScope.launch {
+            _state.update { it.copy(isAcceptingTransfer = true, acceptTransferPackageId = packageId) }
+            try {
+                val result = PackageRepository.acceptPackageByTransfer(transferId, transferCode, tripId = tripId)
+                if (result.success) {
+                    _state.update { s2 ->
+                        val matched = s2.driverIncomingTransfers.find { it.transferId == transferId }
+                        val pkg = matched?.packages?.find { it.id == packageId }
+                            ?: s2.driverAvailableOffers.find { it.id == packageId }
+                        val accepted = pkg?.copy(
+                            status = PackageStatus.PICKED_UP,
+                            driverName = s2.driverProfile.name,
+                            driverPhone = s2.driverProfile.phone,
+                            driverCompany = "QuickCargo Ltd",
+                            vehicleType = "car",
+                            statusHistory = listOf(StatusUpdate(PackageStatus.PICKED_UP, "Just now", pkg.fromAddress, "Transfer accepted from office"))
+                        ) ?: result.acceptedPackages.firstOrNull()
+                        s2.copy(
+                            driverCurrentPackages = if (accepted != null) listOf(accepted) + s2.driverCurrentPackages else s2.driverCurrentPackages,
+                            driverIncomingTransfers = s2.driverIncomingTransfers.filter { it.transferId != transferId },
+                            driverAvailableOffers = s2.driverAvailableOffers.filter { it.id != packageId },
+                            showAcceptTransferCodeDialog = false,
+                            acceptTransferPackageId = null,
+                            acceptTransferId = null,
+                            acceptTransferRuleType = null,
+                            acceptTransferCodeInput = "",
+                            acceptTransferCodeError = "",
+                            isAcceptingTransfer = false
+                        )
+                    }
+                    loadDriverPackages()
+                    _toastEvent.emit("Transfer accepted")
+                } else {
+                    _state.update { s2 ->
+                        s2.copy(
+                            acceptTransferCodeError = result.errorMessage ?: if (transferCode != null) "Invalid transfer code" else "Failed to accept transfer",
+                            acceptTransferPackageId = null,
+                            isAcceptingTransfer = false
+                        )
+                    }
+                    _toastEvent.emit(result.errorMessage ?: "Failed to accept transfer")
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(isAcceptingTransfer = false, acceptTransferPackageId = null) }
+                _toastEvent.emit("Error accepting transfer: ${e.message}")
+            }
+        }
+    }
+
+    // ── Transfer Methods ──────────────────────────────────────────────────────
+
+    fun openTransferCreationDialog(packageId: String) {
+        val existing = _state.value.clientPackages.find { it.id == packageId }
+        if (existing?.hasOpenTransfer == true) {
+            viewModelScope.launch { _toastEvent.emit("This package already has an open transfer") }
+            return
+        }
+        _state.update { it.copy(
+            showTransferCreationDialog = true,
+            transferCreationPackageId = packageId,
+            transferMatchUserId = null,
+            transferMatchUserName = null
+        ) }
+    }
+
+    // ── Selection Mode & Batch Transfer Methods ──────────────────────────────
+
+    fun startSelectionMode(packageId: String) {
+        val s = _state.value
+        val pkg = (s.driverCurrentPackages + s.driverAvailableOffers).find { it.id == packageId }
+        if (pkg?.hasOpenTransfer == true) {
+            viewModelScope.launch { _toastEvent.emit("Package has an open transfer — cannot select") }
+            return
+        }
+        _state.update { it.copy(
+            isSelectionMode = true,
+            selectedPackageIds = setOf(packageId)
+        ) }
+    }
+
+    fun togglePackageSelection(packageId: String) {
+        _state.update { s ->
+            val current = s.selectedPackageIds
+            if (packageId !in current) {
+                // Don't let packages with an open transfer into the selection set.
+                val pkg = (s.driverCurrentPackages + s.driverAvailableOffers).find { it.id == packageId }
+                if (pkg?.hasOpenTransfer == true) return@update s
+            }
+            val updated = if (packageId in current) current - packageId else current + packageId
+            s.copy(selectedPackageIds = updated)
+        }
+    }
+
+    fun exitSelectionMode() {
+        _state.update { it.copy(
+            isSelectionMode = false,
+            selectedPackageIds = emptySet()
+        ) }
+    }
+
+    fun openBatchTransferDialog() {
+        _state.update { it.copy(showBatchTransferDialog = true) }
+    }
+
+    fun closeBatchTransferDialog() {
+        _state.update { it.copy(showBatchTransferDialog = false) }
+    }
+
+    fun createBatchTransfer() {
+        val s = _state.value
+        if (s.isCreatingTransfer) return
+        val trackingCodes = s.selectedPackageIds.toList()
+        val ruleType = s.selectedTransferRuleType ?: return
+        if (trackingCodes.isEmpty()) return
+
+        // Never include packages that already have an open transfer.
+        val available = s.driverCurrentPackages + s.driverAvailableOffers
+        val eligiblePackages = available.filter { it.id in trackingCodes && !it.hasOpenTransfer }
+        if (eligiblePackages.isEmpty()) {
+            viewModelScope.launch { _toastEvent.emit("Selected packages already have open transfers") }
+            return
+        }
+
+        // Map tracking codes to internal UUIDs for the API
+        val packageUuids = eligiblePackages.map { it.packageUuid }.filter { it.isNotBlank() }
+        if (packageUuids.isEmpty()) {
+            viewModelScope.launch { _toastEvent.emit("No packages found with valid IDs") }
+            return
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(isCreatingTransfer = true) }
+            val result = PackageRepository.createTransfer(
+                packageIds = packageUuids,
+                ruleType = ruleType
+            )
+            if (result != null) {
+                val updatedById = eligiblePackages.associate { pkg ->
+                    pkg.id to pkg.copy(
+                        transferId = result.id,
+                        transferStatus = result.status
+                    )
+                }
+                withContext(Dispatchers.IO) {
+                    updatedById.values.forEach { PackageCache.mergeDriverUpdate(it) }
+                }
+                _state.update { s2 ->
+                    s2.copy(
+                        driverCurrentPackages = s2.driverCurrentPackages.map { pkg ->
+                            updatedById[pkg.id] ?: pkg
+                        },
+                        isCreatingTransfer = false,
+                        showBatchTransferDialog = false,
+                        selectedTransferRuleType = null,
+                        isSelectionMode = false,
+                        selectedPackageIds = emptySet()
+                    )
+                }
+                _toastEvent.emit("Transfer created with ${packageUuids.size} package(s)")
+            } else {
+                _state.update { it.copy(isCreatingTransfer = false) }
+                _toastEvent.emit("Failed to create transfer")
+            }
+        }
+    }
+
+    fun closeTransferCreationDialog() {
+        _state.update { it.copy(
+            showTransferCreationDialog = false,
+            transferCreationPackageId = null,
+            selectedTransferRuleType = null,
+            transferMatchUserId = null,
+            transferMatchUserName = null
+        ) }
+    }
+
+    fun setTransferRuleType(ruleType: String) {
+        _state.update { it.copy(selectedTransferRuleType = ruleType) }
+    }
+
+    fun setTransferMatchUser(userId: String?, userName: String?) {
+        _state.update { it.copy(
+            transferMatchUserId = userId,
+            transferMatchUserName = userName
+        ) }
+    }
+
+    fun clearTransferMatchUser() {
+        _state.update { it.copy(
+            transferMatchUserId = null,
+            transferMatchUserName = null
+        ) }
+    }
+
+    fun createTransfer() {
+        val s = _state.value
+        if (s.isCreatingTransfer) return
+        val trackingCode = s.transferCreationPackageId ?: return
+        val ruleType = s.selectedTransferRuleType ?: return
+
+        // Find the package by tracking code to get its internal UUID
+        val pkg = s.clientPackages.find { it.id == trackingCode }
+        val packageUuid = pkg?.packageUuid
+        if (packageUuid.isNullOrBlank()) {
+            viewModelScope.launch { _toastEvent.emit("Package has no valid server ID") }
+            return
+        }
+        // Never create a transfer on top of an already-open transfer.
+        if (pkg.hasOpenTransfer) {
+            viewModelScope.launch { _toastEvent.emit("This package already has an open transfer") }
+            return
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(isCreatingTransfer = true) }
+            val result = PackageRepository.createTransfer(
+                packageIds = listOf(packageUuid),
+                ruleType = ruleType,
+                matchUserId = s.transferMatchUserId
+            )
+            if (result != null) {
+                // Update the package with transfer info
+                val updated = pkg.copy(
+                    transferId = result.id,
+                    transferStatus = result.status
+                )
+                withContext(Dispatchers.IO) { PackageCache.mergeClientUpdate(updated) }
+                _state.update { s2 ->
+                    s2.copy(
+                        clientPackages = s2.clientPackages.map { it ->
+                            if (it.id == trackingCode) updated else it
+                        },
+                        isCreatingTransfer = false,
+                        showTransferCreationDialog = false,
+                        transferCreationPackageId = null,
+                        selectedTransferRuleType = null,
+                        transferMatchUserId = null,
+                        transferMatchUserName = null
+                    )
+                }
+                // For SECURE transfers, show the code to the customer so they can share it
+                val code = result.transferCode
+                if (ruleType == "SECURE" && !code.isNullOrBlank()) {
+                    _state.update {
+                        it.copy(
+                            showTransferCodeRevealDialog = true,
+                            transferCodeRevealValue = code
+                        )
+                    }
+                } else {
+                    _toastEvent.emit("Transfer created successfully")
+                }
+            } else {
+                _state.update { it.copy(isCreatingTransfer = false) }
+                _toastEvent.emit("Failed to create transfer")
+            }
+        }
+    }
+
+    fun dismissTransferCodeRevealDialog() {
+        _state.update { it.copy(showTransferCodeRevealDialog = false, transferCodeRevealValue = "") }
+    }
+
+    fun openConfirmTransferDialog(packageId: String, transferId: String) {
+        _state.update { it.copy(
+            showConfirmTransferDialog = true,
+            confirmTransferPackageId = packageId,
+            confirmTransferId = transferId
+        ) }
+    }
+
+    fun closeConfirmTransferDialog() {
+        _state.update { it.copy(
+            showConfirmTransferDialog = false,
+            confirmTransferPackageId = null,
+            confirmTransferId = null
+        ) }
+    }
+
+    fun confirmTransferRequest() {
+        if (_state.value.isConfirmingTransfer) return
+        val transferId = _state.value.confirmTransferId ?: return
+        val packageId = _state.value.confirmTransferPackageId ?: return
+
+        viewModelScope.launch {
+            _state.update { it.copy(isConfirmingTransfer = true) }
+            val result = PackageRepository.confirmTransfer(transferId)
+            if (result != null) {
+                _state.update { s2 ->
+                    s2.copy(
+                        clientPackages = s2.clientPackages.map { pkg ->
+                            if (pkg.id == packageId) pkg.copy(
+                                transferStatus = result.status
+                            ) else pkg
+                        },
+                        isConfirmingTransfer = false,
+                        showConfirmTransferDialog = false,
+                        confirmTransferPackageId = null,
+                        confirmTransferId = null
+                    )
+                }
+                _toastEvent.emit("Transfer confirmed")
+            } else {
+                _state.update { it.copy(isConfirmingTransfer = false) }
+                _toastEvent.emit("Failed to confirm transfer")
+            }
+        }
+    }
+
+    fun openRejectTransferDialog(packageId: String, transferId: String) {
+        _state.update { it.copy(
+            showRejectTransferDialog = true,
+            rejectTransferPackageId = packageId,
+            rejectTransferId = transferId
+        ) }
+    }
+
+    fun closeRejectTransferDialog() {
+        _state.update { it.copy(
+            showRejectTransferDialog = false,
+            rejectTransferPackageId = null,
+            rejectTransferId = null
+        ) }
+    }
+
+    fun rejectTransferRequest() {
+        if (_state.value.isRejectingTransfer) return
+        val transferId = _state.value.rejectTransferId ?: return
+        val packageId = _state.value.rejectTransferPackageId ?: return
+
+        viewModelScope.launch {
+            _state.update { it.copy(isRejectingTransfer = true) }
+            val result = PackageRepository.rejectTransfer(transferId)
+            if (result != null) {
+                _state.update { s2 ->
+                    s2.copy(
+                        clientPackages = s2.clientPackages.map { pkg ->
+                            if (pkg.id == packageId) pkg.copy(
+                                transferStatus = result.status,
+                                transferId = null
+                            ) else pkg
+                        },
+                        isRejectingTransfer = false,
+                        showRejectTransferDialog = false,
+                        rejectTransferPackageId = null,
+                        rejectTransferId = null
+                    )
+                }
+                _toastEvent.emit("Transfer rejected")
+            } else {
+                _state.update { it.copy(isRejectingTransfer = false) }
+                _toastEvent.emit("Failed to reject transfer")
+            }
+        }
+    }
+
+    fun openRequestTransferDialog(packageId: String, transferId: String) {
+        if (!_state.value.hasActiveTrip) {
+            viewModelScope.launch { _toastEvent.emit("No active trip — you cannot accept package offers until a trip is scheduled for you") }
+            return
+        }
+        _state.update { it.copy(
+            showRequestTransferDialog = true,
+            requestTransferPackageId = packageId,
+            requestTransferId = transferId
+        ) }
+    }
+
+    fun closeRequestTransferDialog() {
+        _state.update { it.copy(
+            showRequestTransferDialog = false,
+            requestTransferPackageId = null,
+            requestTransferId = null
+        ) }
+    }
+
+    fun requestTransferForPackage() {
+        val s = _state.value
+        if (s.isRequestingTransfer) return
+        if (!s.hasActiveTrip) {
+            viewModelScope.launch { _toastEvent.emit("No active trip — you cannot accept package offers until a trip is scheduled for you") }
+            return
+        }
+        val transferId = s.requestTransferId ?: return
+        val packageId = s.requestTransferPackageId ?: return
+        val tripId = s.activeDriverTrip?.id?.toString()
+
+        viewModelScope.launch {
+            _state.update { it.copy(isRequestingTransfer = true) }
+            when (val result = PackageRepository.requestTransfer(transferId, tripId = tripId)) {
+                is SingleResult.Success -> {
+                    val info = result.data
+                    _state.update { s2 ->
+                        s2.copy(
+                            driverAvailableOffers = s2.driverAvailableOffers.map { pkg ->
+                                if (pkg.id == packageId) pkg.copy(
+                                    transferId = info.id,
+                                    transferStatus = info.status
+                                ) else pkg
+                            },
+                            showRequestTransferDialog = false,
+                            requestTransferPackageId = null,
+                            requestTransferId = null,
+                            isRequestingTransfer = false
+                        )
+                    }
+                    _toastEvent.emit("Transfer request sent — awaiting owner confirmation")
+                }
+                is SingleResult.Failure -> {
+                    _state.update { it.copy(isRequestingTransfer = false) }
+                    _toastEvent.emit(result.message ?: "Failed to request transfer")
+                }
+                is SingleResult.NotFound -> {
+                    _state.update { it.copy(isRequestingTransfer = false) }
+                    _toastEvent.emit(result.message ?: "Transfer not found")
+                }
+            }
+        }
+    }
+
+    fun openAcceptTransferCodeDialog(packageId: String, transferId: String, ruleType: String) {
+        if (!_state.value.hasActiveTrip) {
+            viewModelScope.launch { _toastEvent.emit("No active trip — you cannot accept package offers until a trip is scheduled for you") }
+            return
+        }
+        _state.update { it.copy(
+            showAcceptTransferCodeDialog = true,
+            acceptTransferPackageId = packageId,
+            acceptTransferId = transferId,
+            acceptTransferRuleType = ruleType,
+            acceptTransferCodeInput = "",
+            acceptTransferCodeError = ""
+        ) }
+    }
+
+    fun closeAcceptTransferCodeDialog() {
+        _state.update { it.copy(
+            showAcceptTransferCodeDialog = false,
+            acceptTransferPackageId = null,
+            acceptTransferId = null,
+            acceptTransferRuleType = null,
+            acceptTransferCodeInput = "",
+            acceptTransferCodeError = ""
+        ) }
+    }
+
+    fun updateAcceptTransferCode(code: String) {
+        _state.update { it.copy(acceptTransferCodeInput = code, acceptTransferCodeError = "") }
+    }
+
+    fun acceptOfferViaTransfer() {
+        val s = _state.value
+        if (s.isAcceptingTransfer) return
+        if (!s.hasActiveTrip) {
+            viewModelScope.launch { _toastEvent.emit("No active trip — you cannot accept package offers until a trip is scheduled for you") }
+            return
+        }
+        val transferId = s.acceptTransferId ?: return
+        val packageId = s.acceptTransferPackageId ?: return
+        val ruleType = s.acceptTransferRuleType ?: "AUTO"
+        val tripId = s.activeDriverTrip?.id?.toString()
+
+        viewModelScope.launch {
+            _state.update { it.copy(isAcceptingTransfer = true) }
+
+            val code = if (ruleType == "SECURE") {
+                val input = s.acceptTransferCodeInput.trim()
+                if (input.isBlank()) {
+                    _state.update { it.copy(acceptTransferCodeError = "Transfer code is required for secure transfers", isAcceptingTransfer = false) }
+                    return@launch
+                }
+                input
+            } else null
+
+            val result = PackageRepository.acceptPackageByTransfer(transferId, code, tripId = tripId)
+            if (result.success) {
+                // Check if the package is in offers (New tab) or incoming transfers (Transfers tab)
+                val offerInOffers = s.driverAvailableOffers.find { it.id == packageId }
+                val matchedTransfer = s.driverIncomingTransfers.find { it.transferId == transferId }
+                val pkg = offerInOffers ?: matchedTransfer?.packages?.find { it.id == packageId }
+
+                _state.update { s2 ->
+                    val accepted = pkg?.copy(
+                        status = PackageStatus.PICKED_UP,
+                        driverName = s2.driverProfile.name,
+                        driverPhone = s2.driverProfile.phone,
+                        driverCompany = "QuickCargo Ltd",
+                        vehicleType = "car",
+                        deliveryCode = packageId.replace("PKG", "DLV"),
+                        statusHistory = listOf(StatusUpdate(PackageStatus.PICKED_UP, "Just now", pkg.fromAddress, "Offer accepted via transfer"))
+                    ) ?: result.acceptedPackages.firstOrNull()
+
+                    s2.copy(
+                        driverCurrentPackages = if (accepted != null) listOf(accepted) + s2.driverCurrentPackages else s2.driverCurrentPackages,
+                        driverAvailableOffers = s2.driverAvailableOffers.filter { it.id != packageId },
+                        driverIncomingTransfers = s2.driverIncomingTransfers.filter { it.transferId != transferId },
+                        showAcceptTransferCodeDialog = false,
+                        acceptTransferPackageId = null,
+                        acceptTransferId = null,
+                        acceptTransferRuleType = null,
+                        acceptTransferCodeInput = "",
+                        acceptTransferCodeError = "",
+                        isAcceptingTransfer = false
+                    )
+                }
+                loadDriverPackages()
+                _toastEvent.emit("Package accepted via transfer")
+            } else {
+                _state.update { it.copy(
+                    acceptTransferCodeError = result.errorMessage ?: if (ruleType == "SECURE") "Invalid transfer code" else "Failed to accept transfer",
+                    isAcceptingTransfer = false
+                ) }
+            }
+        }
+    }
+
+    fun publicTrackPackage(code: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(publicTrackingPackage = null, publicTrackingError = "") }
+            when (val result = PackageRepository.trackByCode(code)) {
+                is SingleResult.Success -> _state.update {
+                    it.copy(publicTrackingPackage = result.data, publicTrackingError = "")
+                }
+                is SingleResult.NotFound -> _state.update {
+                    it.copy(publicTrackingError = "No package found with code \"$code\"")
+                }
+                is SingleResult.Failure -> _state.update {
+                    it.copy(publicTrackingError = "Failed to look up package — try again")
+                }
+            }
+        }
+    }
+
+    fun closePublicTracking() {
+        _state.update { it.copy(publicTrackingPackage = null, publicTrackingError = "") }
+    }
+
+    fun searchUsers(query: String, role: com.gocavgo.twese.type.Role? = null) {
+        if (query.isBlank()) {
+            _state.update { it.copy(userSearchResults = emptyList()) }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isSearchingUsers = true) }
+            try {
+                val response = ApolloClientProvider.client.query(
+                    SearchUsersQuery(
+                        query = query,
+                        role = role?.let { Optional.present(it) } ?: Optional.absent()
+                    )
+                ).execute()
+                val results = response.data?.searchUsers?.filterNotNull() ?: emptyList()
+                _state.update { it.copy(userSearchResults = results, isSearchingUsers = false) }
+            } catch (e: Exception) {
+                _state.update { it.copy(isSearchingUsers = false) }
+            }
+        }
+    }
+
+    fun clearUserSearch() {
+        _state.update { it.copy(userSearchResults = emptyList()) }
+    }
+
+    // ── Pickup Code Methods ────────────────────────────────────────────────
+
+    fun generatePickupCode(packageUuid: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(isGeneratingPickupCode = true) }
+            val result = PackageRepository.generatePickupCode(packageUuid)
+            if (result != null && result.pickupCode.isNotBlank()) {
+                val expiry = System.currentTimeMillis() + 120_000L // 2 minutes
+                _state.update {
+                    it.copy(
+                        pickupCode = result.pickupCode,
+                        pickupCodePackageUuid = packageUuid,
+                        pickupCodeExpiryMs = expiry,
+                        isGeneratingPickupCode = false
+                    )
+                }
+            } else {
+                _state.update { it.copy(isGeneratingPickupCode = false) }
+                _toastEvent.emit("Failed to generate pickup code")
+            }
+        }
+    }
+
+    fun dismissPickupCode() {
+        _state.update { it.copy(pickupCode = null, pickupCodePackageUuid = null, pickupCodeExpiryMs = 0L) }
+    }
+
+    // ── Delivery Confirmation Methods (PENDING_CONFIRMATION flow) ────────────
+
+    /**
+     * Sender/receiver confirms delivery using the one-time code received in the
+     * PACKAGE_DELIVERY_INITIATED notice. Drives the auto-popup and the manual
+     * "Confirm Delivery" button on the tracking screen.
+     */
+    fun confirmDeliveryFromCode(packageUuid: String, code: String) {
+        if (_state.value.isConfirmingDelivery) return
+        viewModelScope.launch {
+            _state.update { it.copy(isConfirmingDelivery = true) }
+            val updated = PackageRepository.confirmDelivery(packageUuid, code.trim())
+            _state.update { it.copy(isConfirmingDelivery = false) }
+            if (updated != null) {
+                _state.update { s ->
+                    s.copy(
+                        clientPackages = s.clientPackages.map {
+                            if (it.packageUuid == packageUuid) it.copy(
+                                status = PackageStatus.DELIVERED,
+                                receivedAt = "Just now",
+                                statusHistory = it.statusHistory + StatusUpdate(
+                                    PackageStatus.DELIVERED, "Just now", it.toAddress, "Delivery confirmed"
+                                )
+                            ) else it
+                        },
+                        showDeliveryConfirmationDialog = false,
+                        deliveryConfirmationPackageUuid = null,
+                        deliveryConfirmationCode = "",
+                        deliveryConfirmationTrackingCode = ""
+                    )
+                }
+                // Persist the DELIVERED state so a stale package cache can't
+                // re-trigger the popup on the next app launch. Only save when
+                // there are items, so a transient empty list can't clobber the
+                // warm-up cache.
+                val s = _state.value
+                if (s.clientPackages.isNotEmpty()) {
+                    withContext(Dispatchers.IO) {
+                        PackageCache.saveClient(
+                            PagedResult(
+                                items = s.clientPackages,
+                                totalCount = s.clientTotalCount,
+                                totalPages = s.clientTotalPages,
+                                currentPage = s.clientCurrentPage
+                            )
+                        )
+                    }
+                }
+                _toastEvent.emit("Delivery confirmed")
+                // Delivery succeeded — mark the related notice(s) as read so the
+                // notification is "seen" and stops acting as a pending reminder.
+                _state.value.notices
+                    .filter { it.eventType == "PACKAGE_DELIVERY_INITIATED" && it.resourceId == packageUuid }
+                    .forEach { notice ->
+                        autoShownDeliveryNotices.add(notice.viewerNoticeId)
+                        SettingsRepository.addAutoShownDeliveryNotice(notice.viewerNoticeId)
+                        NoticeRepository.markRead(notice)
+                    }
+            } else {
+                _toastEvent.emit("Could not confirm delivery. Check the code and try again.")
+            }
+        }
+    }
+
+    /**
+     * Dismisses the auto delivery-confirmation popup. The code stays stored in
+     * state so the user can still confirm manually from the tracking screen.
+     */
+    fun dismissDeliveryConfirmationDialog() {
+        // Keep the code in state so the user can still confirm later from the
+        // tracking screen or by tapping the notification again.
+        _state.value.notices
+            .filter { it.eventType == "PACKAGE_DELIVERY_INITIATED" && it.resourceId == _state.value.deliveryConfirmationPackageUuid }
+            .forEach { notice ->
+                autoShownDeliveryNotices.add(notice.viewerNoticeId)
+                SettingsRepository.addAutoShownDeliveryNotice(notice.viewerNoticeId)
+            }
+        _state.update { it.copy(showDeliveryConfirmationDialog = false) }
+        viewModelScope.launch {
+            _toastEvent.emit("Delivery not confirmed yet — tap the notification to confirm it later")
+        }
+    }
+
+    /**
+     * Opens the delivery confirmation dialog manually for a specific package (e.g. from the Home screen banner).
+     */
+    fun openDeliveryConfirmationForPackage(pkg: ClientPackage) {
+        val notice = _state.value.notices
+            .filter { it.eventType == "PACKAGE_DELIVERY_INITIATED" && (it.resourceId == pkg.packageUuid || it.resourceId == pkg.id) }
+            .maxByOrNull { it.createdAt }
+
+        val codeFromNotice = notice?.payload?.let {
+            try { JSONObject(it).optString("deliveryCode").takeIf { c -> c.isNotBlank() } } catch (_: Exception) { null }
+        }
+        val code = pkg.deliveryCode.ifBlank { codeFromNotice ?: "" }
+
+        _state.update {
+            it.copy(
+                showDeliveryConfirmationDialog = true,
+                deliveryConfirmationPackageUuid = pkg.packageUuid.ifBlank { pkg.id },
+                deliveryConfirmationCode = code,
+                deliveryConfirmationTrackingCode = pkg.trackingCode,
+                deliveryConfirmationRecipientName = pkg.recipientName
+            )
+        }
+    }
+
+    // ── Create Package Form Methods ─────────────────────────────────────────
+
+    fun resetCreatePackageForm() {
+        _state.update { it.copy(
+            createPackageForm = CreatePackageFormState(),
+            mediaUploads = emptyList(),
+            isCreatingPackage = false
+        ) }
+        SettingsRepository.clearCreatePackageDraft()
+    }
+
+    fun updateCreatePackageFormField(field: String, value: String) {
+        _state.update { it.copy(createPackageForm = it.createPackageForm.updateField(field, value)) }
+        saveCreatePackageDraft()
+    }
+
+    fun updateCreatePackageFragile(fragile: Boolean) {
+        _state.update { it.copy(createPackageForm = it.createPackageForm.copy(isFragile = fragile)) }
+        saveCreatePackageDraft()
+    }
+
+    // ── Location search (cavgotrips via gateway) ─────────────────────────
+    private var locationSearchJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Debounced location search from cavgotrips. Results update
+     * `createPackageForm.locationSearchResults` so the dropdown can render them.
+     */
+    fun searchLocations(query: String) {
+        locationSearchJob?.cancel()
+        if (query.isBlank()) {
+            _state.update { it.copy(
+                createPackageForm = it.createPackageForm.copy(
+                    locationSearchResults = emptyList(),
+                    isSearchingLocations = false
+                )
+            ) }
+            return
+        }
+        locationSearchJob = viewModelScope.launch {
+            _state.update { it.copy(
+                createPackageForm = it.createPackageForm.copy(isSearchingLocations = true)
+            ) }
+            val results = com.gocavgo.twese.network.BackendStorage.searchLocations(query)
+            _state.update { it.copy(
+                createPackageForm = it.createPackageForm.copy(
+                    locationSearchResults = results.map { loc ->
+                        LocationSearchResult(
+                            id = loc.id,
+                            latitude = loc.latitude,
+                            longitude = loc.longitude,
+                            customName = loc.customName,
+                            googlePlaceName = loc.googlePlaceName,
+                            province = loc.province,
+                            district = loc.district,
+                            placeId = loc.placeId,
+                            code = loc.code
+                        )
+                    },
+                    isSearchingLocations = false
+                )
+            ) }
+        }
+    }
+
+    fun clearLocationSearch() {
+        locationSearchJob?.cancel()
+        _state.update { it.copy(
+            createPackageForm = it.createPackageForm.copy(
+                locationSearchResults = emptyList(),
+                isSearchingLocations = false
+            )
+        ) }
+    }
+
+    /** User selected an origin location from the search results. */
+    fun selectOriginLocation(loc: LocationSearchResult) {
+        _state.update { it.copy(
+            createPackageForm = it.createPackageForm.withOriginLocation(loc).copy(
+                locationSearchResults = emptyList(),
+                isSearchingLocations = false
+            )
+        ) }
+        saveCreatePackageDraft()
+    }
+
+    /** User selected a destination location from the search results. */
+    fun selectDestLocation(loc: LocationSearchResult) {
+        _state.update { it.copy(
+            createPackageForm = it.createPackageForm.withDestLocation(loc).copy(
+                locationSearchResults = emptyList(),
+                isSearchingLocations = false
+            )
+        ) }
+        saveCreatePackageDraft()
+    }
+
+    private fun saveCreatePackageDraft() {
+        val form = _state.value.createPackageForm
+        SettingsRepository.saveCreatePackageDraft(
+            fromAddress = form.fromAddress,
+            toAddress = form.toAddress,
+            recipientName = form.recipientName,
+            recipientPhone = form.recipientPhone,
+            description = form.description,
+            weight = form.weight,
+            category = form.category,
+            isFragile = form.isFragile
+        )
+    }
+
+    fun addMediaForUpload(uri: String, byteArray: ByteArray, mimeType: String) {
+        val newState = MediaUploadState(
+            uri = uri,
+            byteArray = byteArray,
+            mimeType = mimeType,
+            isUploading = true
+        )
+        
+        _state.update { it.copy(mediaUploads = it.mediaUploads + newState) }
+        
+        val job = viewModelScope.launch {
+            val uploadResult = com.gocavgo.twese.network.BackendStorage.uploadFile(
+                byteArray = byteArray,
+                mimeType = mimeType,
+                purpose = "package-media",
+                onProgress = { progress ->
+                    updateMediaProgress(newState.id, progress)
+                }
+            )
+            
+            val mediaId = uploadResult?.mediaId
+            if (BuildConfig.DEBUG) Log.d(TAG, "Upload completed: mediaId=$mediaId")
+            _state.update { s ->
+                s.copy(
+                    mediaUploads = s.mediaUploads.map { m ->
+                        if (m.id == newState.id) m.copy(
+                            mediaId = mediaId,
+                            url = uploadResult?.url,
+                            isUploading = false,
+                            progress = if (mediaId != null) 100.0 else m.progress,
+                            error = if (mediaId == null) "Upload failed" else null
+                        ) else m
+                    }
+                )
+            }
+        }
+        
+        _state.update { s ->
+            s.copy(
+                mediaUploads = s.mediaUploads.map { m ->
+                    if (m.id == newState.id) m.copy(job = job) else m
+                }
+            )
+        }
+    }
+
+    private fun updateMediaProgress(id: String, progress: Double) {
+        _state.update { s ->
+            s.copy(
+                mediaUploads = s.mediaUploads.map { m ->
+                    if (m.id == id) m.copy(progress = progress) else m
+                }
+            )
+        }
+    }
+
+    fun cancelMediaUpload(id: String) {
+        val media = _state.value.mediaUploads.find { it.id == id }
+        media?.job?.cancel()
+        _state.update { it.copy(mediaUploads = it.mediaUploads.filter { m -> m.id != id }) }
+    }
+
+    fun removeMedia(id: String) {
+        _state.update { it.copy(mediaUploads = it.mediaUploads.filter { m -> m.id != id }) }
+    }
+
+    // ── Notices Methods ──────────────────────────────────────────────────
+
+    fun toggleNotices() {
+        _state.update { it.copy(showNoticesPanel = !it.showNoticesPanel) }
+    }
+
+    fun dismissNotices() {
+        _state.update { it.copy(showNoticesPanel = false) }
+    }
+
+    /**
+     * Marks all unread notices whose [Notice.resourceId] matches [packageIdOrUuid]
+     * (or whose payload trackingCode matches) as read. Called when the user opens
+     * a package detail screen from any path — not just the notices panel.
+     */
+    private fun markNoticesForPackageAsRead(packageIdOrUuid: String) {
+        val currentNotices = _state.value.notices
+        val matching = currentNotices.filter { notice ->
+            notice.viewerReadAt == null &&
+            notice.resourceType.equals("PACKAGE", ignoreCase = true) &&
+            (
+                notice.resourceId == packageIdOrUuid ||
+                // Also match by trackingCode inside the payload
+                notice.payload?.let { payload ->
+                    try {
+                        val json = JSONObject(payload)
+                        json.optString("trackingCode") == packageIdOrUuid
+                    } catch (_: Exception) { false }
+                } == true
+            )
+        }
+        for (notice in matching) {
+            viewModelScope.launch {
+                NoticeRepository.markRead(notice)
+            }
+        }
+    }
+
+    /**
+     * Opens a notification: marks it as read (optimistic, local) and, when the
+     * notice is about a package, fetches that package fresh from the backend
+     * (GraphQL [PackageByIdQuery]) and navigates to its details — the driver
+     * package detail sheet, or the client tracking screen.
+     */
+    fun openNoticeFromNotification(notice: Notice) {
+        dismissNotices()
+
+        // Always mark the notice as read first — this includes delivery-initiated
+        // notices whose popup we're about to show. Without this, the badge count
+        // stays inflated because the early-return below skipped markRead.
+        viewModelScope.launch {
+            NoticeRepository.markRead(notice)
+        }
+
+        // A delivery-initiated notice carries the one-time code. Tapping it should
+        // re-open the delivery-confirmation popup (with the code) instead of just
+        // navigating, so the user can confirm or dismiss from there.
+        if (notice.eventType == "PACKAGE_DELIVERY_INITIATED" && !notice.payload.isNullOrBlank()) {
+            val json = try {
+                JSONObject(notice.payload)
+            } catch (e: Exception) {
+                null
+            }
+            val code = json?.optString("deliveryCode")?.takeIf { it.isNotBlank() }
+            if (code != null && json != null) {
+                val packageUuid = notice.resourceId
+                val trackingCode = json.optString("trackingCode")
+                // Never re-open the popup if the package was already delivered.
+                val pkg = findClientPackageForDelivery(packageUuid, trackingCode)
+                if (pkg?.status != PackageStatus.DELIVERED) {
+                    _state.update {
+                        it.copy(
+                            showDeliveryConfirmationDialog = true,
+                            deliveryConfirmationPackageUuid = packageUuid,
+                            deliveryConfirmationCode = code,
+                            deliveryConfirmationTrackingCode = trackingCode,
+                            deliveryConfirmationRecipientName = pkg?.recipientName ?: ""
+                        )
+                    }
+                    return
+                }
+            }
+        }
+
+        // Only package notices can navigate to a package detail page
+        if (!notice.resourceType.equals("PACKAGE", ignoreCase = true) || notice.resourceId.isBlank()) return
+
+        viewModelScope.launch {
+            val pkg = when (val result = PackageRepository.fetchPackageById(notice.resourceId)) {
+                is SingleResult.Success -> result.data
+                is SingleResult.NotFound -> { _toastEvent.emit("Package not found for this notification"); return@launch }
+                is SingleResult.Failure -> { _toastEvent.emit("Could not load the package for this notification"); return@launch }
+            }
+            when (_state.value.appRole) {
+                AppRole.DRIVER -> {
+                    _state.update { s ->
+                        val exists = s.driverCurrentPackages.any { it.packageUuid == pkg.packageUuid || it.id == pkg.id }
+                        s.copy(
+                            driverCurrentPackages = if (exists) s.driverCurrentPackages else listOf(pkg) + s.driverCurrentPackages
+                        )
+                    }
+                    openPackageDetail(pkg.id)
+                }
+                AppRole.CLIENT -> {
+                    _state.update { s ->
+                        val exists = s.clientPackages.any { it.packageUuid == pkg.packageUuid || it.id == pkg.id }
+                        s.copy(
+                            clientPackages = if (exists) s.clientPackages else listOf(pkg) + s.clientPackages,
+                            clientDataState = DataState.HAS_DATA
+                        )
+                    }
+                    trackPackage(pkg.id)
+                }
+                else -> {}
+            }
+        }
+    }
+
+    private val syncedNoticeIds = mutableSetOf<String>()
+
+    /**
+     * Start collecting flows from [NoticeRepository] into [TripUiState].
+     * Safe to call multiple times — subsequent calls are no-ops because
+     * collecting a StateFlow is idempotent.
+     */
+    private fun collectNotices() {
+        viewModelScope.launch {
+            NoticeRepository.notices.collect { notices ->
+                var shouldCloseDriverDeliverDialog = false
+                var driverDeliveredPkgTitle: String? = null
+
+                _state.update { state ->
+                    var updatedClientPackages = state.clientPackages
+                    var updatedDriverPackages = state.driverCurrentPackages
+                    var shouldCloseDeliveryDialog = false
+
+                    for (notice in notices) {
+                        if (notice.resourceType.equals("PACKAGE", ignoreCase = true) || notice.eventType.startsWith("PACKAGE_")) {
+                            val packageUuid = notice.resourceId
+                            val payload = notice.payload
+                            val json = payload?.let { try { JSONObject(it) } catch (_: Exception) { null } }
+                            val trackingCode = json?.optString("trackingCode") ?: ""
+
+                            when (notice.eventType) {
+                                "PACKAGE_DELIVERY_INITIATED" -> {
+                                    val code = json?.optString("deliveryCode")?.takeIf { it.isNotBlank() }
+                                    if (code != null) {
+                                        updatedClientPackages = updatedClientPackages.map { p ->
+                                            if ((p.packageUuid == packageUuid || (trackingCode.isNotBlank() && p.trackingCode == trackingCode)) && p.status != PackageStatus.DELIVERED) {
+                                                p.copy(deliveryCode = code, status = PackageStatus.PENDING_CONFIRMATION)
+                                            } else p
+                                        }
+                                    }
+                                }
+                                "PACKAGE_DELIVERED", "PACKAGE_COMPLETED" -> {
+                                    // Client side: auto-close client confirmation dialog if open for this package
+                                    if (state.showDeliveryConfirmationDialog && (state.deliveryConfirmationPackageUuid == packageUuid || (trackingCode.isNotBlank() && state.deliveryConfirmationTrackingCode == trackingCode))) {
+                                        shouldCloseDeliveryDialog = true
+                                    }
+
+                                    // Driver side: auto-close driver deliver code entry dialog if customer confirmed directly
+                                    if (state.isDeliverDialogOpen) {
+                                        val selId = state.selectedDriverPackageId
+                                        val isThisPkg = selId != null && (
+                                            selId == packageUuid ||
+                                            selId == trackingCode ||
+                                            state.driverCurrentPackages.any { (it.id == selId || it.packageUuid == selId) && (it.packageUuid == packageUuid || it.id == packageUuid || (trackingCode.isNotBlank() && it.trackingCode == trackingCode)) }
+                                        )
+                                        if (isThisPkg) {
+                                            shouldCloseDriverDeliverDialog = true
+                                            driverDeliveredPkgTitle = trackingCode.ifBlank { selId }
+                                        }
+                                    }
+
+                                    updatedClientPackages = updatedClientPackages.map { p ->
+                                        if (p.packageUuid == packageUuid || (trackingCode.isNotBlank() && p.trackingCode == trackingCode) || p.id == packageUuid) {
+                                            p.copy(status = PackageStatus.DELIVERED)
+                                        } else p
+                                    }
+                                    updatedDriverPackages = updatedDriverPackages.map { p ->
+                                        if (p.packageUuid == packageUuid || (trackingCode.isNotBlank() && p.trackingCode == trackingCode) || p.id == packageUuid) {
+                                            p.copy(status = PackageStatus.DELIVERED)
+                                        } else p
+                                    }
+                                }
+                                "PACKAGE_CANCELLED" -> {
+                                    updatedClientPackages = updatedClientPackages.map { p ->
+                                        if (p.packageUuid == packageUuid || (trackingCode.isNotBlank() && p.trackingCode == trackingCode) || p.id == packageUuid) {
+                                            p.copy(status = PackageStatus.CANCELLED)
+                                        } else p
+                                    }
+                                    updatedDriverPackages = updatedDriverPackages.map { p ->
+                                        if (p.packageUuid == packageUuid || (trackingCode.isNotBlank() && p.trackingCode == trackingCode) || p.id == packageUuid) {
+                                            p.copy(status = PackageStatus.CANCELLED)
+                                        } else p
+                                    }
+                                }
+                                "PACKAGE_PICKED_UP" -> {
+                                    updatedClientPackages = updatedClientPackages.map { p ->
+                                        if (p.packageUuid == packageUuid || (trackingCode.isNotBlank() && p.trackingCode == trackingCode) || p.id == packageUuid) {
+                                            p.copy(status = PackageStatus.PICKED_UP)
+                                        } else p
+                                    }
+                                    updatedDriverPackages = updatedDriverPackages.map { p ->
+                                        if (p.packageUuid == packageUuid || (trackingCode.isNotBlank() && p.trackingCode == trackingCode) || p.id == packageUuid) {
+                                            p.copy(status = PackageStatus.PICKED_UP)
+                                        } else p
+                                    }
+                                }
+                                "PACKAGE_IN_TRANSIT" -> {
+                                    updatedClientPackages = updatedClientPackages.map { p ->
+                                        if (p.packageUuid == packageUuid || (trackingCode.isNotBlank() && p.trackingCode == trackingCode) || p.id == packageUuid) {
+                                            p.copy(status = PackageStatus.IN_TRANSIT)
+                                        } else p
+                                    }
+                                    updatedDriverPackages = updatedDriverPackages.map { p ->
+                                        if (p.packageUuid == packageUuid || (trackingCode.isNotBlank() && p.trackingCode == trackingCode) || p.id == packageUuid) {
+                                            p.copy(status = PackageStatus.IN_TRANSIT)
+                                        } else p
+                                    }
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
+
+                    state.copy(
+                        notices = notices,
+                        clientPackages = updatedClientPackages,
+                        driverCurrentPackages = updatedDriverPackages,
+                        showDeliveryConfirmationDialog = if (shouldCloseDeliveryDialog) false else state.showDeliveryConfirmationDialog,
+                        isDeliverDialogOpen = if (shouldCloseDriverDeliverDialog) false else state.isDeliverDialogOpen,
+                        selectedDriverPackageId = if (shouldCloseDriverDeliverDialog) null else state.selectedDriverPackageId,
+                        deliverCodeInput = if (shouldCloseDriverDeliverDialog) "" else state.deliverCodeInput,
+                        deliverCodeError = if (shouldCloseDriverDeliverDialog) "" else state.deliverCodeError
+                    )
+                }
+                if (shouldCloseDriverDeliverDialog) {
+                    val codeMsg = if (!driverDeliveredPkgTitle.isNullOrBlank()) "Package $driverDeliveredPkgTitle" else "Package"
+                    _toastEvent.emit("$codeMsg delivery confirmed by recipient")
+                }
+                maybeShowDeliveryConfirmation(notices)
+                syncLatestPackageFromNotice(notices)
+            }
+        }
+        viewModelScope.launch {
+            NoticeRepository.unreadCount.collect { count ->
+                _state.update { it.copy(noticeCount = count) }
+            }
+        }
+    }
+
+    /**
+     * Silently fetches the complete updated package model for new notices in the background
+     * and smart-merges into memory and disk cache.
+     */
+    private fun syncLatestPackageFromNotice(notices: List<Notice>) {
+        val packageNotices = notices.filter {
+            (it.resourceType.equals("PACKAGE", ignoreCase = true) || it.eventType.startsWith("PACKAGE_")) &&
+            it.resourceId.isNotBlank() &&
+            !syncedNoticeIds.contains(it.id)
+        }
+        if (packageNotices.isEmpty()) return
+
+        viewModelScope.launch {
+            for (notice in packageNotices.take(5)) {
+                syncedNoticeIds.add(notice.id)
+                try {
+                    val freshPkg = when (val result = PackageRepository.fetchPackageById(notice.resourceId)) {
+                        is SingleResult.Success -> result.data
+                        is SingleResult.NotFound -> continue
+                        is SingleResult.Failure -> continue
+                    }
+                    withContext(Dispatchers.IO) {
+                        if (_state.value.appRole == AppRole.CLIENT) {
+                            PackageCache.mergeClientUpdate(freshPkg)
+                        } else {
+                            PackageCache.mergeDriverUpdate(freshPkg)
+                        }
+                    }
+                    _state.update { s ->
+                        when (s.appRole) {
+                            AppRole.CLIENT -> {
+                                val exists = s.clientPackages.any { it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id }
+                                val updated = if (exists) {
+                                    s.clientPackages.map { if (it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id) freshPkg else it }
+                                } else {
+                                    listOf(freshPkg) + s.clientPackages
+                                }
+                                s.copy(clientPackages = updated)
+                            }
+                            AppRole.DRIVER -> {
+                                val isRemoved = notice.eventType.equals("PACKAGE_CUSTODIAN_REMOVED", ignoreCase = true)
+                                val isDeliveredOrCancelled = freshPkg.status == PackageStatus.DELIVERED || freshPkg.status == PackageStatus.CANCELLED
+                                val shouldEvict = isRemoved || isDeliveredOrCancelled
+                                val exists = s.driverCurrentPackages.any { it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id }
+
+                                val updated = if (shouldEvict) {
+                                    withContext(Dispatchers.IO) {
+                                        PackageCache.removeDriverPackage(freshPkg.packageUuid)
+                                        PackageCache.removeDriverPackage(freshPkg.id)
+                                    }
+                                    s.driverCurrentPackages.filter { it.packageUuid != freshPkg.packageUuid && it.id != freshPkg.id }
+                                } else {
+                                    if (exists) {
+                                        s.driverCurrentPackages.map { if (it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id) freshPkg else it }
+                                    } else {
+                                        listOf(freshPkg) + s.driverCurrentPackages
+                                    }
+                                }
+                                s.copy(driverCurrentPackages = updated)
+                            }
+                            else -> s
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.d("TripViewModel", "syncLatestPackageFromNotice error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Auto-shows the delivery-confirmation popup for the sender/receiver when a
+     * PACKAGE_DELIVERY_INITIATED notice arrives carrying payload.deliveryCode.
+     * Shown at most once per notice; afterwards the user can confirm manually.
+     */
+    private fun maybeShowDeliveryConfirmation(notices: List<Notice>) {
+        if (_state.value.appRole != AppRole.CLIENT) return
+        if (_state.value.showDeliveryConfirmationDialog) return
+
+        val notice = notices
+            .filter { it.eventType == "PACKAGE_DELIVERY_INITIATED" }
+            .maxByOrNull { it.createdAt } ?: return
+
+        val payload = notice.payload ?: return
+        val code = try {
+            JSONObject(payload).optString("deliveryCode").takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            null
+        } ?: return
+
+        val packageUuid = notice.resourceId
+        val trackingCode = try {
+            JSONObject(payload).optString("trackingCode")
+        } catch (e: Exception) {
+            ""
+        }
+        val pkg = findClientPackageForDelivery(packageUuid, trackingCode)
+        // Pure gate — never re-pop for a notice that was already auto-shown,
+        // already read, or whose package is already DELIVERED. Unit-tested in
+        // DeliveryConfirmationGateTest (confirm → kill → reopen scenario).
+        if (!shouldAutoShowDeliveryConfirmation(notice, autoShownDeliveryNotices, pkg?.status)) return
+
+        autoShownDeliveryNotices.add(notice.viewerNoticeId)
+        SettingsRepository.addAutoShownDeliveryNotice(notice.viewerNoticeId)
+        triggerDeliveryAlertHaptic()
+        _state.update {
+            it.copy(
+                showDeliveryConfirmationDialog = true,
+                deliveryConfirmationPackageUuid = packageUuid,
+                deliveryConfirmationCode = code,
+                deliveryConfirmationTrackingCode = trackingCode,
+                deliveryConfirmationRecipientName = pkg?.recipientName ?: ""
+            )
+        }
+    }
+
+    /**
+     * Trigger a distinct double-pulse haptic vibration to alert the user that a delivery confirmation
+     * code has arrived.
+     */
+    private fun triggerDeliveryAlertHaptic() {
+        try {
+            val ctx = AuthRepository.getAppContext() ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = ctx.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vibratorManager?.defaultVibrator?.vibrate(
+                    VibrationEffect.createWaveform(longArrayOf(0, 200, 100, 200), -1)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                val vibrator = ctx.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 200, 100, 200), -1))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(longArrayOf(0, 200, 100, 200), -1)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("TripViewModel", "triggerDeliveryAlertHaptic: ${e.message}")
+        }
+    }
+
+    /**
+     * Called when the application returns to the foreground.
+     * Refreshes notices and subscription to pick up any missed events.
+     */
+    fun onAppForegrounded() {
+        if (_state.value.isLoggedIn || _state.value.isClientLoggedIn) {
+            viewModelScope.launch {
+                NoticeRepository.start(this@TripViewModel.viewModelScope, AuthRepository.getAppContext())
+                if (_state.value.isClientLoggedIn) {
+                    refreshClientPackages()
+                }
+            }
+        }
+    }
+
+    /**
+     * Finds the locally-cached client package matching a delivery notice, matched
+     * by package UUID or tracking code (whichever the notice payload carries).
+     * Searches both client packages and driver current packages.
+     */
+    private fun findClientPackageForDelivery(packageUuid: String, trackingCode: String): ClientPackage? {
+        // Search client packages first
+        val clientPkg = _state.value.clientPackages.find {
+            it.packageUuid == packageUuid || (trackingCode.isNotBlank() && it.trackingCode == trackingCode)
+        }
+        if (clientPkg != null) return clientPkg
+        // Also search driver current packages (driver might be viewing as driver role but sender/receiver needs code)
+        return _state.value.driverCurrentPackages.find {
+            it.packageUuid == packageUuid || (trackingCode.isNotBlank() && it.trackingCode == trackingCode)
+        }
+    }
+}

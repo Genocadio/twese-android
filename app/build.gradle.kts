@@ -51,7 +51,7 @@ val releaseSigningConfigured =
     listOf(sigKeystoreBase64, sigKeystorePassword, sigKeyAlias, sigKeyPassword).all { it.isNotBlank() }
 
 android {
-    namespace = "com.gocavgo.ikuriye"
+    namespace = "com.gocavgo.twese"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -59,7 +59,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.gocavgo.ikuriye"
+        applicationId = "com.gocavgo.twese"
         minSdk = 24
         targetSdk = 36
         // Overridable in CI (e.g. VERSION_NAME from the git tag, VERSION_CODE
@@ -204,7 +204,7 @@ dependencies {
 
 apollo {
     service("service") {
-        packageName.set("com.gocavgo.ikuriye")
+        packageName.set("com.gocavgo.twese")
         introspection {
             // Same source of truth as BuildConfig.GRAPHQL_URL
             endpointUrl.set(secret("CAVGO_BASE_URL", "https://api.med.rw/gocavgo") + "/ikuriye/graphql")

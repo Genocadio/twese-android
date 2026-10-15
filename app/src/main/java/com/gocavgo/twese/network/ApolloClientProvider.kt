@@ -1,0 +1,209 @@
+package com.gocavgo.twese.network
+
+import android.util.Log
+import com.apollographql.apollo.ApolloClient
+import com.apollographql.apollo.network.http.DefaultHttpEngine
+import com.apollographql.apollo.network.http.HttpInterceptor
+import com.apollographql.apollo.network.http.HttpInterceptorChain
+import com.apollographql.apollo.api.http.HttpHeader
+import com.apollographql.apollo.network.ws.GraphQLWsProtocol
+import com.apollographql.apollo.network.ws.WebSocketNetworkTransport
+import com.apollographql.apollo.network.ws.WsProtocol
+import com.apollographql.apollo.api.http.HttpRequest
+import com.apollographql.apollo.api.http.HttpResponse
+import com.gocavgo.twese.BuildConfig
+import com.gocavgo.twese.data.AuthRepository
+import com.gocavgo.twese.nexx.NexxAuth
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okhttp3.OkHttpClient
+
+object ApolloClientProvider {
+
+    private const val TAG = "ApolloClientProvider"
+
+    // ── Token refresh synchronization ──
+    // Prevents concurrent refresh attempts and makes other requests
+    // wait for an in-progress refresh before deciding what to do.
+    private val refreshMutex = Mutex()
+    private var lastRefreshFailedAtMs = 0L
+    private val REFRESH_COOLDOWN_MS = 30_000L
+
+    // Set whenever a refresh attempt completes. Used to break the retry hot-loop:
+    // if a business-level auth error (e.g. GraphQL "Unauthorized" with a still-valid
+    // token) comes back right after a refresh, retrying again would spin forever.
+    @Volatile
+    private var lastRefreshCompletedAtMs = 0L
+
+    @Volatile
+    private var internalClient: ApolloClient? = null
+    private val clientLock = Any()
+
+    val client: ApolloClient
+        get() {
+            var instance = internalClient
+            if (instance == null) {
+                synchronized(clientLock) {
+                    instance = internalClient
+                    if (instance == null) {
+                        instance = buildClient()
+                        internalClient = instance
+                    }
+                }
+            }
+            return instance!!
+        }
+
+    /**
+     * Resets the ApolloClient instance so the next access builds a fresh client
+     * with updated auth headers for HTTP and WebSocket upgrade transports.
+     */
+    fun resetClient() {
+        synchronized(clientLock) {
+            try {
+                internalClient?.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error closing ApolloClient during reset: ${e.message}")
+            }
+            internalClient = null
+            Log.d(TAG, "ApolloClient reset — will rebuild with current credentials")
+        }
+    }
+
+    private fun buildClient(): ApolloClient {
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .pingInterval(25, TimeUnit.SECONDS)
+            .build()
+
+        val token = NexxAuth.getAccessToken()
+        val wsHeaders = listOfNotNull(
+            token?.let { HttpHeader("Authorization", "Bearer $it") }
+        )
+
+        return ApolloClient.Builder()
+            .serverUrl(BuildConfig.GRAPHQL_URL)
+            .httpEngine(DefaultHttpEngine(okHttpClient))
+            .subscriptionNetworkTransport(
+                WebSocketNetworkTransport.Builder()
+                    .serverUrl(BuildConfig.GRAPHQL_URL)
+                    .headers(wsHeaders)
+                    .idleTimeoutMillis(60_000L)
+                    .protocol(
+                        GraphQLWsProtocol.Factory(
+                            pingIntervalMillis = 25_000L,
+                            connectionPayload = {
+                                val currentToken = NexxAuth.getAccessToken()
+                                if (currentToken != null) mapOf("Authorization" to "Bearer $currentToken")
+                                else emptyMap()
+                            }
+                        )
+                    )
+                    .build()
+            )
+            .addHttpInterceptor(object : HttpInterceptor {
+                override suspend fun intercept(request: HttpRequest, chain: HttpInterceptorChain): HttpResponse {
+                    val token = NexxAuth.getAccessToken()
+                    if (BuildConfig.DEBUG) {
+                        val masked = if (token != null && token.length > 16) {
+                            "${token.take(8)}...${token.takeLast(8)}"
+                        } else {
+                            token ?: "null"
+                        }
+                        Log.d(TAG, "Request: ${request.method} ${request.url} | token=$masked")
+                    }
+                    val response = if (token != null) {
+                        chain.proceed(request.newBuilder().addHeader("Authorization", "Bearer $token").build())
+                    } else {
+                        chain.proceed(request)
+                    }
+                    // ── Detect auth errors (HTTP 401 or GraphQL-level "Unauthorized") ──
+                    val isHttp401 = response.statusCode == 401
+                    val isGraphQLAuthError = if (response.statusCode == 200) {
+                        try {
+                            response.body?.let { source ->
+                                val bodyText = source.peek().readUtf8()
+                                bodyText.contains("\"Unauthorized\"", ignoreCase = true) ||
+                                    bodyText.contains("\"Not Authorized\"", ignoreCase = true) ||
+                                    bodyText.contains("\"Forbidden\"", ignoreCase = true)
+                            } ?: false
+                        } catch (_: Exception) {
+                            false
+                        }
+                    } else false
+
+                    if (isHttp401 || isGraphQLAuthError) {
+                        // ── Acquire refresh mutex so concurrent requests wait ──
+                        // Only one request performs the refresh; others wait and then
+                        // either use the fresh token or get the same failure result.
+                        refreshMutex.withLock {
+                            // Step 1: check if another request already refreshed while we waited
+                            val liveToken = NexxAuth.getAccessToken()
+                            if (liveToken != null) {
+                                // Only retry once per refresh window. Without this guard an
+                                // auth failure that persists with a valid token (e.g. a
+                                // GraphQL business-level "Unauthorized") would re-enter this
+                                // interceptor forever, hammering the backend every ~2s.
+                                val justRefreshed = System.currentTimeMillis() - lastRefreshCompletedAtMs < REFRESH_COOLDOWN_MS
+                                if (!justRefreshed) {
+                                    Log.d(TAG, "Token already fresh — another request refreshed while we waited, retrying")
+                                    return chain.proceed(
+                                        request.newBuilder()
+                                            .addHeader("Authorization", "Bearer $liveToken")
+                                            .build()
+                                    )
+                                }
+                                Log.w(TAG, "Auth error persisted right after a refresh — returning original failure")
+                                return@withLock response
+                            }
+
+                            // Step 2: cooldown — don't hammer the refresh endpoint if it just failed
+                            val now = System.currentTimeMillis()
+                            if (now - lastRefreshFailedAtMs < REFRESH_COOLDOWN_MS) {
+                                if (!NexxAuth.hasRefreshToken()) {
+                                    Log.w(TAG, "Refresh recently failed (cooldown ${(now - lastRefreshFailedAtMs) / 1000}s ago) — signalling session expiry")
+                                    AuthRepository.onSessionExpired()
+                                }
+                                return@withLock response
+                            }
+
+                            // Step 3: attempt silent refresh
+                            if (BuildConfig.DEBUG) {
+                                val ctx = if (isGraphQLAuthError) "GraphQL-level auth" else "HTTP 401"
+                                Log.d(TAG, "$ctx — attempting silent token refresh (mutex acquired)")
+                            }
+                            val refreshed = NexxAuth.refreshSession()
+                            lastRefreshCompletedAtMs = System.currentTimeMillis()
+                            if (refreshed) {
+                                val newToken = NexxAuth.getAccessToken()
+                                if (newToken != null) {
+                                    Log.d(TAG, "Token refreshed silently, retrying request")
+                                    return chain.proceed(
+                                        request.newBuilder()
+                                            .addHeader("Authorization", "Bearer $newToken")
+                                            .build()
+                                    )
+                                }
+                            }
+
+                            // Step 4: refresh failed — record cooldown and signal logout only if token was revoked
+                            lastRefreshFailedAtMs = System.currentTimeMillis()
+                            if (!NexxAuth.hasRefreshToken()) {
+                                Log.e(TAG, "Token refresh failed with auth error — signalling session expiry")
+                                AuthRepository.onSessionExpired()
+                            } else {
+                                Log.w(TAG, "Token refresh failed due to network/server — preserving session for offline use")
+                            }
+                        }
+                    } else if (BuildConfig.DEBUG && response.statusCode !in 200..299) {
+                        Log.e(TAG, "HTTP ${response.statusCode}")
+                    }
+                    return response
+                }
+            })
+            .build()
+    }
+}

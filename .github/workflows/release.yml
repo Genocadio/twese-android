@@ -241,7 +241,7 @@
             set -e
             
             APK="app/build/outputs/apk/release/app-release.apk"
-            RELEASE_APK="ikuriye-v${VERSION_NAME}.apk"
+            RELEASE_APK="twese-v${VERSION_NAME}.apk"
             
             cp "$APK" "$RELEASE_APK"
             
@@ -280,7 +280,7 @@
           uses: softprops/action-gh-release@v2
           with:
             tag_name: ${{ github.ref_name }}
-            name: Ikuriye ${{ env.VERSION_NAME }}
+            name: Twese ${{ env.VERSION_NAME }}
 
             generate_release_notes: true
 
@@ -296,7 +296,7 @@
         - name: Release complete
           run: |
             echo "========================================"
-            echo "Ikuriye release completed successfully"
+            echo "Twese release completed successfully"
             echo "Version: $VERSION_NAME"
             echo "Version code: $VERSION_CODE"
             echo "Tag: $GITHUB_REF_NAME"
