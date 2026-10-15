@@ -332,7 +332,16 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                         if (isSelection) {
                                             SelectableCurrentPackageCard(pkg = pkg, isSelected = pkg.id in selectedIds, canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq, onToggle = { viewModel.togglePackageSelection(pkg.id) }, onDetail = { viewModel.openPackageDetail(pkg.id) })
                                         } else {
-                                            DriverCurrentPackageCard(pkg = pkg, onDeliver = { viewModel.openDeliverDialog(pkg.id) }, onTransfer = { viewModel.openTransferDialog(pkg.id) }, onDetail = { viewModel.openPackageDetail(pkg.id) }, onLongPress = { if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) { viewModel.startSelectionMode(pkg.id) } }, onPickup = { viewModel.pickupPackage(pkg.id) }, notices = state.notices)
+                                            DriverCurrentPackageCard(
+                                                pkg = pkg,
+                                                onDeliver = { viewModel.openDeliverDialog(pkg.id) },
+                                                onTransfer = { viewModel.openTransferDialog(pkg.id) },
+                                                onDetail = { viewModel.openPackageDetail(pkg.id) },
+                                                onLongPress = { if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) { viewModel.startSelectionMode(pkg.id) } },
+                                                onPickup = { viewModel.pickupPackage(pkg.id) },
+                                                isPickingUp = state.pickingUpPackageId == pkg.id,
+                                                notices = state.notices
+                                            )
                                         }
                                     }
                                     if (state.driverCurrentHasMore && !state.isLoadingMorePackages && !isRefreshing) {
@@ -351,7 +360,16 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                         if (isSelection) {
                                             SelectableCurrentPackageCard(pkg = pkg, isSelected = pkg.id in selectedIds, canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq, onToggle = { viewModel.togglePackageSelection(pkg.id) }, onDetail = { viewModel.openPackageDetail(pkg.id) })
                                         } else {
-                                            DriverCurrentPackageCard(pkg = pkg, onDeliver = { viewModel.openDeliverDialog(pkg.id) }, onTransfer = { viewModel.openTransferDialog(pkg.id) }, onDetail = { viewModel.openPackageDetail(pkg.id) }, onLongPress = { if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) { viewModel.startSelectionMode(pkg.id) } }, onPickup = { viewModel.pickupPackage(pkg.id) }, notices = state.notices)
+                                            DriverCurrentPackageCard(
+                                                pkg = pkg,
+                                                onDeliver = { viewModel.openDeliverDialog(pkg.id) },
+                                                onTransfer = { viewModel.openTransferDialog(pkg.id) },
+                                                onDetail = { viewModel.openPackageDetail(pkg.id) },
+                                                onLongPress = { if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) { viewModel.startSelectionMode(pkg.id) } },
+                                                onPickup = { viewModel.pickupPackage(pkg.id) },
+                                                isPickingUp = state.pickingUpPackageId == pkg.id,
+                                                notices = state.notices
+                                            )
                                         }
                                     }
                                     if (state.driverCurrentHasMore && !state.isLoadingMorePackages && !isRefreshing) {
@@ -387,20 +405,22 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                     }
                                     items(visibleOffers, key = { it.id }) { pkg ->
                                         val acceptInfo: Pair<(() -> Unit), String>? = pkg.transferId?.let { transferId ->
-                                            when (pkg.transferRuleType) {
+                                            when (pkg.transferRuleType ?: "AUTO") {
                                                 "CONFIRM" -> ({ viewModel.openRequestTransferDialog(pkg.id, transferId) } to "Request Offer")
                                                 "SECURE" -> ({ viewModel.openAcceptTransferCodeDialog(pkg.id, transferId, "SECURE") } to "Accept Offer")
                                                 "AUTO" -> ({ viewModel.acceptAUTOTransfer(pkg.id, transferId) } to "Accept Offer")
-                                                else -> null
+                                                else -> ({ viewModel.acceptAUTOTransfer(pkg.id, transferId) } to "Accept Offer")
                                             }
                                         }
+                                        val isThisAccepting = state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)
                                         DriverOfferCard(
                                             pkg = pkg,
                                             onAccept = acceptInfo?.first,
                                             acceptButtonLabel = acceptInfo?.second ?: "Accept Offer",
                                             onDetail = { viewModel.openPackageDetail(pkg.id) },
                                             isNew = pkg.id == state.newPackageFromSubscription?.id,
-                                            hasActiveTrip = state.hasActiveTrip
+                                            hasActiveTrip = state.hasActiveTrip,
+                                            isAccepting = isThisAccepting
                                         )
                                     }
                                     if (state.driverOffersHasMore && !state.isLoadingMorePackages && !isRefreshing) {
@@ -421,20 +441,22 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                     }
                                     items(visibleOffers, key = { it.id }) { pkg ->
                                         val acceptInfo: Pair<(() -> Unit), String>? = pkg.transferId?.let { transferId ->
-                                            when (pkg.transferRuleType) {
+                                            when (pkg.transferRuleType ?: "AUTO") {
                                                 "CONFIRM" -> ({ viewModel.openRequestTransferDialog(pkg.id, transferId) } to "Request Offer")
                                                 "SECURE" -> ({ viewModel.openAcceptTransferCodeDialog(pkg.id, transferId, "SECURE") } to "Accept Offer")
                                                 "AUTO" -> ({ viewModel.acceptAUTOTransfer(pkg.id, transferId) } to "Accept Offer")
-                                                else -> null
+                                                else -> ({ viewModel.acceptAUTOTransfer(pkg.id, transferId) } to "Accept Offer")
                                             }
                                         }
+                                        val isThisAccepting = state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)
                                         DriverOfferCard(
                                             pkg = pkg,
                                             onAccept = acceptInfo?.first,
                                             acceptButtonLabel = acceptInfo?.second ?: "Accept Offer",
                                             onDetail = { viewModel.openPackageDetail(pkg.id) },
                                             isNew = pkg.id == state.newPackageFromSubscription?.id,
-                                            hasActiveTrip = state.hasActiveTrip
+                                            hasActiveTrip = state.hasActiveTrip,
+                                            isAccepting = isThisAccepting
                                         )
                                     }
                                     if (state.driverOffersHasMore && !state.isLoadingMorePackages && !isRefreshing) {
@@ -467,6 +489,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                                 onPickup = { viewModel.pickupPackage(pkg.id) },
                                                 onDetail = { viewModel.openPackageDetail(pkg.id) },
                                                 onTransfer = { viewModel.openTransferDialog(pkg.id) },
+                                                isPickingUp = state.pickingUpPackageId == pkg.id,
                                                 notices = state.notices
                                             )
                                         }
@@ -480,12 +503,14 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                                     "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, matched.transferId) } }
                                                     else -> { { viewModel.acceptIncomingTransfer(matched.transferId, pkg.id) } }
                                                 }
+                                                val isThisAccepting = state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)
                                                 DriverTransferCard(
                                                     pkg = pkg,
                                                     transferId = matched.transferId,
                                                     ruleType = matched.ruleType,
                                                     onAccept = acceptAction,
-                                                    onDetail = { viewModel.openPackageDetail(pkg.id) }
+                                                    onDetail = { viewModel.openPackageDetail(pkg.id) },
+                                                    isAccepting = isThisAccepting
                                                 )
                                             }
                                         }
@@ -650,6 +675,7 @@ fun DriverCurrentPackageCard(
     onDetail: () -> Unit,
     onLongPress: () -> Unit = {},
     onPickup: () -> Unit = {},
+    isPickingUp: Boolean = false,
     notices: List<com.gocavgo.ikuriye.data.Notice> = emptyList()
 ) {
     val colors = LocalDriversColors.current
@@ -744,14 +770,21 @@ fun DriverCurrentPackageCard(
                     needsPickup -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = onPickup,
+                                onClick = { if (!isPickingUp) onPickup() },
+                                enabled = !isPickingUp,
                                 modifier = Modifier.weight(1f).heightIn(min = 38.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
                             ) {
-                                Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Pick Up Package", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                if (isPickingUp) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Picking up...", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                } else {
+                                    Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Pick Up Package", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                }
                             }
                         }
                     }
@@ -892,7 +925,8 @@ fun DriverOfferCard(
     acceptButtonLabel: String = "Accept Offer",
     onDetail: () -> Unit,
     isNew: Boolean = false,
-    hasActiveTrip: Boolean = true
+    hasActiveTrip: Boolean = true,
+    isAccepting: Boolean = false
 ) {
     val colors = LocalDriversColors.current
     var showMedia by remember { mutableStateOf(false) }
@@ -969,8 +1003,8 @@ fun DriverOfferCard(
                 }
                 Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = { if (hasActiveTrip) onAccept() },
-                    enabled = hasActiveTrip,
+                    onClick = { if (hasActiveTrip && !isAccepting) onAccept() },
+                    enabled = hasActiveTrip && !isAccepting,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -978,7 +1012,15 @@ fun DriverOfferCard(
                         disabledContainerColor = colors.divider
                     )
                 ) {
-                    Icon(icon, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(acceptButtonLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    if (isAccepting) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Accepting...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(icon, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(acceptButtonLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -994,7 +1036,8 @@ fun DriverTransferCard(
     transferId: String,
     ruleType: String,
     onAccept: () -> Unit,
-    onDetail: () -> Unit
+    onDetail: () -> Unit,
+    isAccepting: Boolean = false
 ) {
     val colors = LocalDriversColors.current
     var showMedia by remember { mutableStateOf(false) }
@@ -1063,8 +1106,22 @@ fun DriverTransferCard(
                 "CONFIRM" -> Icons.Filled.Send
                 else -> Icons.AutoMirrored.Filled.CompareArrows
             }
-            Button(onClick = onAccept, modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = colors.blue)) {
-                Icon(acceptIcon, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(acceptLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Button(
+                onClick = { if (!isAccepting) onAccept() },
+                enabled = !isAccepting,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+            ) {
+                if (isAccepting) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Accepting...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                } else {
+                    Icon(acceptIcon, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(acceptLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -1080,6 +1137,7 @@ fun DriverAssignedCard(
     onPickup: () -> Unit,
     onDetail: () -> Unit,
     onTransfer: () -> Unit = {},
+    isPickingUp: Boolean = false,
     notices: List<com.gocavgo.ikuriye.data.Notice> = emptyList()
 ) {
     val colors = LocalDriversColors.current
@@ -1143,14 +1201,21 @@ fun DriverAssignedCard(
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = onPickup,
+                    onClick = { if (!isPickingUp) onPickup() },
+                    enabled = !isPickingUp,
                     modifier = Modifier.weight(1f).heightIn(min = 38.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
                 ) {
-                    Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Pick Up Package", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    if (isPickingUp) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Picking up...", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    } else {
+                        Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Pick Up Package", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
                 }
             }
         }

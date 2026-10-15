@@ -63,6 +63,12 @@ sealed interface SingleResult<out T> {
     data class Failure(val message: String?) : SingleResult<Nothing>
 }
 
+data class AcceptTransferResult(
+    val success: Boolean,
+    val errorMessage: String? = null,
+    val acceptedPackages: List<ClientPackage> = emptyList()
+)
+
 object PackageRepository {
 
     private const val TAG = "PackageRepository"
@@ -603,11 +609,12 @@ object PackageRepository {
 
     /**
      * Result of [initiateDelivery] / [regenerateDeliveryCode].
-     * Carries the one-time 6-digit code that only the sender/receiver may see.
+     * The one-time 6-digit code is never returned to the initiating custodian —
+     * it is delivered to the sender/receiver via their notice feed instead.
      */
     data class DeliveryCodeResult(
         val packageUuid: String,
-        val deliveryCode: String,
+        val deliveryCode: String? = null,
         val packageStatus: PackageStatus
     )
 
@@ -888,7 +895,7 @@ object PackageRepository {
         }
     }
 
-    suspend fun requestTransfer(transferId: String, tripId: String? = null): TransferInfo? {
+    suspend fun requestTransfer(transferId: String, tripId: String? = null): SingleResult<TransferInfo> {
         return try {
             val input = AcceptTransferInput(
                 transferId = transferId,
@@ -903,21 +910,23 @@ object PackageRepository {
             if (errors != null && errors.isNotEmpty()) {
                 val errorMsgs = errors.joinToString("; ") { it.message ?: "unknown" }
                 Log.e(TAG, "requestTransfer: GraphQL errors — $errorMsgs")
-                null
+                SingleResult.Failure(errorMsgs)
             } else if (data != null) {
                 val t = data.acceptTransfer.transfer
-                TransferInfo(
-                    id = t.id,
-                    ruleType = t.ruleType.name,
-                    status = t.status.name,
-                    packageIds = t.packages.mapNotNull { it?.packageId }
+                SingleResult.Success(
+                    TransferInfo(
+                        id = t.id,
+                        ruleType = t.ruleType.name,
+                        status = t.status.name,
+                        packageIds = t.packages.mapNotNull { it?.packageId }
+                    )
                 )
             } else {
-                null
+                SingleResult.Failure("GraphQL response contained no data")
             }
         } catch (e: Exception) {
             Log.e(TAG, "requestTransfer: exception — ${e.message}", e)
-            null
+            SingleResult.Failure(e.message)
         }
     }
 
@@ -925,7 +934,7 @@ object PackageRepository {
         transferId: String,
         transferCode: String? = null,
         tripId: String? = null
-    ): Boolean {
+    ): AcceptTransferResult {
         return try {
             val input = AcceptTransferInput(
                 transferId = transferId,
@@ -938,14 +947,71 @@ object PackageRepository {
             val errors = response.errors
             val data = response.data
             if (errors != null && errors.isNotEmpty()) {
-                Log.e(TAG, "acceptPackageByTransfer: GraphQL errors — ${errors.joinToString("; ") { it.message ?: "unknown" }}")
-                false
+                val errorMsg = errors.joinToString("; ") { it.message ?: "unknown" }
+                Log.e(TAG, "acceptPackageByTransfer: GraphQL errors — $errorMsg")
+                AcceptTransferResult(success = false, errorMessage = errorMsg)
+            } else if (data != null) {
+                val pkgs = data.acceptTransfer.acceptedPackages?.mapNotNull { it?.deliveryPackage }?.map { pkg ->
+                    val sender = pkg.people?.find { it?.role?.name == "SENDER" }
+                    val receiver = pkg.people?.find { it?.role?.name == "RECEIVER" }
+                    val origin = pkg.locations?.find { it?.type?.name == "ORIGIN" }
+                    val destination = pkg.locations?.find { it?.type?.name == "DESTINATION" }
+                    val history = (pkg.events ?: emptyList()).mapNotNull { event ->
+                        event?.let {
+                            StatusUpdate(
+                                status = mapStatusFromEventType(it.eventType),
+                                timestamp = it.createdAt,
+                                location = "",
+                                message = it.description ?: ""
+                            )
+                        }
+                    }
+                    val custodians = (pkg.custodians ?: emptyList()).mapNotNull { c ->
+                        c?.let {
+                            CustodianInfo(
+                                id = it.id,
+                                userId = it.userId,
+                                name = it.name ?: "",
+                                phone = it.phone ?: "",
+                                role = it.role.name,
+                                assignedAt = it.assignedAt
+                            )
+                        }
+                    }
+                    buildClientPackage(
+                        trackingCode = pkg.trackingCode,
+                        packageUuid = pkg.id,
+                        deliveryType = pkg.deliveryType.name,
+                        senderId = sender?.userId ?: "",
+                        senderName = sender?.name ?: "",
+                        senderPhone = sender?.phone ?: "",
+                        fromAddress = origin?.placeName ?: "",
+                        recipientId = receiver?.userId ?: "",
+                        recipientName = receiver?.name ?: "",
+                        recipientPhone = receiver?.phone ?: "",
+                        toAddress = destination?.placeName ?: "",
+                        description = pkg.details?.description ?: "",
+                        weight = pkg.details?.weight?.let { "$it kg" } ?: "",
+                        category = pkg.details?.category ?: "",
+                        fragile = pkg.details?.fragile ?: false,
+                        mediaUrls = emptyList(),
+                        photoCount = 0,
+                        status = mapStatus(pkg.status),
+                        createdAt = pkg.createdAt,
+                        updatedAt = pkg.updatedAt,
+                        statusHistory = history,
+                        custodians = custodians,
+                        transfers = emptyList(),
+                        backendStatus = pkg.status.name
+                    )
+                } ?: emptyList()
+                AcceptTransferResult(success = true, acceptedPackages = pkgs)
             } else {
-                data != null
+                AcceptTransferResult(success = false, errorMessage = "Server returned empty response")
             }
         } catch (e: Exception) {
             Log.e(TAG, "acceptPackageByTransfer: exception — ${e.message}", e)
-            false
+            AcceptTransferResult(success = false, errorMessage = e.message ?: "Network error")
         }
     }
 

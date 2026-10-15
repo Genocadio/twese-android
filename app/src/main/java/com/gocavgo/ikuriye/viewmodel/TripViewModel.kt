@@ -1470,6 +1470,7 @@ class TripViewModel : ViewModel() {
      */
     fun confirmDeliver(): Boolean {
         val s = _state.value
+        if (s.isConfirmingDelivery) return false
         val pkg = s.driverCurrentPackages.find { it.id == s.selectedDriverPackageId } ?: return false
         val code = s.deliverCodeInput.trim()
         if (code.isEmpty()) {
@@ -1528,33 +1529,46 @@ class TripViewModel : ViewModel() {
      * (or ORIGIN_OFFICE → IN_TRANSIT for FIXED_ROUTE when driver picks up directly).
      */
     fun pickupPackage(packageId: String) {
-        val pkg = _state.value.driverCurrentPackages.find { it.id == packageId } ?: return
+        val s = _state.value
+        if (s.pickingUpPackageId != null) return
+        val pkg = s.driverCurrentPackages.find { it.id == packageId }
+            ?: s.driverAvailableOffers.find { it.id == packageId }
+            ?: s.driverIncomingTransfers.flatMap { it.packages }.find { it.id == packageId }
+            ?: return
         if (pkg.packageUuid.isBlank()) {
             viewModelScope.launch { _toastEvent.emit("Missing package UUID") }
             return
         }
         viewModelScope.launch {
-            val result = PackageRepository.updatePackageStatus(pkg.packageUuid, "IN_TRANSIT", "Driver picked up package")
-            if (result != null) {
-                _state.update { s ->
-                    s.copy(
-                        driverCurrentPackages = s.driverCurrentPackages.map {
-                            if (it.id == packageId) it.copy(
-                                status = result.status,
-                                backendStatus = "IN_TRANSIT"
-                            ) else it
-                        }
-                    )
+            _state.update { it.copy(pickingUpPackageId = packageId) }
+            try {
+                val result = PackageRepository.updatePackageStatus(pkg.packageUuid, "IN_TRANSIT", "Driver picked up package")
+                if (result != null) {
+                    _state.update { s2 ->
+                        s2.copy(
+                            driverCurrentPackages = s2.driverCurrentPackages.map {
+                                if (it.id == packageId) it.copy(
+                                    status = result.status,
+                                    backendStatus = "IN_TRANSIT"
+                                ) else it
+                            }
+                        )
+                    }
+                    _toastEvent.emit("Package picked up — heading to destination")
+                } else {
+                    _toastEvent.emit("Failed to pick up package")
                 }
-                _toastEvent.emit("Package picked up — heading to destination")
-            } else {
-                _toastEvent.emit("Failed to pick up package")
+            } catch (e: Exception) {
+                _toastEvent.emit("Error picking up package: ${e.message}")
+            } finally {
+                _state.update { it.copy(pickingUpPackageId = null) }
             }
         }
     }
 
     fun confirmTransfer() {
         val s = _state.value
+        if (s.isCreatingTransfer) return
         val pkg = s.driverCurrentPackages.find { it.id == s.selectedDriverPackageId } ?: return
         if (pkg.packageUuid.isBlank()) {
             viewModelScope.launch { _toastEvent.emit("Missing package UUID — cannot create transfer") }
@@ -2517,31 +2531,30 @@ class TripViewModel : ViewModel() {
 
                 val currentState = _state.value
                 val isOnOffersTab = currentState.driverHomeTab == 1 && currentState.driverPackageSubTab == 1
-                if (isOnOffersTab) {
-                    // Directly add to top of offers list with growing border
-                    val pkgId = pkg.id
-                    _state.update {
-                        it.copy(
-                            driverAvailableOffers = listOf(pkg) + it.driverAvailableOffers,
+                val pkgId = pkg.id
+                _state.update { s ->
+                    val existing = s.driverAvailableOffers.any { it.id == pkg.id }
+                    val updatedOffers = if (existing) s.driverAvailableOffers else listOf(pkg) + s.driverAvailableOffers
+                    if (isOnOffersTab) {
+                        s.copy(
+                            driverAvailableOffers = updatedOffers,
                             newPackageFromSubscription = pkg
                         )
+                    } else {
+                        s.copy(
+                            driverAvailableOffers = updatedOffers,
+                            newPackageFromSubscription = pkg,
+                            showNewPackageToast = true
+                        )
                     }
+                }
+                if (isOnOffersTab) {
                     // Auto-clear the "new" flag after 8 seconds so the border animation stops.
-                    // Only clear if the flag still points to THIS package, not a newer one
-                    // that arrived in the meantime.
                     kotlinx.coroutines.delay(8_000)
                     _state.update { s ->
                         if (s.newPackageFromSubscription?.id == pkgId) {
                             s.copy(newPackageFromSubscription = null)
                         } else s
-                    }
-                } else {
-                    // Show floating toast — user can tap to switch to offers tab
-                    _state.update {
-                        it.copy(
-                            newPackageFromSubscription = pkg,
-                            showNewPackageToast = true
-                        )
                     }
                 }
             }
@@ -2618,36 +2631,47 @@ class TripViewModel : ViewModel() {
      */
     fun acceptAUTOTransfer(packageId: String, transferId: String) {
         val s = _state.value
+        if (s.isAcceptingTransfer) return
         if (!s.hasActiveTrip) {
             viewModelScope.launch { _toastEvent.emit("No active trip — you cannot accept package offers until a trip is scheduled for you") }
             return
         }
         val tripId = s.activeDriverTrip?.id?.toString()
         viewModelScope.launch {
-            _state.update { it.copy(isAcceptingTransfer = true) }
-            val success = PackageRepository.acceptPackageByTransfer(transferId, tripId = tripId)
-            if (success) {
-                _state.update { s2 ->
-                    val offer = s2.driverAvailableOffers.find { it.id == packageId } ?: return@update s2
-                    val accepted = offer.copy(
-                        status = PackageStatus.PICKED_UP,
-                        driverName = s2.driverProfile.name,
-                        driverPhone = s2.driverProfile.phone,
-                        driverCompany = "QuickCargo Ltd",
-                        vehicleType = "car",
-                        deliveryCode = packageId.replace("PKG", "DLV"),
-                        statusHistory = listOf(StatusUpdate(PackageStatus.PICKED_UP, "Just now", offer.fromAddress, "Offer accepted"))
-                    )
-                    s2.copy(
-                        driverCurrentPackages = listOf(accepted) + s2.driverCurrentPackages,
-                        driverAvailableOffers = s2.driverAvailableOffers.filter { it.id != packageId },
-                        isAcceptingTransfer = false
-                    )
+            _state.update { it.copy(isAcceptingTransfer = true, acceptTransferPackageId = packageId) }
+            try {
+                val result = PackageRepository.acceptPackageByTransfer(transferId, tripId = tripId)
+                if (result.success) {
+                    _state.update { s2 ->
+                        val offer = s2.driverAvailableOffers.find { it.id == packageId }
+                            ?: s2.driverIncomingTransfers.flatMap { it.packages }.find { it.id == packageId }
+                        val accepted = offer?.copy(
+                            status = PackageStatus.PICKED_UP,
+                            driverName = s2.driverProfile.name,
+                            driverPhone = s2.driverProfile.phone,
+                            driverCompany = "QuickCargo Ltd",
+                            vehicleType = "car",
+                            deliveryCode = packageId.replace("PKG", "DLV"),
+                            statusHistory = listOf(StatusUpdate(PackageStatus.PICKED_UP, "Just now", offer.fromAddress, "Offer accepted"))
+                        ) ?: result.acceptedPackages.firstOrNull()
+
+                        s2.copy(
+                            driverCurrentPackages = if (accepted != null) listOf(accepted) + s2.driverCurrentPackages else s2.driverCurrentPackages,
+                            driverAvailableOffers = s2.driverAvailableOffers.filter { it.id != packageId },
+                            driverIncomingTransfers = s2.driverIncomingTransfers.filter { it.transferId != transferId },
+                            acceptTransferPackageId = null,
+                            isAcceptingTransfer = false
+                        )
+                    }
+                    loadDriverPackages()
+                    _toastEvent.emit("Offer accepted")
+                } else {
+                    _state.update { it.copy(isAcceptingTransfer = false, acceptTransferPackageId = null) }
+                    _toastEvent.emit(result.errorMessage ?: "Failed to accept offer")
                 }
-                _toastEvent.emit("Offer accepted")
-            } else {
-                _state.update { it.copy(isAcceptingTransfer = false) }
-                _toastEvent.emit("Failed to accept offer")
+            } catch (e: Exception) {
+                _state.update { it.copy(isAcceptingTransfer = false, acceptTransferPackageId = null) }
+                _toastEvent.emit("Error accepting offer: ${e.message}")
             }
         }
     }
@@ -3249,22 +3273,24 @@ class TripViewModel : ViewModel() {
                 driverCurrentPage = 0,
                 driverOffersPage = 0
             ) }
-            // Local-first: show cached driver packages immediately
-            val cached = withContext(Dispatchers.IO) { PackageCache.getDriverCached() }
-            if (cached != null) {
-                val activeCached = _state.value.activeDriverTrip
-                _state.update { it.copy(
-                    driverCurrentPackages = cached.items,
-                    trip = if (activeCached != null) mapBackendTripToTrip(activeCached, cached.items) else it.trip,
-                    driverCurrentPage = 0,
-                    driverCurrentHasMore = cached.currentPage + 1 < cached.totalPages,
-                    driverCurrentTotalPages = cached.totalPages,
-                    driverCurrentTotalCount = cached.totalCount
-                ) }
-                // Don't show loading spinner — user sees cached data immediately
-            } else {
-                // No cache — show loading on first load only
-                _state.update { it.copy(isDriverInitialLoading = true) }
+            // Local-first: show cached driver packages immediately on cold start (when in-memory list is empty)
+            if (_state.value.driverCurrentPackages.isEmpty()) {
+                val cached = withContext(Dispatchers.IO) { PackageCache.getDriverCached() }
+                if (cached != null) {
+                    val activeCached = _state.value.activeDriverTrip
+                    _state.update { it.copy(
+                        driverCurrentPackages = cached.items,
+                        trip = if (activeCached != null) mapBackendTripToTrip(activeCached, cached.items) else it.trip,
+                        driverCurrentPage = 0,
+                        driverCurrentHasMore = cached.currentPage + 1 < cached.totalPages,
+                        driverCurrentTotalPages = cached.totalPages,
+                        driverCurrentTotalCount = cached.totalCount
+                    ) }
+                    // Don't show loading spinner — user sees cached data immediately
+                } else {
+                    // No cache — show loading on first load only
+                    _state.update { it.copy(isDriverInitialLoading = true) }
+                }
             }
             try {
                 // Fetch driver's packages (cached locally)
@@ -3496,43 +3522,53 @@ class TripViewModel : ViewModel() {
      */
     fun acceptIncomingTransfer(transferId: String, packageId: String, transferCode: String? = null) {
         val s = _state.value
+        if (s.isAcceptingTransfer) return
         val tripId = s.activeDriverTrip?.id?.toString()
         viewModelScope.launch {
-            _state.update { it.copy(isAcceptingTransfer = true) }
-            val success = PackageRepository.acceptPackageByTransfer(transferId, transferCode, tripId = tripId)
-            if (success) {
-                _state.update { s2 ->
-                    val matched = s2.driverIncomingTransfers.find { it.transferId == transferId }
-                    val pkg = matched?.packages?.find { it.id == packageId }
-                    val accepted = pkg?.copy(
-                        status = PackageStatus.PICKED_UP,
-                        driverName = s2.driverProfile.name,
-                        driverPhone = s2.driverProfile.phone,
-                        driverCompany = "QuickCargo Ltd",
-                        vehicleType = "car",
-                        statusHistory = listOf(StatusUpdate(PackageStatus.PICKED_UP, "Just now", pkg.fromAddress, "Transfer accepted from office"))
-                    )
-                    s2.copy(
-                        driverCurrentPackages = if (accepted != null) listOf(accepted) + s2.driverCurrentPackages else s2.driverCurrentPackages,
-                        driverIncomingTransfers = s2.driverIncomingTransfers.filter { it.transferId != transferId },
-                        showAcceptTransferCodeDialog = false,
-                        acceptTransferPackageId = null,
-                        acceptTransferId = null,
-                        acceptTransferRuleType = null,
-                        acceptTransferCodeInput = "",
-                        acceptTransferCodeError = "",
-                        isAcceptingTransfer = false
-                    )
+            _state.update { it.copy(isAcceptingTransfer = true, acceptTransferPackageId = packageId) }
+            try {
+                val result = PackageRepository.acceptPackageByTransfer(transferId, transferCode, tripId = tripId)
+                if (result.success) {
+                    _state.update { s2 ->
+                        val matched = s2.driverIncomingTransfers.find { it.transferId == transferId }
+                        val pkg = matched?.packages?.find { it.id == packageId }
+                            ?: s2.driverAvailableOffers.find { it.id == packageId }
+                        val accepted = pkg?.copy(
+                            status = PackageStatus.PICKED_UP,
+                            driverName = s2.driverProfile.name,
+                            driverPhone = s2.driverProfile.phone,
+                            driverCompany = "QuickCargo Ltd",
+                            vehicleType = "car",
+                            statusHistory = listOf(StatusUpdate(PackageStatus.PICKED_UP, "Just now", pkg.fromAddress, "Transfer accepted from office"))
+                        ) ?: result.acceptedPackages.firstOrNull()
+                        s2.copy(
+                            driverCurrentPackages = if (accepted != null) listOf(accepted) + s2.driverCurrentPackages else s2.driverCurrentPackages,
+                            driverIncomingTransfers = s2.driverIncomingTransfers.filter { it.transferId != transferId },
+                            driverAvailableOffers = s2.driverAvailableOffers.filter { it.id != packageId },
+                            showAcceptTransferCodeDialog = false,
+                            acceptTransferPackageId = null,
+                            acceptTransferId = null,
+                            acceptTransferRuleType = null,
+                            acceptTransferCodeInput = "",
+                            acceptTransferCodeError = "",
+                            isAcceptingTransfer = false
+                        )
+                    }
+                    loadDriverPackages()
+                    _toastEvent.emit("Transfer accepted")
+                } else {
+                    _state.update { s2 ->
+                        s2.copy(
+                            acceptTransferCodeError = result.errorMessage ?: if (transferCode != null) "Invalid transfer code" else "Failed to accept transfer",
+                            acceptTransferPackageId = null,
+                            isAcceptingTransfer = false
+                        )
+                    }
+                    _toastEvent.emit(result.errorMessage ?: "Failed to accept transfer")
                 }
-                _toastEvent.emit("Transfer accepted")
-            } else {
-                _state.update { s2 ->
-                    s2.copy(
-                        acceptTransferCodeError = if (transferCode != null) "Invalid transfer code" else "Failed to accept transfer",
-                        isAcceptingTransfer = false
-                    )
-                }
-                _toastEvent.emit("Failed to accept transfer")
+            } catch (e: Exception) {
+                _state.update { it.copy(isAcceptingTransfer = false, acceptTransferPackageId = null) }
+                _toastEvent.emit("Error accepting transfer: ${e.message}")
             }
         }
     }
@@ -3598,6 +3634,7 @@ class TripViewModel : ViewModel() {
 
     fun createBatchTransfer() {
         val s = _state.value
+        if (s.isCreatingTransfer) return
         val trackingCodes = s.selectedPackageIds.toList()
         val ruleType = s.selectedTransferRuleType ?: return
         if (trackingCodes.isEmpty()) return
@@ -3683,6 +3720,7 @@ class TripViewModel : ViewModel() {
 
     fun createTransfer() {
         val s = _state.value
+        if (s.isCreatingTransfer) return
         val trackingCode = s.transferCreationPackageId ?: return
         val ruleType = s.selectedTransferRuleType ?: return
 
@@ -3766,6 +3804,7 @@ class TripViewModel : ViewModel() {
     }
 
     fun confirmTransferRequest() {
+        if (_state.value.isConfirmingTransfer) return
         val transferId = _state.value.confirmTransferId ?: return
         val packageId = _state.value.confirmTransferPackageId ?: return
 
@@ -3811,6 +3850,7 @@ class TripViewModel : ViewModel() {
     }
 
     fun rejectTransferRequest() {
+        if (_state.value.isRejectingTransfer) return
         val transferId = _state.value.rejectTransferId ?: return
         val packageId = _state.value.rejectTransferPackageId ?: return
 
@@ -3862,6 +3902,7 @@ class TripViewModel : ViewModel() {
 
     fun requestTransferForPackage() {
         val s = _state.value
+        if (s.isRequestingTransfer) return
         if (!s.hasActiveTrip) {
             viewModelScope.launch { _toastEvent.emit("No active trip — you cannot accept package offers until a trip is scheduled for you") }
             return
@@ -3872,27 +3913,33 @@ class TripViewModel : ViewModel() {
 
         viewModelScope.launch {
             _state.update { it.copy(isRequestingTransfer = true) }
-            val result = PackageRepository.requestTransfer(transferId, tripId = tripId)
-            if (result != null) {
-                // Update package status in available offers to show it's pending
-                _state.update { s2 ->
-                    s2.copy(
-                        driverAvailableOffers = s2.driverAvailableOffers.map { pkg ->
-                            if (pkg.id == packageId) pkg.copy(
-                                transferId = result.id,
-                                transferStatus = result.status
-                            ) else pkg
-                        },
-                        showRequestTransferDialog = false,
-                        requestTransferPackageId = null,
-                        requestTransferId = null,
-                        isRequestingTransfer = false
-                    )
+            when (val result = PackageRepository.requestTransfer(transferId, tripId = tripId)) {
+                is SingleResult.Success -> {
+                    val info = result.data
+                    _state.update { s2 ->
+                        s2.copy(
+                            driverAvailableOffers = s2.driverAvailableOffers.map { pkg ->
+                                if (pkg.id == packageId) pkg.copy(
+                                    transferId = info.id,
+                                    transferStatus = info.status
+                                ) else pkg
+                            },
+                            showRequestTransferDialog = false,
+                            requestTransferPackageId = null,
+                            requestTransferId = null,
+                            isRequestingTransfer = false
+                        )
+                    }
+                    _toastEvent.emit("Transfer request sent — awaiting owner confirmation")
                 }
-                _toastEvent.emit("Transfer request sent — awaiting owner confirmation")
-            } else {
-                _state.update { it.copy(isRequestingTransfer = false) }
-                _toastEvent.emit("Failed to request transfer")
+                is SingleResult.Failure -> {
+                    _state.update { it.copy(isRequestingTransfer = false) }
+                    _toastEvent.emit(result.message ?: "Failed to request transfer")
+                }
+                is SingleResult.NotFound -> {
+                    _state.update { it.copy(isRequestingTransfer = false) }
+                    _toastEvent.emit(result.message ?: "Transfer not found")
+                }
             }
         }
     }
@@ -3929,13 +3976,14 @@ class TripViewModel : ViewModel() {
 
     fun acceptOfferViaTransfer() {
         val s = _state.value
+        if (s.isAcceptingTransfer) return
         if (!s.hasActiveTrip) {
             viewModelScope.launch { _toastEvent.emit("No active trip — you cannot accept package offers until a trip is scheduled for you") }
             return
         }
         val transferId = s.acceptTransferId ?: return
         val packageId = s.acceptTransferPackageId ?: return
-        val ruleType = s.acceptTransferRuleType ?: return
+        val ruleType = s.acceptTransferRuleType ?: "AUTO"
         val tripId = s.activeDriverTrip?.id?.toString()
 
         viewModelScope.launch {
@@ -3950,8 +3998,8 @@ class TripViewModel : ViewModel() {
                 input
             } else null
 
-            val success = PackageRepository.acceptPackageByTransfer(transferId, code, tripId = tripId)
-            if (success) {
+            val result = PackageRepository.acceptPackageByTransfer(transferId, code, tripId = tripId)
+            if (result.success) {
                 // Check if the package is in offers (New tab) or incoming transfers (Transfers tab)
                 val offerInOffers = s.driverAvailableOffers.find { it.id == packageId }
                 val matchedTransfer = s.driverIncomingTransfers.find { it.transferId == transferId }
@@ -3966,7 +4014,8 @@ class TripViewModel : ViewModel() {
                         vehicleType = "car",
                         deliveryCode = packageId.replace("PKG", "DLV"),
                         statusHistory = listOf(StatusUpdate(PackageStatus.PICKED_UP, "Just now", pkg.fromAddress, "Offer accepted via transfer"))
-                    )
+                    ) ?: result.acceptedPackages.firstOrNull()
+
                     s2.copy(
                         driverCurrentPackages = if (accepted != null) listOf(accepted) + s2.driverCurrentPackages else s2.driverCurrentPackages,
                         driverAvailableOffers = s2.driverAvailableOffers.filter { it.id != packageId },
@@ -3980,10 +4029,11 @@ class TripViewModel : ViewModel() {
                         isAcceptingTransfer = false
                     )
                 }
+                loadDriverPackages()
                 _toastEvent.emit("Package accepted via transfer")
             } else {
                 _state.update { it.copy(
-                    acceptTransferCodeError = if (ruleType == "SECURE") "Invalid transfer code" else "Failed to accept transfer",
+                    acceptTransferCodeError = result.errorMessage ?: if (ruleType == "SECURE") "Invalid transfer code" else "Failed to accept transfer",
                     isAcceptingTransfer = false
                 ) }
             }
@@ -4072,6 +4122,7 @@ class TripViewModel : ViewModel() {
      * "Confirm Delivery" button on the tracking screen.
      */
     fun confirmDeliveryFromCode(packageUuid: String, code: String) {
+        if (_state.value.isConfirmingDelivery) return
         viewModelScope.launch {
             _state.update { it.copy(isConfirmingDelivery = true) }
             val updated = PackageRepository.confirmDelivery(packageUuid, code.trim())
@@ -4639,11 +4690,23 @@ class TripViewModel : ViewModel() {
                                 s.copy(clientPackages = updated)
                             }
                             AppRole.DRIVER -> {
+                                val isRemoved = notice.eventType.equals("PACKAGE_CUSTODIAN_REMOVED", ignoreCase = true)
+                                val isDeliveredOrCancelled = freshPkg.status == PackageStatus.DELIVERED || freshPkg.status == PackageStatus.CANCELLED
+                                val shouldEvict = isRemoved || isDeliveredOrCancelled
                                 val exists = s.driverCurrentPackages.any { it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id }
-                                val updated = if (exists) {
-                                    s.driverCurrentPackages.map { if (it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id) freshPkg else it }
+
+                                val updated = if (shouldEvict) {
+                                    withContext(Dispatchers.IO) {
+                                        PackageCache.removeDriverPackage(freshPkg.packageUuid)
+                                        PackageCache.removeDriverPackage(freshPkg.id)
+                                    }
+                                    s.driverCurrentPackages.filter { it.packageUuid != freshPkg.packageUuid && it.id != freshPkg.id }
                                 } else {
-                                    listOf(freshPkg) + s.driverCurrentPackages
+                                    if (exists) {
+                                        s.driverCurrentPackages.map { if (it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id) freshPkg else it }
+                                    } else {
+                                        listOf(freshPkg) + s.driverCurrentPackages
+                                    }
                                 }
                                 s.copy(driverCurrentPackages = updated)
                             }

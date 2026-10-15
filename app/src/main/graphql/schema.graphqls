@@ -316,7 +316,7 @@ enum CustodianRole {
 }
 
 """
-Return type for initiateDelivery / regenerateDeliveryCode mutations. Contains the updated package and the one-time delivery code.
+Return type for initiateDelivery / regenerateDeliveryCode mutations. Contains the updated package. The one-time delivery code is never returned to the initiating worker/driver.
 """
 type DeliveryCodeResult {
   """
@@ -325,9 +325,9 @@ type DeliveryCodeResult {
   deliveryPackage: DeliveryPackage!
 
   """
-  Six-digit numeric delivery code — required by confirmDelivery to confirm the delivery. One-time display only.
+  One-time delivery code issued to the sender/receiver via their notice feed. Always null for the initiating custodian (worker/driver) — they must obtain it from the recipient.
   """
-  deliveryCode: String!
+  deliveryCode: String
 }
 
 """

@@ -345,6 +345,7 @@ data class TripUiState(
     val pickupCodePackageUuid: String? = null,
     val pickupCodeExpiryMs: Long = 0L,
     val isGeneratingPickupCode: Boolean = false,
+    val pickingUpPackageId: String? = null,
     // Delivery confirmation (PENDING_CONFIRMATION flow)
     val isInitiatingDelivery: Boolean = false,
     val showDeliveryConfirmationDialog: Boolean = false,
