@@ -169,6 +169,30 @@ object PackageTransferSubscription {
                 }
 
                 Log.d(TAG, "connecting subscription...")
+
+                // ── Real-time Reconnection: Catch-up Delta Sync ──
+                try {
+                    val since = PackageRepository.lastSyncTimestamp
+                        ?: java.time.Instant.ofEpochMilli(System.currentTimeMillis() - 86400000L).toString()
+                    when (val syncResult = PackageRepository.syncSince(since)) {
+                        is SingleResult.Success -> {
+                            val delta = syncResult.data
+                            Log.i(TAG, "Reconnection catch-up: ${delta.packages.size} packages, ${delta.notices.size} notices since $since")
+                            NoticeRepository.ingestSyncNotices(delta.notices)
+                            for (pkg in delta.packages) {
+                                seenIds.add(pkg.id)
+                                _events.emit(pkg)
+                            }
+                        }
+                        is SingleResult.Failure -> {
+                            Log.w(TAG, "Reconnection catch-up failed: ${syncResult.message}")
+                        }
+                        is SingleResult.NotFound -> {}
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Reconnection catch-up error: ${e.message}")
+                }
+
                 ApolloClientProvider.client
                     .subscription(NewPackageTransferSubscription())
                     .toFlow()
@@ -183,6 +207,7 @@ object PackageTransferSubscription {
                         }
                         val gql = response.data?.newPackageTransfer ?: return@collect
                         val pkg = mapSubscriptionPackage(gql) ?: return@collect
+                        PackageRepository.updateLastSyncTimestamp(pkg.createdAt)
                         if (pkg.id in seenIds) return@collect // deduplicate
                         seenIds.add(pkg.id)
                         _events.emit(pkg)

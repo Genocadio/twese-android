@@ -58,6 +58,10 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     defaultConfig {
         applicationId = "com.gocavgo.twese"
         minSdk = 24

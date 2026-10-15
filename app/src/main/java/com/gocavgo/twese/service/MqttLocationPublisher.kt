@@ -45,9 +45,10 @@ object MqttLocationPublisher {
     private val brokerPassword: String get() = BuildConfig.MQTT_PASSWORD
 
     // ── Batching ───────────────────────────────────────────────────────────
-    private const val BATCH_INTERVAL_MS = 10_000L     // flush every 10s when moving
-    private const val HEARTBEAT_INTERVAL_MS = 300_000L // heartbeat every 5 min
-    private const val BATCH_SIZE = 20                   // max points per Protobuf batch
+    private const val BATCH_INTERVAL_MS = 10_000L            // flush every 10s when moving
+    private const val STATIONARY_BATCH_INTERVAL_MS = 60_000L // 60s heartbeat when stationary
+    private const val HEARTBEAT_INTERVAL_MS = 300_000L        // heartbeat every 5 min
+    private const val BATCH_SIZE = 20                         // max points per Protobuf batch
     private const val MAX_RECONNECT_MS = 128_000L
 
     // ── Public broadcast ───────────────────────────────────────────────────
@@ -65,6 +66,8 @@ object MqttLocationPublisher {
     @Volatile private var isConnected = false
     @Volatile private var isShuttingDown = false
     @Volatile private var reconnectAttempt = 0
+    @Volatile var isStationary: Boolean = false
+        private set
 
     @Volatile var vehicleId: String? = null
         set(value) {
@@ -158,13 +161,29 @@ object MqttLocationPublisher {
         }
     }
 
+    /**
+     * Adaptive reporting: when vehicle is stationary for >3 min, throttle MQTT batch
+     * flushes to a 60s heartbeat to preserve battery. When moving resumes,
+     * immediately ramp back up to 10s.
+     */
+    fun setStationaryMode(stationary: Boolean) {
+        if (isStationary == stationary) return
+        isStationary = stationary
+        Log.i(TAG, "Adaptive reporting mode changed: stationary=$stationary")
+        if (stationary) {
+            executor.execute { flushBatch() }
+        }
+        startBatchFlusher()
+    }
+
     // ── Batch flushing ─────────────────────────────────────────────────────
 
     private fun startBatchFlusher() {
         batchFuture.get()?.cancel(false)
+        val interval = if (isStationary) STATIONARY_BATCH_INTERVAL_MS else BATCH_INTERVAL_MS
         val future = executor.scheduleWithFixedDelay(
             { flushBatch() },
-            BATCH_INTERVAL_MS, BATCH_INTERVAL_MS, TimeUnit.MILLISECONDS
+            interval, interval, TimeUnit.MILLISECONDS
         )
         batchFuture.set(future)
     }

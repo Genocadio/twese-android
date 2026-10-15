@@ -2526,17 +2526,37 @@ class TripViewModel : ViewModel() {
         // Collect events from the subscription
         subscriptionJob = viewModelScope.launch {
             com.gocavgo.twese.data.PackageTransferSubscription.events.collect { pkg ->
-                // Guard: skip if this package has already been accepted and moved
-                // to current packages (prevents race with acceptAUTOTransfer/etc).
-                val alreadyAccepted = _state.value.driverCurrentPackages.any { it.id == pkg.id }
-                if (alreadyAccepted) return@collect
+                val inCurrent = _state.value.driverCurrentPackages.any { it.id == pkg.id }
+                if (inCurrent) {
+                    _state.update { s ->
+                        s.copy(driverCurrentPackages = s.driverCurrentPackages.map {
+                            if (it.id == pkg.id) pkg else it
+                        })
+                    }
+                    return@collect
+                }
+
+                val inOffers = _state.value.driverAvailableOffers.any { it.id == pkg.id }
+                if (inOffers) {
+                    if (pkg.backendStatus != "CREATED" && pkg.status != PackageStatus.PENDING) {
+                        _state.update { s ->
+                            s.copy(driverAvailableOffers = s.driverAvailableOffers.filter { it.id != pkg.id })
+                        }
+                    } else {
+                        _state.update { s ->
+                            s.copy(driverAvailableOffers = s.driverAvailableOffers.map {
+                                if (it.id == pkg.id) pkg else it
+                            })
+                        }
+                    }
+                    return@collect
+                }
 
                 val currentState = _state.value
                 val isOnOffersTab = currentState.driverHomeTab == 1 && currentState.driverPackageSubTab == 1
                 val pkgId = pkg.id
                 _state.update { s ->
-                    val existing = s.driverAvailableOffers.any { it.id == pkg.id }
-                    val updatedOffers = if (existing) s.driverAvailableOffers else listOf(pkg) + s.driverAvailableOffers
+                    val updatedOffers = listOf(pkg) + s.driverAvailableOffers
                     if (isOnOffersTab) {
                         s.copy(
                             driverAvailableOffers = updatedOffers,

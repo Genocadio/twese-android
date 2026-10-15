@@ -20,6 +20,10 @@ import com.gocavgo.twese.RegenerateDeliveryCodeMutation
 import com.gocavgo.twese.RequestTransferMutation
 import com.gocavgo.twese.TransfersForMeQuery
 import com.gocavgo.twese.UpdatePackageStatusMutation
+import com.gocavgo.twese.SyncSinceQuery
+import com.gocavgo.twese.type.DeliveryType
+import com.gocavgo.twese.type.LocationType
+import com.gocavgo.twese.type.PersonRole
 import com.gocavgo.twese.type.UpdatePackageStatusInput
 import com.gocavgo.twese.network.ApolloClientProvider
 import com.gocavgo.twese.type.AcceptTransferInput
@@ -39,6 +43,15 @@ data class PagedResult(
     val totalCount: Int,
     val totalPages: Int,
     val currentPage: Int
+)
+
+/**
+ * Result of a catch-up delta sync query.
+ */
+data class DeltaSyncResult(
+    val syncedAt: String,
+    val packages: List<ClientPackage>,
+    val notices: List<Notice>
 )
 
 /**
@@ -74,6 +87,17 @@ data class AcceptTransferResult(
 object PackageRepository {
 
     private const val TAG = "PackageRepository"
+
+    @Volatile var lastSyncTimestamp: String? = null
+
+    fun updateLastSyncTimestamp(timestamp: String?) {
+        if (!timestamp.isNullOrBlank()) {
+            val current = lastSyncTimestamp
+            if (current == null || timestamp > current) {
+                lastSyncTimestamp = timestamp
+            }
+        }
+    }
 
     suspend fun fetchMyPackages(
         page: Int = 0,
@@ -405,6 +429,91 @@ object PackageRepository {
             statusHistory = history,
             custodians = (pkg.custodians ?: emptyList()).mapNotNull { c ->
                 c?.let { CustodianInfo(it.id, it.userId, it.name ?: "", it.phone ?: "", it.role.name, it.assignedAt) }
+            },
+            transfers = serverTransfers,
+            backendStatus = pkg.status.name
+        )
+    }
+
+    suspend fun syncSince(since: String): SingleResult<DeltaSyncResult> {
+        return try {
+            val response = ApolloClientProvider.client
+                .query(SyncSinceQuery(since = since))
+                .execute()
+
+            if (response.hasErrors()) {
+                val msg = response.errors?.firstOrNull()?.message ?: "Sync failed"
+                Log.w(TAG, "syncSince error: $msg")
+                return SingleResult.Failure(msg)
+            }
+
+            val data = response.data?.syncSince ?: return SingleResult.Failure("Empty sync response")
+            val packages = data.packages.map { mapSyncPackage(it) }
+            val notices = data.notices.map { n ->
+                Notice(
+                    id = n.id,
+                    resourceType = n.resourceType,
+                    resourceId = n.resourceId,
+                    eventType = n.eventType,
+                    actorId = n.actorId,
+                    title = n.title,
+                    message = n.message,
+                    payload = n.payload,
+                    viewerId = n.viewer.id,
+                    viewerNoticeId = n.viewer.noticeId,
+                    viewerReadAt = n.viewer.readAt,
+                    createdAt = n.createdAt
+                )
+            }
+            updateLastSyncTimestamp(data.syncedAt)
+            SingleResult.Success(DeltaSyncResult(data.syncedAt, packages, notices))
+        } catch (e: Exception) {
+            Log.e(TAG, "syncSince failed", e)
+            SingleResult.Failure(e.message ?: "Network error during sync")
+        }
+    }
+
+    private fun mapSyncPackage(pkg: SyncSinceQuery.Package): ClientPackage {
+        val sender = pkg.people.find { it.role == PersonRole.SENDER }
+        val receiver = pkg.people.find { it.role == PersonRole.RECEIVER }
+        val origin = pkg.locations.find { it.type == LocationType.ORIGIN }
+        val destination = pkg.locations.find { it.type == LocationType.DESTINATION }
+        val history = pkg.events.map { event ->
+            StatusUpdate(
+                status = mapStatusFromEventType(event.eventType),
+                timestamp = event.createdAt,
+                location = "",
+                message = event.description ?: ""
+            )
+        }
+        val serverTransfers = pkg.transfers.map { t ->
+            ServerTransferInfo(id = t.id, ruleType = t.ruleType.name, status = t.status.name)
+        }
+
+        return buildClientPackage(
+            trackingCode = pkg.trackingCode,
+            packageUuid = pkg.id,
+            deliveryType = pkg.deliveryType.name,
+            senderId = sender?.userId ?: "",
+            senderName = sender?.name ?: "",
+            senderPhone = sender?.phone ?: "",
+            fromAddress = origin?.placeName ?: "",
+            recipientId = receiver?.userId ?: "",
+            recipientName = receiver?.name ?: "",
+            recipientPhone = receiver?.phone ?: "",
+            toAddress = destination?.placeName ?: "",
+            description = pkg.details?.description ?: "",
+            weight = pkg.details?.weight?.let { "$it kg" } ?: "",
+            category = pkg.details?.category ?: "",
+            fragile = pkg.details?.fragile ?: false,
+            mediaUrls = pkg.details?.media?.mapNotNull { it?.url } ?: emptyList(),
+            photoCount = pkg.details?.media?.size ?: 0,
+            status = mapStatus(pkg.status),
+            createdAt = pkg.createdAt,
+            updatedAt = pkg.updatedAt ?: "",
+            statusHistory = history,
+            custodians = pkg.custodians.map { c ->
+                CustodianInfo(c.id, c.userId, c.name ?: "", c.phone ?: "", c.role.name, c.assignedAt)
             },
             transfers = serverTransfers,
             backendStatus = pkg.status.name

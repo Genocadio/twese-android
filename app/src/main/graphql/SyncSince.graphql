@@ -1,0 +1,76 @@
+query SyncSince($since: String!) {
+  syncSince(since: $since) {
+    syncedAt
+    packages {
+      id
+      trackingCode
+      deliveryType
+      status
+      creatorId
+      custodians {
+        id
+        userId
+        name
+        phone
+        role
+        assignedAt
+      }
+      people {
+        id
+        role
+        userId
+        name
+        phone
+      }
+      locations {
+        id
+        type
+        placeName
+        latitude
+        longitude
+      }
+      details {
+        category
+        description
+        fragile
+        weight
+        media {
+          id
+          url
+          mimeType
+        }
+      }
+      events {
+        id
+        eventType
+        description
+        createdAt
+      }
+      transfers {
+        id
+        ruleType
+        status
+      }
+      createdAt
+      updatedAt
+    }
+    notices {
+      id
+      resourceType
+      resourceId
+      eventType
+      actorId
+      title
+      message
+      payload
+      viewer {
+        id
+        noticeId
+        userId
+        deliveredAt
+        readAt
+      }
+      createdAt
+    }
+  }
+}

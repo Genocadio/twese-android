@@ -52,6 +52,14 @@ class LocationService : Service() {
         private const val FASTEST_INTERVAL_MS  = 3_000L
         private const val MIN_DISPLACEMENT_M   = 5f
 
+        // ── Adaptive Stationary Mode (<3 km/h for >3 min) ───────────────────
+        private const val STATIONARY_UPDATE_INTERVAL_MS  = 30_000L
+        private const val STATIONARY_FASTEST_INTERVAL_MS = 15_000L
+        private const val STATIONARY_MIN_DISPLACEMENT_M  = 15f
+        private const val STATIONARY_SPEED_THRESHOLD_KMH = 3.0f
+        private const val STATIONARY_DURATION_MS         = 180_000L // 3 minutes
+        private const val MOVEMENT_DISPLACEMENT_THRESHOLD_M = 20.0f // 20m movement breaks stationary
+
         fun requestBatteryOptimisationExemption(context: Context) {
             val pm = context.getSystemService(POWER_SERVICE) as PowerManager
             if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
@@ -70,6 +78,11 @@ class LocationService : Service() {
     private lateinit var locationThread: HandlerThread
     private lateinit var watchdogHandler: Handler
     private var lastLocation: Location? = null
+
+    // ── Adaptive Stationary Tracking State ─────────────────────────────────
+    private var stationaryStartTime = 0L
+    private var stationaryAnchorLocation: Location? = null
+    @Volatile private var isStationaryMode = false
 
     // ── Fallback chain: HIGH_ACCURACY → BALANCED_POWER if stale ────────────
     @Volatile private var currentPriority = Priority.PRIORITY_HIGH_ACCURACY
@@ -167,6 +180,9 @@ class LocationService : Service() {
                 val accuracy = location.accuracy
                 val speed = location.speed * 3.6f // m/s → km/h
 
+                // Check stationary state and adapt GPS / MQTT frequency
+                checkStationaryMode(location, speed, now)
+
                 // Filter invalid/zero coordinates and extreme inaccuracies
                 if (lat == 0.0 && lng == 0.0) return
                 if (lat < -90.0 || lat > 90.0 || lng < -180.0 || lng > 180.0) return
@@ -203,6 +219,43 @@ class LocationService : Service() {
         }
     }
 
+    // ── Adaptive Stationary Mode Detection ─────────────────────────────────
+
+    private fun checkStationaryMode(location: Location, speedKmh: Float, now: Long) {
+        if (speedKmh < STATIONARY_SPEED_THRESHOLD_KMH) {
+            val anchor = stationaryAnchorLocation
+            if (anchor == null) {
+                stationaryAnchorLocation = location
+                stationaryStartTime = now
+            } else {
+                val distance = anchor.distanceTo(location)
+                if (distance > MOVEMENT_DISPLACEMENT_THRESHOLD_M) {
+                    stationaryAnchorLocation = location
+                    stationaryStartTime = now
+                    if (isStationaryMode) {
+                        transitionStationaryMode(false)
+                    }
+                } else if (!isStationaryMode && (now - stationaryStartTime >= STATIONARY_DURATION_MS)) {
+                    transitionStationaryMode(true)
+                }
+            }
+        } else {
+            stationaryAnchorLocation = null
+            stationaryStartTime = 0L
+            if (isStationaryMode) {
+                transitionStationaryMode(false)
+            }
+        }
+    }
+
+    private fun transitionStationaryMode(stationary: Boolean) {
+        if (isStationaryMode == stationary) return
+        isStationaryMode = stationary
+        Log.i(TAG, "🚗 Adaptive GPS tracking: stationary=$stationary (speed=${if (stationary) "<3" else ">=3"} km/h)")
+        MqttLocationPublisher.setStationaryMode(stationary)
+        reRequestLocationUpdates()
+    }
+
     // ── Watchdog: staleness detection + re-request + fallback ──────────────
 
     private fun startWatchdog() {
@@ -213,14 +266,18 @@ class LocationService : Service() {
                 val gap = now - lastFixTimestamp
 
                 if (lastFixTimestamp > 0) {
-                    // Warn after 30s without fix
-                    if (gap > FIX_GAP_WARN_MS && !fixGapLogged) {
+                    val warnLimit = if (isStationaryMode) 90_000L else FIX_GAP_WARN_MS
+                    val rerequestLimit = if (isStationaryMode) 90_000L else STALENESS_REREQUEST_MS
+                    val fallbackLimit = if (isStationaryMode) 120_000L else STALENESS_FALLBACK_MS
+
+                    // Warn after threshold without fix
+                    if (gap > warnLimit && !fixGapLogged) {
                         fixGapLogged = true
                         Log.i(TAG, "📡 No GPS fix for ${gap / 1000}s — still tracking")
                     }
 
-                    // Re-request after 30s (some OEMs silently stop callback)
-                    if (gap > STALENESS_REREQUEST_MS && reRequestCount < MAX_REREQUEST_COUNT) {
+                    // Re-request after threshold (some OEMs silently stop callback)
+                    if (gap > rerequestLimit && reRequestCount < MAX_REREQUEST_COUNT) {
                         reRequestCount++
                         if (!reRequestLogged) {
                             reRequestLogged = true
@@ -229,8 +286,8 @@ class LocationService : Service() {
                         reRequestLocationUpdates()
                     }
 
-                    // Fallback to BALANCED_POWER after 60s (covers tunnels/buildings)
-                    if (gap > STALENESS_FALLBACK_MS && !fallbackTriggered) {
+                    // Fallback to BALANCED_POWER after threshold (covers tunnels/buildings)
+                    if (gap > fallbackLimit && !fallbackTriggered) {
                         fallbackTriggered = true
                         currentPriority = Priority.PRIORITY_BALANCED_POWER_ACCURACY
                         Log.i(TAG, "📡 Falling back to BALANCED_POWER_ACCURACY after ${gap / 1000}s without fix")
@@ -266,9 +323,14 @@ class LocationService : Service() {
     }
 
     private fun buildLocationRequest(): LocationRequest {
-        return LocationRequest.Builder(currentPriority, UPDATE_INTERVAL_MS)
-            .setMinUpdateIntervalMillis(FASTEST_INTERVAL_MS)
-            .setMinUpdateDistanceMeters(MIN_DISPLACEMENT_M)
+        val interval = if (isStationaryMode) STATIONARY_UPDATE_INTERVAL_MS else UPDATE_INTERVAL_MS
+        val fastest = if (isStationaryMode) STATIONARY_FASTEST_INTERVAL_MS else FASTEST_INTERVAL_MS
+        val displacement = if (isStationaryMode) STATIONARY_MIN_DISPLACEMENT_M else MIN_DISPLACEMENT_M
+        val priority = if (isStationaryMode) Priority.PRIORITY_BALANCED_POWER_ACCURACY else currentPriority
+
+        return LocationRequest.Builder(priority, interval)
+            .setMinUpdateIntervalMillis(fastest)
+            .setMinUpdateDistanceMeters(displacement)
             .setGranularity(Granularity.GRANULARITY_FINE)
             .setWaitForAccurateLocation(false)
             .build()

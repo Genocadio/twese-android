@@ -177,6 +177,7 @@ object NoticeRepository {
                         // Deduplicate — the 30s poll may have already fetched this notice.
                         val existing = _notices.value.find { it.viewerId == notice.viewerId }
                         if (existing == null) {
+                            PackageRepository.updateLastSyncTimestamp(notice.createdAt)
                             _notices.update { list ->
                                 (list + notice).sortedBy { it.viewerReadAt != null }
                             }
@@ -363,6 +364,28 @@ object NoticeRepository {
             if (BuildConfig.DEBUG) Log.d(TAG, "fetched ${_notices.value.size} notices, ${derivedUnreadCount.value} unread (derived)")
         } catch (e: Exception) {
             Log.e(TAG, "fetchNotices: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Ingest notices returned by reconnection catch-up delta sync.
+     * Deduplicates against existing notices and keeps unread count synchronized.
+     */
+    fun ingestSyncNotices(newNotices: List<Notice>) {
+        if (newNotices.isEmpty()) return
+        var newlyAdded = 0
+        _notices.update { current ->
+            val existingIds = current.map { it.viewerId }.toSet()
+            val toAdd = newNotices.filter { it.viewerId !in existingIds }
+            newlyAdded = toAdd.size
+            for (notice in toAdd) {
+                PackageRepository.updateLastSyncTimestamp(notice.createdAt)
+            }
+            (current + toAdd).sortedBy { it.viewerReadAt != null }
+        }
+        derivedUnreadCount.value = _notices.value.count { it.viewerReadAt == null }
+        if (newlyAdded > 0 && BuildConfig.DEBUG) {
+            Log.d(TAG, "Ingested $newlyAdded notices from catch-up sync")
         }
     }
 
