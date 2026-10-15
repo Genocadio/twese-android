@@ -1,5 +1,5 @@
-mutation ConfirmTransfer($transferId: ID!) {
-  confirmTransfer(transferId: $transferId) {
+mutation ConfirmTransfer($transferId: ID!, $idempotencyKey: String) {
+  confirmTransfer(transferId: $transferId, idempotencyKey: $idempotencyKey) {
     id
     ruleType
     status

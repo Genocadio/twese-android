@@ -4,6 +4,7 @@ import android.util.Log
 import com.gocavgo.twese.BuildConfig
 import com.gocavgo.twese.AcceptPackageByTransferMutation
 import com.gocavgo.twese.AvailablePackagesQuery
+import com.gocavgo.twese.CancelTransferMutation
 import com.gocavgo.twese.ConfirmDeliveryMutation
 import com.gocavgo.twese.ConfirmTransferMutation
 import com.gocavgo.twese.RejectTransferMutation
@@ -12,6 +13,7 @@ import com.gocavgo.twese.CreateTransferMutation
 import com.gocavgo.twese.InitiateDeliveryMutation
 import com.gocavgo.twese.MyPackagesQuery
 import com.gocavgo.twese.MyTransfersQuery
+import java.util.UUID
 import com.gocavgo.twese.PackageByIdQuery
 import com.gocavgo.twese.PackageByTrackingCodeQuery
 import com.gocavgo.twese.RegenerateDeliveryCodeMutation
@@ -653,9 +655,14 @@ object PackageRepository {
      * Confirms delivery of a PENDING_CONFIRMATION package using the delivery
      * code received from the sender/receiver. Sets the package to DELIVERED.
      */
-    suspend fun confirmDelivery(packageUuid: String, deliveryCode: String): ClientPackage? {
+    suspend fun confirmDelivery(packageUuid: String, deliveryCode: String, idempotencyKey: String? = null): ClientPackage? {
+        val key = idempotencyKey ?: UUID.randomUUID().toString()
         return try {
-            val input = ConfirmDeliveryInput(packageId = packageUuid, deliveryCode = deliveryCode)
+            val input = ConfirmDeliveryInput(
+                packageId = packageUuid,
+                deliveryCode = deliveryCode,
+                idempotencyKey = com.apollographql.apollo.api.Optional.present(key)
+            )
             val response = ApolloClientProvider.client
                 .mutation(ConfirmDeliveryMutation(input))
                 .execute()
@@ -841,10 +848,11 @@ object PackageRepository {
         }
     }
 
-    suspend fun confirmTransfer(transferId: String): TransferInfo? {
+    suspend fun confirmTransfer(transferId: String, idempotencyKey: String? = null): TransferInfo? {
+        val key = idempotencyKey ?: UUID.randomUUID().toString()
         return try {
             val response = ApolloClientProvider.client
-                .mutation(ConfirmTransferMutation(transferId))
+                .mutation(ConfirmTransferMutation(transferId, com.apollographql.apollo.api.Optional.present(key)))
                 .execute()
             val errors = response.errors
             val data = response.data
@@ -864,6 +872,33 @@ object PackageRepository {
             }
         } catch (e: Exception) {
             Log.e(TAG, "confirmTransfer: exception — ${e.message}", e)
+            null
+        }
+    }
+
+    suspend fun cancelTransfer(transferId: String): TransferInfo? {
+        return try {
+            val response = ApolloClientProvider.client
+                .mutation(CancelTransferMutation(transferId))
+                .execute()
+            val errors = response.errors
+            val data = response.data
+            if (errors != null && errors.isNotEmpty()) {
+                Log.e(TAG, "cancelTransfer: GraphQL errors — ${errors.joinToString("; ") { it.message ?: "unknown" }}")
+                null
+            } else if (data != null) {
+                val t = data.cancelTransfer
+                TransferInfo(
+                    id = t.id,
+                    ruleType = t.ruleType.name,
+                    status = t.status.name,
+                    packageIds = t.packages.mapNotNull { it?.packageId }
+                )
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "cancelTransfer: exception — ${e.message}", e)
             null
         }
     }

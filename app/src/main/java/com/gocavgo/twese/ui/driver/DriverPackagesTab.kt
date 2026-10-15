@@ -336,6 +336,8 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                                 pkg = pkg,
                                                 onDeliver = { viewModel.openDeliverDialog(pkg.id) },
                                                 onTransfer = { viewModel.openTransferDialog(pkg.id) },
+                                                onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
+                                                isCancellingTransfer = state.isCancellingTransfer,
                                                 onDetail = { viewModel.openPackageDetail(pkg.id) },
                                                 onLongPress = { if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) { viewModel.startSelectionMode(pkg.id) } },
                                                 onPickup = { viewModel.pickupPackage(pkg.id) },
@@ -364,6 +366,8 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                                 pkg = pkg,
                                                 onDeliver = { viewModel.openDeliverDialog(pkg.id) },
                                                 onTransfer = { viewModel.openTransferDialog(pkg.id) },
+                                                onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
+                                                isCancellingTransfer = state.isCancellingTransfer,
                                                 onDetail = { viewModel.openPackageDetail(pkg.id) },
                                                 onLongPress = { if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) { viewModel.startSelectionMode(pkg.id) } },
                                                 onPickup = { viewModel.pickupPackage(pkg.id) },
@@ -675,6 +679,8 @@ fun DriverCurrentPackageCard(
     onDetail: () -> Unit,
     onLongPress: () -> Unit = {},
     onPickup: () -> Unit = {},
+    onCancelTransfer: ((String, String) -> Unit)? = null,
+    isCancellingTransfer: Boolean = false,
     isPickingUp: Boolean = false,
     notices: List<com.gocavgo.twese.data.Notice> = emptyList()
 ) {
@@ -871,14 +877,36 @@ fun DriverCurrentPackageCard(
                     color = colors.blue.copy(alpha = 0.06f),
                     border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.2f))
                 ) {
-                    Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.HourglassTop, null, tint = colors.blue, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            if (isTransferRequested) "Awaiting owner confirmation — actions disabled while pending"
-                            else "Transfer in progress — awaiting office pickup",
-                            color = colors.blue, fontSize = 11.sp, fontWeight = FontWeight.Medium
-                        )
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.HourglassTop, null, tint = colors.blue, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (isTransferRequested) "Awaiting owner confirmation — actions disabled while pending"
+                                else "Transfer in progress — awaiting counterparty pickup",
+                                color = colors.blue, fontSize = 11.sp, fontWeight = FontWeight.Medium
+                            )
+                        }
+                        if (pkg.transferId != null && onCancelTransfer != null) {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { onCancelTransfer(pkg.id, pkg.transferId) },
+                                enabled = !isCancellingTransfer,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 34.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, colors.red.copy(alpha = 0.5f))
+                            ) {
+                                if (isCancellingTransfer) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = colors.red, strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Cancelling...", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.red)
+                                } else {
+                                    Icon(Icons.Filled.Close, null, modifier = Modifier.size(14.dp), tint = colors.red)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Cancel Transfer Offer (Recall)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.red)
+                                }
+                            }
+                        }
                     }
                 }
             }

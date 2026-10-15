@@ -320,6 +320,7 @@ data class TripUiState(
     val rejectTransferPackageId: String? = null,
     val rejectTransferId: String? = null,
     val isRejectingTransfer: Boolean = false,
+    val isCancellingTransfer: Boolean = false,
     // SECURE transfer code reveal after creation
     val showTransferCodeRevealDialog: Boolean = false,
     val transferCodeRevealValue: String = "",

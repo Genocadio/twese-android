@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gocavgo.twese.BuildConfig
+import java.util.UUID
 import com.gocavgo.twese.data.AuthRepository
 import com.gocavgo.twese.data.SettingsRepository
 import com.gocavgo.twese.data.ClientPackage
@@ -2224,6 +2225,7 @@ class TripViewModel : ViewModel() {
             }
 
             val input = CreatePackageInput(
+                idempotencyKey = Optional.present(UUID.randomUUID().toString()),
                 deliveryType = DeliveryType.FIXED_ROUTE,
                 sender = Optional.present(sender),
                 receiver = receiver,
@@ -3876,6 +3878,33 @@ class TripViewModel : ViewModel() {
             } else {
                 _state.update { it.copy(isRejectingTransfer = false) }
                 _toastEvent.emit("Failed to reject transfer")
+            }
+        }
+    }
+
+    fun cancelTransferOffer(packageId: String, transferId: String) {
+        if (_state.value.isCancellingTransfer) return
+        viewModelScope.launch {
+            _state.update { it.copy(isCancellingTransfer = true) }
+            val result = PackageRepository.cancelTransfer(transferId)
+            if (result != null) {
+                _state.update { s2 ->
+                    s2.copy(
+                        clientPackages = s2.clientPackages.map { pkg ->
+                            if (pkg.id == packageId) pkg.copy(
+                                transferStatus = result.status,
+                                transferId = null
+                            ) else pkg
+                        },
+                        isCancellingTransfer = false
+                    )
+                }
+                _toastEvent.emit("Transfer offer cancelled. Package is back in your active custody.")
+                refreshDriverPackages()
+                refreshClientPackages()
+            } else {
+                _state.update { it.copy(isCancellingTransfer = false) }
+                _toastEvent.emit("Failed to cancel transfer offer")
             }
         }
     }

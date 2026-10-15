@@ -1,0 +1,11 @@
+mutation CancelTransfer($transferId: ID!) {
+  cancelTransfer(transferId: $transferId) {
+    id
+    ruleType
+    status
+    packages {
+      id
+      packageId
+    }
+  }
+}
