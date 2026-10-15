@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit
  * Silent background in-app updater for Twese using GitHub Releases metadata (`update.json`).
  *
  * Flow:
- * 1. App silently checks `https://github.com/Genocadio/ikuriye/releases/latest/download/update.json`.
+ * 1. App silently checks `https://github.com/Genocadio/twese-android/releases/latest/download/update.json`.
  * 2. Compares `update.versionCode > installedVersionCode`.
  * 3. Downloads the APK silently in the background off the main thread.
  * 4. Verifies the SHA-256 checksum of the downloaded file.
@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit
 object AppUpdateManager {
 
     private const val TAG = "AppUpdateManager"
-    private const val UPDATE_JSON_URL = "https://github.com/Genocadio/ikuriye/releases/latest/download/update.json"
+    private const val UPDATE_JSON_URL = "https://github.com/Genocadio/twese-android/releases/latest/download/update.json"
 
     /**
      * Transient network failures (e.g. TLS `Connection reset`) are expected on
@@ -118,7 +118,7 @@ object AppUpdateManager {
                 return@withContext
             }
 
-            val downloadUrl = "https://github.com/Genocadio/ikuriye/releases/latest/download/$apkName"
+            val downloadUrl = "https://github.com/Genocadio/twese-android/releases/latest/download/$apkName"
             val updateInfo = UpdateInfo(
                 versionName = versionName,
                 versionCode = versionCode,
