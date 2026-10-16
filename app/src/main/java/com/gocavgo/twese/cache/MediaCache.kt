@@ -3,9 +3,11 @@ package com.gocavgo.twese.cache
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -52,9 +54,9 @@ class MediaCache private constructor(appContext: Context) {
     private val indexFile = File(cacheDir, INDEX_FILE)
     private val index = mutableMapOf<String, CacheEntry>()
 
-    // Tracks URLs currently being downloaded to prevent concurrent duplicate downloads
-    // of the same URL (which would corrupt the file on disk).
-    private val downloading = mutableSetOf<String>()
+    // In-flight download jobs coalesced per URL to prevent duplicate network requests
+    // or race condition timeouts.
+    private val inFlight = mutableMapOf<String, Deferred<File>>()
 
     // Global cap on simultaneous downloads (separate from per-URL dedup).
     private val downloadSemaphore = Semaphore(MAX_CONCURRENT_DOWNLOADS)
@@ -79,10 +81,10 @@ class MediaCache private constructor(appContext: Context) {
                 return null
             }
             val file = File(entry.localPath)
-            if (!file.exists()) {
+            if (!file.exists() || file.length() == 0L) {
                 index.remove(url)
                 saveIndex()
-                Log.d("MediaCache", "STALE $url — file deleted from disk, removing index")
+                Log.d("MediaCache", "STALE $url — file missing or empty, removing index")
                 return null
             }
             // True LRU: touch last-access time so capacity eviction and expiry
@@ -99,79 +101,78 @@ class MediaCache private constructor(appContext: Context) {
             val existing = index[url]
             if (existing != null) {
                 val f = File(existing.localPath)
-                if (f.exists()) {
+                if (f.exists() && f.length() > 0L) {
                     touch(url, existing)
                     Log.d("MediaCache", "REUSE $url → ${f.name}")
                     return@withContext f
-                } else index.remove(url)
-            }
-        }
-
-        // Try to claim this URL for downloading. `add()` returns `true` if the
-        // URL wasn't already in the set (we're the first), `false` if another
-        // coroutine already claimed it (we should wait).
-        // We save the result here (outside any synchronized) because `add()`
-        // is atomic — it tells us definitively who is first.
-        val isFirst = synchronized(this@MediaCache) { downloading.add(url) }
-        
-        if (!isFirst) {
-            // Another coroutine is already downloading this URL.
-            // Poll the index outside the lock — can't call delay() inside synchronized.
-            var waited = 0
-            while (waited < 20) {
-                kotlinx.coroutines.delay(500)
-                val entry = synchronized(this@MediaCache) { index[url] }
-                if (entry != null) {
-                    val f = File(entry.localPath)
-                    if (f.exists()) return@withContext f
+                } else {
+                    index.remove(url)
                 }
-                waited++
             }
-            throw Exception("Download already in progress for $url (timed out waiting)")
         }
 
-        try {
-            val ext = getExtension(url)
-            val hash = md5(url)
-            val file = File(cacheDir, "$hash$ext")
-
-            val shortUrl = if (url.length > 80) url.take(60) + "…" else url
-            Log.d("MediaCache", "DL    $shortUrl → ${file.name}")
-
-            var lastError: Exception? = null
-            for (attempt in 1..MAX_RETRIES) {
-                try {
-                    val connection = URL(url).openConnection()
-                    connection.connectTimeout = 15000
-                    connection.readTimeout = 30000
-                    // Some CDNs / WAFs reject requests without a User-Agent.
-                    connection.setRequestProperty("User-Agent", "Twese/1.0 (Android)")
-                    connection.getInputStream().use { input ->
-                        file.outputStream().use { output ->
-                            input.copyTo(output)
+        // Single-flight coalescing: share the same Deferred across all concurrent callers
+        val deferred = synchronized(this@MediaCache) {
+            inFlight.getOrPut(url) {
+                persistScope.async(Dispatchers.IO) {
+                    try {
+                        downloadFile(url)
+                    } finally {
+                        synchronized(this@MediaCache) {
+                            inFlight.remove(url)
                         }
                     }
-                    val size = file.length()
-                    Log.d("MediaCache", "DONE  $shortUrl → ${file.name} (${size} bytes, attempt $attempt)")
-                    synchronized(this@MediaCache) {
-                        index[url] = CacheEntry(url, file.absolutePath, System.currentTimeMillis())
-                        trimToCapacity()
-                        saveIndex()
-                    }
-                    return@withContext file
-                } catch (e: Exception) {
-                    lastError = e
-                    Log.d("MediaCache", "FAIL  $shortUrl (attempt $attempt): ${e.message}")
-                    if (attempt < MAX_RETRIES) kotlinx.coroutines.delay(1000L)
                 }
             }
-            Log.d("MediaCache", "GIVE_UP $shortUrl")
-            throw lastError ?: Exception("Failed to cache $url")
-        } finally {
-            synchronized(this@MediaCache) {
-                downloading.remove(url)
+        }
+
+        deferred.await()
+    }
+
+    private suspend fun downloadFile(url: String): File {
+        val ext = getExtension(url)
+        val hash = md5(url)
+        val file = File(cacheDir, "$hash$ext")
+        val tempFile = File(cacheDir, "$hash$ext.tmp")
+
+        val shortUrl = if (url.length > 80) url.take(60) + "…" else url
+        Log.d("MediaCache", "DL    $shortUrl → ${file.name}")
+
+        var lastError: Exception? = null
+        for (attempt in 1..MAX_RETRIES) {
+            try {
+                val connection = URL(url).openConnection()
+                connection.connectTimeout = 20000
+                connection.readTimeout = 40000
+                // Some CDNs / WAFs reject requests without a User-Agent.
+                connection.setRequestProperty("User-Agent", "Twese/1.0 (Android)")
+                connection.getInputStream().use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                if (tempFile.exists() && tempFile.length() > 0L) {
+                    if (tempFile.renameTo(file) || (tempFile.copyTo(file, overwrite = true).also { tempFile.delete() }.exists())) {
+                        val size = file.length()
+                        Log.d("MediaCache", "DONE  $shortUrl → ${file.name} (${size} bytes, attempt $attempt)")
+                        synchronized(this@MediaCache) {
+                            index[url] = CacheEntry(url, file.absolutePath, System.currentTimeMillis())
+                            trimToCapacity()
+                            saveIndex()
+                        }
+                        return file
+                    }
+                }
+                throw Exception("Failed to write media cache file or file empty")
+            } catch (e: Exception) {
+                lastError = e
+                tempFile.delete()
+                Log.d("MediaCache", "FAIL  $shortUrl (attempt $attempt): ${e.message}")
+                if (attempt < MAX_RETRIES) kotlinx.coroutines.delay(1000L)
             }
         }
+        Log.d("MediaCache", "GIVE_UP $shortUrl")
+        throw lastError ?: Exception("Failed to cache $url")
     }
 
     /**
@@ -199,7 +200,7 @@ class MediaCache private constructor(appContext: Context) {
         val toDownload = synchronized(this) {
             urls.filter { url ->
                 val cached = getCachedFile(url)
-                cached == null && !downloading.contains(url)
+                cached == null && !inFlight.containsKey(url)
             }
         }
         Log.d("MediaCache", "PRELOAD ${toDownload.size}/${urls.size} uncached URLs")
@@ -322,14 +323,19 @@ class MediaCache private constructor(appContext: Context) {
         }
     }
 
-    private fun getExtension(url: String): String = when {
-        url.endsWith(".mp4", true) -> ".mp4"
-        url.endsWith(".mov", true) -> ".mov"
-        url.endsWith(".jpg", true) || url.endsWith(".jpeg", true) -> ".jpg"
-        url.endsWith(".png", true) -> ".png"
-        url.endsWith(".gif", true) -> ".gif"
-        url.endsWith(".webp", true) -> ".webp"
-        else -> ".bin"
+    private fun getExtension(url: String): String {
+        val clean = url.substringBefore('?').substringBefore('#')
+        return when {
+            clean.endsWith(".mp4", true) -> ".mp4"
+            clean.endsWith(".mov", true) -> ".mov"
+            clean.endsWith(".webm", true) -> ".webm"
+            clean.endsWith(".mkv", true) -> ".mkv"
+            clean.endsWith(".jpg", true) || clean.endsWith(".jpeg", true) -> ".jpg"
+            clean.endsWith(".png", true) -> ".png"
+            clean.endsWith(".gif", true) -> ".gif"
+            clean.endsWith(".webp", true) -> ".webp"
+            else -> ".bin"
+        }
     }
 
     private fun md5(input: String): String {

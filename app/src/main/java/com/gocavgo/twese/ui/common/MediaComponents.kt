@@ -29,7 +29,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -37,10 +36,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.gocavgo.twese.cache.MediaCache
 import kotlinx.coroutines.Dispatchers
@@ -58,39 +57,54 @@ data class MediaCacheState(
 
 enum class MediaSource { CACHED, STREAMING, LOADING, FAILED }
 
+/**
+ * Returns true if the media URL represents a video format (e.g. mp4, mov, webm).
+ * Strips query parameters and fragments so signed URLs are correctly identified.
+ */
+fun isVideoUrl(url: String): Boolean {
+    val clean = url.substringBefore('?').substringBefore('#').lowercase()
+    return clean.endsWith(".mp4") || clean.endsWith(".mov") || clean.endsWith(".webm") || clean.endsWith(".mkv")
+}
+
 // ── Cache-state composable helper ─────────────────────────────────────────────
 
 @Composable
 fun mediaCacheState(url: String): MediaCacheState {
     val context    = LocalContext.current
     val cache      = remember { MediaCache.getInstance(context) }
-    val cachedFile = remember(url) { cache.getCachedFile(url) }
-    val localUri   = cachedFile?.let { Uri.fromFile(it).toString() }
 
-    var isFailed              by remember(url) { mutableStateOf(false) }
-    var hasAttemptedDownload  by remember(url) { mutableStateOf(cachedFile != null) }
+    // Reactive state so when caching completes, the composable reactively updates to the local file
+    var cachedFile by remember(url) { mutableStateOf(cache.getCachedFile(url)) }
+    var isFailed   by remember(url) { mutableStateOf(false) }
 
-    val source = when {
-        cachedFile != null       -> MediaSource.CACHED
-        isFailed                 -> MediaSource.FAILED
-        hasAttemptedDownload     -> MediaSource.LOADING
-        else                     -> MediaSource.STREAMING
-    }
-
-    if (cachedFile == null && !isFailed && !hasAttemptedDownload) {
-        LaunchedEffect(url) {
-            hasAttemptedDownload = true
-            try {
-                cache.cacheMedia(url)
-                Log.d("MediaComponents", "DOWNLOAD_DONE $url")
-            } catch (e: Exception) {
-                isFailed = true
-                Log.d("MediaComponents", "DOWNLOAD_FAIL $url → ${e.message}")
-            }
+    LaunchedEffect(url) {
+        if (url.isBlank()) return@LaunchedEffect
+        val existing = cache.getCachedFile(url)
+        if (existing != null) {
+            cachedFile = existing
+            isFailed = false
+            return@LaunchedEffect
+        }
+        try {
+            val file = cache.cacheMedia(url)
+            cachedFile = file
+            isFailed = false
+            Log.d("MediaComponents", "DOWNLOAD_DONE $url")
+        } catch (e: Exception) {
+            isFailed = true
+            Log.d("MediaComponents", "DOWNLOAD_FAIL $url → ${e.message}")
         }
     }
 
-    return MediaCacheState(uri = localUri ?: url, isCached = cachedFile != null, isFailed = isFailed, source = source)
+    val localUri = cachedFile?.let { Uri.fromFile(it).toString() }
+    val isCached = cachedFile != null
+    val source = when {
+        isCached -> MediaSource.CACHED
+        isFailed -> MediaSource.FAILED
+        else     -> MediaSource.STREAMING
+    }
+
+    return MediaCacheState(uri = localUri ?: url, isCached = isCached, isFailed = isFailed, source = source)
 }
 
 // ── Media Carousel ────────────────────────────────────────────────────────────
@@ -111,21 +125,65 @@ fun MediaCarousel(mediaUrls: List<String>, modifier: Modifier = Modifier, onMaxi
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(300.dp)) { page ->
                 val url        = mediaUrls[page]
                 val mediaState = mediaCacheState(url)
-                val isVideo    = url.endsWith(".mp4", true) || url.endsWith(".mov", true)
+                val isVideo    = isVideoUrl(url)
 
                 Box(
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
                         .background(colors.surfaceAlt).border(1.dp, colors.divider, RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    when {
-                        mediaState.isFailed -> FailedMediaPlaceholder()
-                        isVideo && !mediaState.isCached -> CircularProgressIndicator(color = colors.blue, modifier = Modifier.size(32.dp))
-                        isVideo && mediaState.isCached  -> VideoPlayer(mediaState.uri, useController = false, shutterColorHex = colors.surfaceAlt)
-                        else -> AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current).data(mediaState.uri).crossfade(true).build(),
-                            contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit
-                        )
+                    if (isVideo) {
+                        VideoPlayer(mediaState.uri, useController = false, shutterColorHex = colors.surfaceAlt)
+                    } else {
+                        var retryKey by remember(url) { mutableIntStateOf(0) }
+                        var isImageError by remember(url, retryKey) { mutableStateOf(false) }
+
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(mediaState.uri)
+                                    .setParameter("retry", retryKey, null)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Package photo",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                                loading = {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(
+                                            color = colors.blue,
+                                            modifier = Modifier.size(32.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                },
+                                onError = {
+                                    isImageError = true
+                                },
+                                onSuccess = {
+                                    isImageError = false
+                                }
+                            )
+
+                            if (isImageError) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(colors.surfaceAlt.copy(alpha = 0.9f))
+                                        .clickable {
+                                            isImageError = false
+                                            retryKey++
+                                        }
+                                        .padding(16.dp)
+                                ) {
+                                    Icon(Icons.Filled.Refresh, contentDescription = "Retry", tint = colors.blue, modifier = Modifier.size(28.dp))
+                                    Spacer(Modifier.height(6.dp))
+                                    Text("Tap to reload image", color = colors.textPrimary, fontSize = 12.sp)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -176,59 +234,99 @@ fun FullScreenMediaViewer(
         HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
             val url        = mediaUrls[page]
             val mediaState = mediaCacheState(url)
-            val isVideo    = url.endsWith(".mp4", true) || url.endsWith(".mov", true)
+            val isVideo    = isVideoUrl(url)
 
             Box(modifier = Modifier.fillMaxSize().background(Color(0xFF2A2A2A)), contentAlignment = Alignment.Center) {
-                when {
-                    mediaState.isFailed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Filled.Warning, null, tint = Color(0xFF90CAF9), modifier = Modifier.size(48.dp))
-                        Spacer(Modifier.height(8.dp))
-                        Text("Media unavailable", color = Color(0xFF90CAF9), fontSize = 12.sp)
-                    }
-                    isVideo && !mediaState.isCached -> CircularProgressIndicator(color = Color(0xFF90CAF9), modifier = Modifier.size(40.dp))
-                    isVideo && mediaState.isCached  -> VideoPlayer(mediaState.uri, useController = true, shutterColorHex = Color(0xFF2A2A2A))
-                    else -> {
-                        var scale   by remember { mutableStateOf(1f) }
-                        var offsetX by remember { mutableStateOf(0f) }
-                        var offsetY by remember { mutableStateOf(0f) }
-                        Box(Modifier.fillMaxSize()) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current).data(mediaState.uri).crossfade(true).build(),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offsetX; translationY = offsetY },
-                                contentScale = ContentScale.Fit
-                            )
-                            Box(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                                awaitEachGesture {
-                                    awaitFirstDown(requireUnconsumed = false)
-                                    do {
-                                        val event       = awaitPointerEvent()
-                                        val changes     = event.changes
-                                        val pointerCount = changes.count { it.pressed }
-                                        if (pointerCount >= 2) {
-                                            val c0 = changes[0]; val c1 = changes[1]
-                                            val prevDist = (c0.previousPosition - c1.previousPosition).getDistance()
-                                            val currDist = (c0.position - c1.position).getDistance()
-                                            val zoom     = if (prevDist > 0f) currDist / prevDist else 1f
-                                            val newScale = (scale * zoom).coerceIn(1f, 5f)
-                                            scale = newScale
-                                            if (newScale > 1f) {
-                                                val center     = (c0.position + c1.position) / 2f
-                                                val prevCenter = (c0.previousPosition + c1.previousPosition) / 2f
-                                                offsetX += center.x - prevCenter.x
-                                                offsetY += center.y - prevCenter.y
-                                            }
-                                            changes.forEach { it.consume() }
-                                        } else if (scale > 1.01f) {
-                                            val change = changes.first()
-                                            val delta  = change.position - change.previousPosition
-                                            offsetX += delta.x; offsetY += delta.y
-                                            change.consume()
-                                        }
-                                    } while (changes.any { it.pressed })
+                if (isVideo) {
+                    VideoPlayer(mediaState.uri, useController = true, shutterColorHex = Color(0xFF2A2A2A))
+                } else {
+                    var scale   by remember { mutableStateOf(1f) }
+                    var offsetX by remember { mutableStateOf(0f) }
+                    var offsetY by remember { mutableStateOf(0f) }
+                    var retryKey by remember(url) { mutableIntStateOf(0) }
+                    var isImageError by remember(url, retryKey) { mutableStateOf(false) }
+
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(mediaState.uri)
+                                .setParameter("retry", retryKey, null)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = offsetX
+                                translationY = offsetY
+                            },
+                            contentScale = ContentScale.Fit,
+                            loading = {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFF90CAF9),
+                                        modifier = Modifier.size(40.dp),
+                                        strokeWidth = 2.5.dp
+                                    )
                                 }
-                            })
+                            },
+                            onError = {
+                                isImageError = true
+                            },
+                            onSuccess = {
+                                isImageError = false
+                            }
+                        )
+
+                        if (isImageError) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.7f))
+                                    .clickable {
+                                        isImageError = false
+                                        retryKey++
+                                    }
+                                    .padding(16.dp)
+                            ) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Retry", tint = Color(0xFF90CAF9), modifier = Modifier.size(36.dp))
+                                Spacer(Modifier.height(8.dp))
+                                Text("Tap to reload image", color = Color.White, fontSize = 13.sp)
+                            }
                         }
+
+                        Box(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                do {
+                                    val event       = awaitPointerEvent()
+                                    val changes     = event.changes
+                                    val pointerCount = changes.count { it.pressed }
+                                    if (pointerCount >= 2) {
+                                        val c0 = changes[0]; val c1 = changes[1]
+                                        val prevDist = (c0.previousPosition - c1.previousPosition).getDistance()
+                                        val currDist = (c0.position - c1.position).getDistance()
+                                        val zoom     = if (prevDist > 0f) currDist / prevDist else 1f
+                                        val newScale = (scale * zoom).coerceIn(1f, 5f)
+                                        scale = newScale
+                                        if (newScale > 1f) {
+                                            val center     = (c0.position + c1.position) / 2f
+                                            val prevCenter = (c0.previousPosition + c1.previousPosition) / 2f
+                                            offsetX += center.x - prevCenter.x
+                                            offsetY += center.y - prevCenter.y
+                                        }
+                                        changes.forEach { it.consume() }
+                                    } else if (scale > 1.01f) {
+                                        val change = changes.first()
+                                        val delta  = change.position - change.previousPosition
+                                        offsetX += delta.x; offsetY += delta.y
+                                        change.consume()
+                                    }
+                                } while (changes.any { it.pressed })
+                            }
+                        })
                     }
                 }
             }
@@ -259,7 +357,7 @@ fun FullScreenMediaViewer(
                         contentAlignment = Alignment.Center
                     ) {
                         val thumbUrl = mediaUrls[index]
-                        val isVid    = thumbUrl.endsWith(".mp4", true) || thumbUrl.endsWith(".mov", true)
+                        val isVid    = isVideoUrl(thumbUrl)
                         if (isVid) {
                             val cachedFile = remember(thumbUrl) { cache.getCachedFile(thumbUrl) }
                             var frameBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -292,18 +390,7 @@ fun FullScreenMediaViewer(
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-@Composable
-private fun FailedMediaPlaceholder() {
-    val colors = com.gocavgo.twese.ui.theme.LocalDriversColors.current
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Filled.Warning, null, tint = colors.textSecondary, modifier = Modifier.size(32.dp))
-        Spacer(Modifier.height(4.dp))
-        Text("Media unavailable", color = colors.textSecondary, fontSize = 10.sp)
-    }
-}
-
 @SuppressLint("UnsafeOptInUsageError")
-@OptIn(UnstableApi::class)
 @Composable
 private fun VideoPlayer(uri: String, useController: Boolean, shutterColorHex: Color) {
     val ctx = LocalContext.current
@@ -313,46 +400,82 @@ private fun VideoPlayer(uri: String, useController: Boolean, shutterColorHex: Co
         (shutterColorHex.blue * 255).toInt()
     )
 
-    // Store a reference to the current player so we can:
-    // 1. Release the OLD player when URI changes (prevents leaking native decoders)
-    // 2. Release the player when the composable leaves composition
+    var isBuffering by remember { mutableStateOf(true) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
+    var retryCount by remember(uri) { mutableIntStateOf(0) }
+
     val currentPlayerRef = remember { mutableStateOf<ExoPlayer?>(null) }
 
-    // Create/recreate player every time URI changes.
-    // The previous player (if any) is released BEFORE creating the new one,
-    // so ExoPlayer native resources (video decoders, audio decoders, surfaces)
-    // are properly freed.
-    remember(uri) {
+    remember(uri, retryCount) {
         currentPlayerRef.value?.release()
-        ExoPlayer.Builder(ctx).build().apply {
-            setMediaItem(MediaItem.fromUri(uri))
-            prepare()
-            playWhenReady = true
-            addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(state: Int) {
-                    Log.d("MediaComponents", "Player state=$state uri=${uri.take(40)}")
-                }
-            })
-        }.also { currentPlayerRef.value = it }
+        playbackError = null
+        isBuffering = true
+        try {
+            ExoPlayer.Builder(ctx).build().apply {
+                setMediaItem(MediaItem.fromUri(uri))
+                prepare()
+                playWhenReady = true
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(state: Int) {
+                        isBuffering = state == Player.STATE_BUFFERING
+                        Log.d("MediaComponents", "Player state=$state uri=${uri.take(40)}")
+                    }
+
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        Log.w("MediaComponents", "Player error for $uri: ${error.message}")
+                        playbackError = error.message
+                        isBuffering = false
+                    }
+                })
+            }.also { currentPlayerRef.value = it }
+        } catch (e: Exception) {
+            playbackError = e.message
+            isBuffering = false
+            null
+        }
     }
 
-    // Final cleanup when composable leaves composition permanently
     DisposableEffect(Unit) {
         onDispose { currentPlayerRef.value?.release() }
     }
 
-    AndroidView(
-        factory = {
-            PlayerView(it).apply {
-                player = currentPlayerRef.value
-                this.useController = useController
-                setShutterBackgroundColor(shutterInt)
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        AndroidView(
+            factory = {
+                PlayerView(it).apply {
+                    player = currentPlayerRef.value
+                    this.useController = useController
+                    setShutterBackgroundColor(shutterInt)
+                }
+            },
+            update = { view ->
+                view.player = currentPlayerRef.value
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (isBuffering && playbackError == null) {
+            CircularProgressIndicator(
+                color = Color.White.copy(alpha = 0.85f),
+                modifier = Modifier.size(36.dp),
+                strokeWidth = 2.5.dp
+            )
+        }
+
+        if (playbackError != null) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .clickable { retryCount++ }
+                    .padding(16.dp)
+            ) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Retry", tint = Color(0xFF90CAF9), modifier = Modifier.size(32.dp))
+                Spacer(Modifier.height(6.dp))
+                Text("Tap to reload video", color = Color.White, fontSize = 12.sp)
             }
-        },
-        update = { view ->
-            // Update the player reference when URI changes (creates a new player)
-            view.player = currentPlayerRef.value
-        },
-        modifier = Modifier.fillMaxSize()
-    )
+        }
+    }
 }
