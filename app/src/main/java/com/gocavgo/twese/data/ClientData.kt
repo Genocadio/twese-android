@@ -65,7 +65,10 @@ data class ClientPackage(
     val packageUuid: String = "",
     // Raw backend status string (e.g. ORIGIN_OFFICE, DESTINATION_OFFICE, ASSIGNED_DRIVER)
     // Used to determine the correct driver action for FIXED_ROUTE packages
-    val backendStatus: String = ""
+    val backendStatus: String = "",
+    // Real-time taken/claimed state when another user accepts an open offer
+    val isTaken: Boolean = false,
+    val claimedBy: String? = null
 )
 
 /**

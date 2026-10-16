@@ -1,0 +1,10 @@
+subscription OfferClaimed {
+    offerClaimed {
+        packageId
+        trackingCode
+        transferId
+        claimedByUserId
+        claimedByRole
+        claimedAt
+    }
+}

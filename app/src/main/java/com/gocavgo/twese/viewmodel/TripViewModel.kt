@@ -86,6 +86,7 @@ class TripViewModel : ViewModel() {
     // ── New package subscription (driver-side real-time) ────────────────────
     private var subscriptionJob: kotlinx.coroutines.Job? = null
     private var transferSubscriptionJob: kotlinx.coroutines.Job? = null
+    private var offerClaimedJob: kotlinx.coroutines.Job? = null
 
     // Polls the driver-request status while a DRIVER awaits company approval so
     // the company gate unlocks automatically the moment a fleet manager approves.
@@ -2523,6 +2524,9 @@ class TripViewModel : ViewModel() {
         // Start transfer-created subscription for incoming transfers from workers
         startTransferSubscription()
 
+        // Start offer-claimed subscription for real-time claim/taken events
+        startOfferClaimedSubscription()
+
         // Collect events from the subscription
         subscriptionJob = viewModelScope.launch {
             com.gocavgo.twese.data.PackageTransferSubscription.events.collect { pkg ->
@@ -2590,6 +2594,78 @@ class TripViewModel : ViewModel() {
         transferSubscriptionJob?.cancel()
         transferSubscriptionJob = null
         com.gocavgo.twese.data.TransferCreatedSubscriptionHandler.stop()
+        offerClaimedJob?.cancel()
+        offerClaimedJob = null
+        com.gocavgo.twese.data.OfferClaimedSubscriptionHandler.stop()
+    }
+
+    /**
+     * Subscribes to real-time offer-claimed events broadcast from cavgobackend.
+     * When any driver or worker accepts an offer, all other users instantly
+     * see it marked as taken and removed from available offers, and any active
+     * accept modal for that package/transfer is cleanly dismissed.
+     */
+    private fun startOfferClaimedSubscription() {
+        offerClaimedJob?.cancel()
+        com.gocavgo.twese.data.OfferClaimedSubscriptionHandler.start(viewModelScope)
+
+        offerClaimedJob = viewModelScope.launch {
+            com.gocavgo.twese.data.OfferClaimedSubscriptionHandler.events.collect { event ->
+                val currentUserId = _state.value.authUser?.id
+                // If this device's authenticated user claimed it, their own mutation already handles it
+                if (currentUserId != null && event.claimedByUserId == currentUserId) {
+                    return@collect
+                }
+
+                val targetPkgId = event.packageId
+                val targetTransferId = event.transferId
+                val code = event.trackingCode.ifBlank { targetPkgId.take(8) }
+
+                // 1. Check if user currently has an accept or request dialog open for this package/transfer
+                val dialogMatches = _state.value.showAcceptTransferCodeDialog &&
+                        (_state.value.acceptTransferPackageId == targetPkgId ||
+                         _state.value.acceptTransferId == targetTransferId)
+
+                val requestDialogMatches = _state.value.showRequestTransferDialog &&
+                        (_state.value.requestTransferPackageId == targetPkgId ||
+                         _state.value.requestTransferId == targetTransferId)
+
+                if (dialogMatches || requestDialogMatches) {
+                    _state.update { s ->
+                        s.copy(
+                            showAcceptTransferCodeDialog = if (dialogMatches) false else s.showAcceptTransferCodeDialog,
+                            acceptTransferPackageId = if (dialogMatches) null else s.acceptTransferPackageId,
+                            acceptTransferId = if (dialogMatches) null else s.acceptTransferId,
+                            showRequestTransferDialog = if (requestDialogMatches) false else s.showRequestTransferDialog,
+                            requestTransferPackageId = if (requestDialogMatches) null else s.requestTransferPackageId,
+                            requestTransferId = if (requestDialogMatches) null else s.requestTransferId
+                        )
+                    }
+                    _toastEvent.emit("Offer for $code was just accepted by another ${event.claimedByRole.lowercase()}")
+                }
+
+                // 2. Filter out of driverAvailableOffers and driverIncomingTransfers
+                _state.update { s ->
+                    val updatedOffers = s.driverAvailableOffers.filter {
+                        val matchPkg = it.id == targetPkgId || it.packageUuid == targetPkgId
+                        val matchTransfer = targetTransferId != null && it.transferId == targetTransferId
+                        !(matchPkg || matchTransfer)
+                    }
+
+                    val updatedTransfers = s.driverIncomingTransfers.filter {
+                        val matchTransfer = targetTransferId != null && it.transferId == targetTransferId
+                        val matchPkg = it.packages.any { p -> p.id == targetPkgId || p.packageUuid == targetPkgId }
+                        !(matchTransfer || matchPkg)
+                    }
+
+                    s.copy(
+                        driverAvailableOffers = updatedOffers,
+                        driverIncomingTransfers = updatedTransfers
+                    )
+                }
+                Log.d(TAG, "OfferClaimed applied: pkg=$code, transfer=$targetTransferId, claimedBy=${event.claimedByRole}")
+            }
+        }
     }
 
     /**
