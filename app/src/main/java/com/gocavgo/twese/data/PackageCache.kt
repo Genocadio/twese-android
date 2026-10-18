@@ -24,6 +24,7 @@ object PackageCache {
     private const val TAG = "PackageCache"
     private const val DRIVER_CACHE_FILE = "driver_packages.json"
     private const val CLIENT_CACHE_FILE = "client_packages.json"
+    private const val TRANSFERS_CACHE_FILE = "driver_transfers.json"
     private const val EXPIRY_MS = 7 * 24 * 60 * 60 * 1000L // 7 days (was 1 hour)
     private const val TOUCH_THROTTLE_MS = 5 * 60 * 1000L
 
@@ -61,6 +62,89 @@ object PackageCache {
 
     fun removeClientPackage(packageId: String) {
         removePackage(CLIENT_CACHE_FILE, packageId)
+    }
+
+    // ── Incoming Transfers ───────────────────────────────────────────────────
+
+    fun getIncomingTransfers(): List<PackageRepository.MatchedTransfer>? {
+        val dir = cacheDir ?: return null
+        val file = File(dir, TRANSFERS_CACHE_FILE)
+        if (!file.exists()) return null
+        val isOnline = AuthRepository.isNetworkAvailable()
+        return try {
+            val json = JSONObject(file.readText())
+            val cachedAt = json.optLong("cachedAt", 0L)
+            val isExpired = System.currentTimeMillis() - cachedAt > EXPIRY_MS
+            if (isExpired) {
+                if (isOnline) {
+                    file.delete()
+                    return null
+                }
+            }
+            val arr = json.getJSONArray("transfers")
+            val result = mutableListOf<PackageRepository.MatchedTransfer>()
+            for (i in 0 until arr.length()) {
+                val tObj = arr.getJSONObject(i)
+                val pkgsArr = tObj.optJSONArray("packages")
+                val pkgs = mutableListOf<ClientPackage>()
+                if (pkgsArr != null) {
+                    for (j in 0 until pkgsArr.length()) {
+                        pkgs.add(packageFromJson(pkgsArr.getJSONObject(j)))
+                    }
+                }
+                result.add(
+                    PackageRepository.MatchedTransfer(
+                        transferId = tObj.optString("transferId", ""),
+                        ruleType = tObj.optString("ruleType", "AUTO"),
+                        acceptorType = tObj.optString("acceptorType", ""),
+                        status = tObj.optString("status", "OPEN"),
+                        creatorId = tObj.optString("creatorId", ""),
+                        packages = pkgs
+                    )
+                )
+            }
+            if (isOnline) {
+                touch(file, json, cachedAt)
+            }
+            Log.d(TAG, "Cache hit: ${result.size} incoming transfers from $TRANSFERS_CACHE_FILE")
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read incoming transfers cache: $TRANSFERS_CACHE_FILE", e)
+            if (isOnline) {
+                file.delete()
+            }
+            null
+        }
+    }
+
+    fun saveIncomingTransfers(transfers: List<PackageRepository.MatchedTransfer>) {
+        val dir = cacheDir ?: return
+        try {
+            val arr = JSONArray()
+            transfers.forEach { t ->
+                val tObj = JSONObject().apply {
+                    put("transferId", t.transferId)
+                    put("ruleType", t.ruleType)
+                    put("acceptorType", t.acceptorType)
+                    put("status", t.status)
+                    put("creatorId", t.creatorId)
+                    val pkgsArr = JSONArray()
+                    t.packages.forEach { pkg ->
+                        pkgsArr.put(packageToJson(pkg))
+                    }
+                    put("packages", pkgsArr)
+                }
+                arr.put(tObj)
+            }
+            val json = JSONObject().apply {
+                put("cachedAt", System.currentTimeMillis())
+                put("transfers", arr)
+            }
+            File(dir, TRANSFERS_CACHE_FILE).writeText(json.toString())
+            Log.d(TAG, "Cache saved: ${transfers.size} incoming transfers to $TRANSFERS_CACHE_FILE")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save incoming transfers cache: $TRANSFERS_CACHE_FILE", e)
+        }
     }
 
     // ── Generic Cache Operations ─────────────────────────────────────────────

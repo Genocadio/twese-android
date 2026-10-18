@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -660,10 +661,10 @@ fun DriverIncomingPackageCard(
     }
 
     val (actionLabel, actionIcon) = when (ruleType) {
-        "ASSIGNED" -> "Pick Up Package" to Icons.Filled.LocalShipping
-        "SECURE" -> "Accept with Code" to Icons.Filled.Lock
-        "CONFIRM" -> "Request to Accept" to Icons.Filled.Send
-        else -> "Accept & Load" to Icons.Filled.Check
+        "ASSIGNED" -> "Pick Up" to Icons.Filled.LocalShipping
+        "SECURE" -> "Enter Code" to Icons.Filled.Lock
+        "CONFIRM" -> "Request" to Icons.AutoMirrored.Filled.Send
+        else -> "Accept" to Icons.Filled.Check
     }
 
     // If an offer requires active trip, disable button when no active trip
@@ -710,19 +711,76 @@ fun DriverIncomingPackageCard(
         },
         actions = {
             Spacer(Modifier.height(10.dp))
-            SwipeToActionButton(
-                text = when (ruleType) {
-                    "ASSIGNED" -> "Slide to Pick Up"
-                    "SECURE" -> "Slide to Accept (Code)"
-                    "CONFIRM" -> "Slide to Request"
-                    else -> "Slide to Accept"
-                },
-                icon = actionIcon,
-                isLoading = isAccepting,
-                enabled = isEnabled,
-                onSwipeComplete = { if (isEnabled) onAccept() },
-                accentColor = colors.purple
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val detailSource = remember { MutableInteractionSource() }
+                OutlinedButton(
+                    onClick = onDetail,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .fluidBounceClick(interactionSource = detailSource),
+                    shape = FluidShapes.button,
+                    interactionSource = detailSource,
+                    border = BorderStroke(1.dp, colors.divider)
+                ) {
+                    Icon(
+                        Icons.Filled.Info,
+                        contentDescription = null,
+                        modifier = Modifier.size(17.dp),
+                        tint = colors.purple
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Details",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary,
+                        maxLines = 1
+                    )
+                }
+
+                val acceptSource = remember { MutableInteractionSource() }
+                Button(
+                    onClick = { if (isEnabled) onAccept() },
+                    enabled = isEnabled,
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(44.dp)
+                        .fluidBounceClick(interactionSource = acceptSource),
+                    shape = FluidShapes.button,
+                    interactionSource = acceptSource,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.purple,
+                        disabledContainerColor = colors.divider
+                    )
+                ) {
+                    if (isAccepting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            when (ruleType) {
+                                "ASSIGNED" -> "Picking up..."
+                                else -> "Accepting..."
+                            },
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    } else {
+                        Icon(actionIcon, null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(actionLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
+                }
+            }
         },
         modifier = modifier
     )

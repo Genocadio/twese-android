@@ -155,6 +155,12 @@ fun DriverHomeScreen(
             viewModel.setDriverPackageSubTab(0)
         }
     }
+    LaunchedEffect(state.showNewPackageToast) {
+        if (state.showNewPackageToast) {
+            activeDockTab = DockWindowTab.NEW_PACKAGES
+            viewModel.dismissNewPackageToast()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
 
@@ -384,82 +390,7 @@ fun DriverHomeScreen(
             )
         }
 
-        // ── 6. Floating New-Package Toast (Swipeable) ────────────────────────
-        AnimatedVisibility(
-            visible = state.showNewPackageToast,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 8.dp),
-            enter = slideInVertically(tween(300)) { -it / 2 } + fadeIn(tween(300)),
-            exit = slideOutVertically(tween(200)) { -it / 2 } + fadeOut(tween(200))
-        ) {
-            val newPkg = state.newPackageFromSubscription
-            if (newPkg != null) {
-                var swipeOffset by remember { mutableFloatStateOf(0f) }
-                val dismissThreshold = -160f
 
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset(0, swipeOffset.roundToInt()) }
-                        .alpha(1f + (swipeOffset / 300f).coerceIn(0f, 1f))
-                        .draggable(
-                            orientation = Orientation.Vertical,
-                            state = rememberDraggableState { delta ->
-                                swipeOffset = (swipeOffset + delta).coerceAtMost(0f)
-                            },
-                            onDragStopped = {
-                                if (swipeOffset < dismissThreshold) {
-                                    viewModel.dismissNewPackageToast()
-                                }
-                                swipeOffset = 0f
-                            }
-                        )
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .widthIn(max = 380.dp)
-                            .clickable {
-                                viewModel.onNewPackageToastClicked()
-                                activeDockTab = DockWindowTab.NEW_PACKAGES
-                            },
-                        shape = RoundedCornerShape(16.dp),
-                        color = colors.surface,
-                        tonalElevation = 8.dp,
-                        shadowElevation = 12.dp,
-                        border = BorderStroke(1.5.dp, colors.blue.copy(alpha = 0.5f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.green.copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Filled.LocalShipping, null, tint = colors.green, modifier = Modifier.size(18.dp))
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text("New package available!", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text(newPkg.id, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${newPkg.fromAddress} → ${newPkg.toAddress}", color = colors.textSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Icon(Icons.Filled.ChevronRight, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                }
-
-                LaunchedEffect(newPkg.id) {
-                    delay(8_000)
-                    viewModel.dismissNewPackageToast()
-                }
-            }
-        }
 
         // ── 7. Shared Package Dialogs ────────────────────────────────────────
         val selectedPkg = viewModel.getSelectedDriverPackage()

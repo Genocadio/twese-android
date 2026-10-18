@@ -2557,32 +2557,21 @@ class TripViewModel : ViewModel() {
                     return@collect
                 }
 
-                val currentState = _state.value
-                val isOnOffersTab = currentState.driverHomeTab == 1 && currentState.driverPackageSubTab == 1
                 val pkgId = pkg.id
                 _state.update { s ->
                     val updatedOffers = listOf(pkg) + s.driverAvailableOffers
-                    if (isOnOffersTab) {
-                        s.copy(
-                            driverAvailableOffers = updatedOffers,
-                            newPackageFromSubscription = pkg
-                        )
-                    } else {
-                        s.copy(
-                            driverAvailableOffers = updatedOffers,
-                            newPackageFromSubscription = pkg,
-                            showNewPackageToast = true
-                        )
-                    }
+                    s.copy(
+                        driverAvailableOffers = updatedOffers,
+                        newPackageFromSubscription = pkg,
+                        showNewPackageToast = true
+                    )
                 }
-                if (isOnOffersTab) {
-                    // Auto-clear the "new" flag after 8 seconds so the border animation stops.
-                    kotlinx.coroutines.delay(8_000)
-                    _state.update { s ->
-                        if (s.newPackageFromSubscription?.id == pkgId) {
-                            s.copy(newPackageFromSubscription = null)
-                        } else s
-                    }
+                // Auto-clear the "new" flag after 8 seconds so the highlight animation stops.
+                kotlinx.coroutines.delay(8_000)
+                _state.update { s ->
+                    if (s.newPackageFromSubscription?.id == pkgId) {
+                        s.copy(newPackageFromSubscription = null)
+                    } else s
                 }
             }
         }
@@ -2664,6 +2653,9 @@ class TripViewModel : ViewModel() {
                         driverIncomingTransfers = updatedTransfers
                     )
                 }
+                withContext(Dispatchers.IO) {
+                    PackageCache.saveIncomingTransfers(_state.value.driverIncomingTransfers)
+                }
                 Log.d(TAG, "OfferClaimed applied: pkg=$code, transfer=$targetTransferId, claimedBy=${event.claimedByRole}")
             }
         }
@@ -2688,13 +2680,29 @@ class TripViewModel : ViewModel() {
                 val alreadyPresent = _state.value.driverIncomingTransfers.any { it.transferId == matched.transferId }
                 if (alreadyPresent) return@collect
 
+                val firstPkg = matched.packages.firstOrNull()
                 // Prepend the new transfer to the incoming list
                 _state.update { s ->
                     s.copy(
-                        driverIncomingTransfers = listOf(matched) + s.driverIncomingTransfers
+                        driverIncomingTransfers = listOf(matched) + s.driverIncomingTransfers,
+                        newPackageFromSubscription = firstPkg,
+                        showNewPackageToast = true
                     )
                 }
+                withContext(Dispatchers.IO) {
+                    PackageCache.saveIncomingTransfers(_state.value.driverIncomingTransfers)
+                }
                 Log.d(TAG, "Incoming transfer received: ${matched.transferId}")
+
+                if (firstPkg != null) {
+                    val pkgId = firstPkg.id
+                    kotlinx.coroutines.delay(8_000)
+                    _state.update { s ->
+                        if (s.newPackageFromSubscription?.id == pkgId) {
+                            s.copy(newPackageFromSubscription = null)
+                        } else s
+                    }
+                }
             }
         }
     }
@@ -2762,6 +2770,9 @@ class TripViewModel : ViewModel() {
                             isAcceptingTransfer = false
                         )
                     }
+                    withContext(Dispatchers.IO) {
+                        PackageCache.saveIncomingTransfers(_state.value.driverIncomingTransfers)
+                    }
                     loadDriverPackages()
                     _toastEvent.emit("Offer accepted")
                 } else {
@@ -2787,6 +2798,10 @@ class TripViewModel : ViewModel() {
                     driverCurrentTotalPages = cached.totalPages,
                     driverCurrentTotalCount = cached.totalCount
                 ) }
+            }
+            val cachedTransfers = withContext(Dispatchers.IO) { PackageCache.getIncomingTransfers() }
+            if (cachedTransfers != null && cachedTransfers.isNotEmpty()) {
+                _state.update { it.copy(driverIncomingTransfers = cachedTransfers) }
             }
             // Preload incoming transfers in background
             loadDriverIncomingTransfers()
@@ -3391,6 +3406,12 @@ class TripViewModel : ViewModel() {
                     _state.update { it.copy(isDriverInitialLoading = true) }
                 }
             }
+            if (_state.value.driverIncomingTransfers.isEmpty()) {
+                val cachedTransfers = withContext(Dispatchers.IO) { PackageCache.getIncomingTransfers() }
+                if (cachedTransfers != null && cachedTransfers.isNotEmpty()) {
+                    _state.update { it.copy(driverIncomingTransfers = cachedTransfers) }
+                }
+            }
             try {
                 // Fetch driver's packages (cached locally)
                 when (val current = PackageRepository.fetchMyPackages(page = 0, order = com.gocavgo.twese.type.SortOrder.DESC)) {
@@ -3600,6 +3621,7 @@ class TripViewModel : ViewModel() {
             _state.update { it.copy(isLoadingTransfers = true) }
             try {
                 val transfers = PackageRepository.fetchTransfersForMe()
+                withContext(Dispatchers.IO) { PackageCache.saveIncomingTransfers(transfers) }
                 if (gen != sessionGeneration) return@launch
                 _state.update { it.copy(
                     driverIncomingTransfers = transfers,
@@ -3652,6 +3674,9 @@ class TripViewModel : ViewModel() {
                             acceptTransferCodeError = "",
                             isAcceptingTransfer = false
                         )
+                    }
+                    withContext(Dispatchers.IO) {
+                        PackageCache.saveIncomingTransfers(_state.value.driverIncomingTransfers)
                     }
                     loadDriverPackages()
                     _toastEvent.emit("Transfer accepted")
@@ -4154,6 +4179,9 @@ class TripViewModel : ViewModel() {
                         acceptTransferCodeError = "",
                         isAcceptingTransfer = false
                     )
+                }
+                withContext(Dispatchers.IO) {
+                    PackageCache.saveIncomingTransfers(_state.value.driverIncomingTransfers)
                 }
                 loadDriverPackages()
                 _toastEvent.emit("Package accepted via transfer")
