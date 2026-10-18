@@ -14,6 +14,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -215,7 +216,7 @@ fun DriverPackagesTab(
                     )
                 }
 
-                // ── Header Control: Search + 2-Segment Tab Bar + Notification Bell (Same line & height) ──
+                // ── Header Control: Search + Frosted Glass 2-Segment Tabs + Notification Bell (Same line & 44dp height) ──
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -228,7 +229,7 @@ fun DriverPackagesTab(
                             value = searchQuery,
                             onValueChange = { viewModel.updateDriverPackageSearch(it) },
                             modifier = Modifier.weight(1f).height(44.dp),
-                            placeholder = { Text("Search by code, destination...", fontSize = 14.sp) },
+                            placeholder = { Text("Search by code, destination...", fontSize = 13.sp) },
                             leadingIcon = {
                                 Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
                             },
@@ -243,28 +244,30 @@ fun DriverPackagesTab(
                                     Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
                                 }
                             },
-                            shape = FluidShapes.button,
+                            shape = FluidShapes.pill,
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
-                                unfocusedBorderColor = colors.divider,
+                                unfocusedContainerColor = colors.surface.copy(alpha = 0.65f),
+                                focusedContainerColor = colors.surface.copy(alpha = 0.85f),
+                                unfocusedBorderColor = colors.divider.copy(alpha = 0.7f),
                                 focusedBorderColor = colors.purple,
                                 cursorColor = colors.purple,
                                 unfocusedLeadingIconColor = colors.textSecondary,
                                 focusedLeadingIconColor = colors.purple
                             ),
-                            textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
+                            textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
                         )
                         Spacer(Modifier.width(8.dp))
-                        // Notification bell button (SAME HEIGHT 44.dp!)
+                        // Notification bell button (Circular pill matching avatar)
                         FrostedFloatingIconButton(
                             onClick = onNoticesClick,
-                            shape = FluidShapes.button,
+                            shape = FluidShapes.pill,
                             modifier = Modifier.size(44.dp)
                         ) {
                             BadgedBox(badge = {
                                 if (noticeCount > 0) {
                                     Badge(containerColor = colors.purple, contentColor = Color.White) {
-                                        Text("$noticeCount", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("$noticeCount", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }) {
@@ -272,109 +275,129 @@ fun DriverPackagesTab(
                             }
                         }
                     } else {
-                        // Search icon button
-                        val searchInteractionSource = remember { MutableInteractionSource() }
-                        AcrylicGlassSurface(
-                            modifier = Modifier.size(44.dp),
-                            shape = FluidShapes.button,
-                            shadowElevation = 3.dp
+                        // Search icon button (Circular pill matching avatar)
+                        FrostedFloatingIconButton(
+                            onClick = { isSearchExpanded = true },
+                            shape = FluidShapes.pill,
+                            modifier = Modifier.size(44.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .fluidBounceClick(interactionSource = searchInteractionSource, onClick = { isSearchExpanded = true }),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                            }
+                            Icon(Icons.Filled.Search, contentDescription = "Search", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
                         }
 
                         Spacer(Modifier.width(8.dp))
 
-                        // ── Modern 2-Segment Control (On Board vs Incoming) ─
+                        // ── Frosted Glass 2-Segment Control (Continuous Stadium Pill, No Pseudo White Bar) ─
                         AcrylicGlassSurface(
                             modifier = Modifier.weight(1f).height(44.dp),
-                            shape = FluidShapes.button,
-                            shadowElevation = 3.dp
+                            shape = FluidShapes.pill,
+                            backgroundColor = colors.surface.copy(alpha = 0.60f),
+                            border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.6f)),
+                            shadowElevation = 2.dp
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 3.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            BoxWithConstraints(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(3.dp)
                             ) {
-                                val tabs = listOf(
-                                    Triple(0, Icons.Filled.LocalShipping, filteredCurrent.size),
-                                    Triple(1, Icons.Filled.MoveToInbox, incomingItems.size)
+                                val totalWidth = maxWidth
+                                val tabWidth = totalWidth / 2
+
+                                // Smooth sliding spring indicator pill
+                                val indicatorOffset by animateDpAsState(
+                                    targetValue = tabWidth * subTab,
+                                    animationSpec = spring(
+                                        dampingRatio = 0.82f,
+                                        stiffness = Spring.StiffnessMedium
+                                    ),
+                                    label = "topTabIndicatorOffset"
                                 )
 
-                                tabs.forEach { (index, icon, count) ->
-                                    val isSelected = subTab == index
-                                    val disabled = isSelection && index != 0
+                                // Sliding active indicator pill
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = indicatorOffset)
+                                        .width(tabWidth)
+                                        .fillMaxHeight()
+                                        .clip(FluidShapes.pill)
+                                        .background(colors.purple.copy(alpha = 0.16f))
+                                        .border(
+                                            BorderStroke(1.dp, colors.purple.copy(alpha = 0.25f)),
+                                            shape = FluidShapes.pill
+                                        )
+                                )
 
-                                    val iconTint by animateColorAsState(
-                                        targetValue = if (isSelected) colors.purple else colors.textSecondary,
-                                        animationSpec = tween(250, easing = FastOutSlowInEasing),
-                                        label = "topTabIcon$index"
-                                    )
-                                    val bgPill by animateColorAsState(
-                                        targetValue = if (isSelected) colors.purple.copy(alpha = 0.12f) else Color.Transparent,
-                                        animationSpec = tween(250, easing = FastOutSlowInEasing),
-                                        label = "topTabBg$index"
-                                    )
-                                    val badgeBg by animateColorAsState(
-                                        targetValue = if (isSelected) colors.purple else colors.divider,
-                                        animationSpec = tween(250, easing = FastOutSlowInEasing),
-                                        label = "topTabBadgeBg$index"
-                                    )
-                                    val badgeText by animateColorAsState(
-                                        targetValue = if (isSelected) Color.White else colors.textSecondary,
-                                        animationSpec = tween(250, easing = FastOutSlowInEasing),
-                                        label = "topTabBadgeText$index"
+                                Row(
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    val tabs = listOf(
+                                        Triple(0, Icons.Filled.LocalShipping, filteredCurrent.size),
+                                        Triple(1, Icons.Filled.MoveToInbox, incomingItems.size)
                                     )
 
-                                    val tabInteractionSource = remember { MutableInteractionSource() }
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxHeight()
-                                            .clip(FluidShapes.chip)
-                                            .background(bgPill)
-                                            .fluidBounceClick(
-                                                scaleDown = 0.95f,
-                                                interactionSource = tabInteractionSource
-                                            ) {
-                                                if (subTab != index && !disabled) {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    viewModel.setDriverPackageSubTab(index)
-                                                }
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.Center
+                                    tabs.forEach { (index, icon, count) ->
+                                        val isSelected = subTab == index
+                                        val disabled = isSelection && index != 0
+
+                                        val iconTint by animateColorAsState(
+                                            targetValue = if (isSelected) colors.purple else colors.textSecondary,
+                                            animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                            label = "topTabIcon$index"
+                                        )
+                                        val badgeBg by animateColorAsState(
+                                            targetValue = if (isSelected) colors.purple else colors.divider.copy(alpha = 0.7f),
+                                            animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                            label = "topTabBadgeBg$index"
+                                        )
+                                        val badgeText by animateColorAsState(
+                                            targetValue = if (isSelected) Color.White else colors.textSecondary,
+                                            animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                            label = "topTabBadgeText$index"
+                                        )
+
+                                        val tabInteractionSource = remember { MutableInteractionSource() }
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .clip(FluidShapes.pill)
+                                                .fluidBounceClick(
+                                                    scaleDown = 0.95f,
+                                                    interactionSource = tabInteractionSource
+                                                ) {
+                                                    if (subTab != index && !disabled) {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        viewModel.setDriverPackageSubTab(index)
+                                                    }
+                                                },
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Icon(
-                                                imageVector = icon,
-                                                contentDescription = if (index == 0) "On Board" else "Incoming",
-                                                tint = iconTint,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-
-                                            // Count badge
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(CircleShape)
-                                                    .background(badgeBg)
-                                                    .padding(horizontal = 7.dp, vertical = 2.dp),
-                                                contentAlignment = Alignment.Center
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center
                                             ) {
-                                                Text(
-                                                    text = "$count",
-                                                    color = badgeText,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
+                                                Icon(
+                                                    imageVector = icon,
+                                                    contentDescription = if (index == 0) "On Board" else "Incoming",
+                                                    tint = iconTint,
+                                                    modifier = Modifier.size(19.dp)
                                                 )
+                                                Spacer(Modifier.width(6.dp))
+
+                                                // Count badge
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(CircleShape)
+                                                        .background(badgeBg)
+                                                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = "$count",
+                                                        color = badgeText,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -384,16 +407,16 @@ fun DriverPackagesTab(
 
                         Spacer(Modifier.width(8.dp))
 
-                        // Notification bell button (SAME HEIGHT 44.dp!)
+                        // Notification bell button (Circular pill matching avatar)
                         FrostedFloatingIconButton(
                             onClick = onNoticesClick,
-                            shape = FluidShapes.button,
+                            shape = FluidShapes.pill,
                             modifier = Modifier.size(44.dp)
                         ) {
                             BadgedBox(badge = {
                                 if (noticeCount > 0) {
                                     Badge(containerColor = colors.purple, contentColor = Color.White) {
-                                        Text("$noticeCount", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("$noticeCount", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }) {
