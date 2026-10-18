@@ -46,10 +46,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gocavgo.twese.ui.TripContent
 import com.gocavgo.twese.ui.common.CachedAvatarImage
+import com.gocavgo.twese.ui.common.FluidCloudCapsule
 import com.gocavgo.twese.ui.common.ProfileQuickMenu
 import com.gocavgo.twese.ui.common.SettingsMenu
 import com.gocavgo.twese.ui.common.VehiclePlatePill
 import com.gocavgo.twese.ui.common.contentMaxWidth
+import com.gocavgo.twese.ui.common.fluidBounceClick
 import com.gocavgo.twese.ui.common.isWideScreen
 import com.gocavgo.twese.ui.theme.LocalDriversColors
 import com.gocavgo.twese.viewmodel.AppThemeMode
@@ -229,18 +231,18 @@ fun DriverHomeScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { onVehicleClick() }
-                                        .background(colors.surface, RoundedCornerShape(14.dp))
-                                        .border(1.dp, colors.divider, RoundedCornerShape(14.dp))
+                                        .background(colors.surface, RoundedCornerShape(18.dp))
+                                        .border(1.dp, colors.divider, RoundedCornerShape(18.dp))
                                         .padding(16.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .size(48.dp)
-                                            .background(colors.blue.copy(alpha = 0.14f), CircleShape),
+                                            .background(colors.purple.copy(alpha = 0.14f), CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(Icons.Filled.DirectionsCar, null, tint = colors.blue, modifier = Modifier.size(24.dp))
+                                        Icon(Icons.Filled.DirectionsCar, null, tint = colors.purple, modifier = Modifier.size(24.dp))
                                     }
                                     Spacer(Modifier.height(10.dp))
                                     Text(vehicle.plateNumber, color = colors.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
@@ -251,13 +253,13 @@ fun DriverHomeScreen(
                                         vehicle.vehicleType?.let { type ->
                                             AssistChip(
                                                 onClick = {},
-                                                label = { Text(type, fontSize = 11.sp) },
+                                                label = { Text(type, fontSize = 12.sp) },
                                                 leadingIcon = { Icon(Icons.Filled.DirectionsCar, null, modifier = Modifier.size(14.dp)) }
                                             )
                                         }
                                         AssistChip(
                                             onClick = {},
-                                            label = { Text("${vehicle.seats} seats", fontSize = 11.sp) },
+                                            label = { Text("${vehicle.seats} seats", fontSize = 12.sp) },
                                             leadingIcon = { Icon(Icons.Filled.EventSeat, null, modifier = Modifier.size(14.dp)) }
                                         )
                                     }
@@ -386,21 +388,23 @@ fun DriverHomeScreen(
                 ) {
                     Surface(
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(22.dp),
-                        color = colors.surface,
-                        shadowElevation = 4.dp,
-                        border = BorderStroke(1.dp, colors.divider)
+                        shape = RoundedCornerShape(26.dp),
+                        color = colors.surface.copy(alpha = 0.88f),
+                        shadowElevation = 6.dp,
+                        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f))
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            // Profile avatar
+                            // Profile avatar with spring bounce
                             Box(
-                                modifier = Modifier.size(38.dp).clip(CircleShape)
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
                                     .background(if (isDriverProfileMenuOpen) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt)
-                                    .clickable { onProfileMenuClick() },
+                                    .fluidBounceClick(scaleDown = 0.92f) { onProfileMenuClick() },
                                 contentAlignment = Alignment.Center
                             ) {
                                 val avatarUrl = profile.avatarUrl
@@ -415,7 +419,7 @@ fun DriverHomeScreen(
                                 }
                             }
 
-                            // Clean modern icon-only tabs (like Instagram / Twitter / WhatsApp)
+                            // Clean modern icon-only tabs with spring bounce physics
                             listOf(0 to Icons.Filled.DirectionsCar, 1 to Icons.Filled.Inventory2).forEach { (idx, icon) ->
                                 val isSelected = driverHomeTab == idx
                                 val iconTint by animateColorAsState(
@@ -434,7 +438,7 @@ fun DriverHomeScreen(
                                         .height(42.dp)
                                         .clip(RoundedCornerShape(14.dp))
                                         .background(bgPill)
-                                        .clickable { onTabChange(idx) },
+                                        .fluidBounceClick(scaleDown = 0.94f) { onTabChange(idx) },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -452,6 +456,7 @@ fun DriverHomeScreen(
 
                     FloatingActionButton(
                         onClick = onCreatePackage,
+                        modifier = Modifier.fluidBounceClick(scaleDown = 0.92f),
                         containerColor = colors.purple,
                         contentColor   = Color.White,
                         shape          = CircleShape,
@@ -461,11 +466,38 @@ fun DriverHomeScreen(
             }
         }
 
+        // ── OxygenOS / ColorOS Fluid Cloud Capsule (Live Shift / Trip Activity) ──
+        val activeTrip = state.activeDriverTrip
+        val hasActiveTrip = state.hasActiveTrip || activeTrip != null
+        val tripRouteName = activeTrip?.routeName
+            ?: (if (activeTrip?.origin != null && activeTrip.destination != null) "${activeTrip.origin} → ${activeTrip.destination}" else null)
+            ?: state.trip.routeLabel.ifBlank { "Active Shift" }
+        val stopsCount = state.trip.stops.size
+        val stopsInfo = if (stopsCount > 0) "${state.currentStopIndex}/$stopsCount stops" else "Active Trip"
+        val pkgCountInfo = "${state.driverCurrentPackages.size} pkgs"
+
+        FluidCloudCapsule(
+            visible = hasActiveTrip && driverHomeTab != 0,
+            title = "Trip In Progress • $tripRouteName",
+            subtitle = "$stopsInfo • $pkgCountInfo",
+            icon = Icons.Filled.DirectionsCar,
+            accentColor = colors.purple,
+            onClick = { onTabChange(0) },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 4.dp, end = 60.dp)
+        )
+
         // ── Bell notification button (floating, visible on all pages) ──────
         SmallFloatingActionButton(
             onClick = onNoticesClick,
-            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 2.dp, end = 16.dp),
-            containerColor = colors.surface,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 2.dp, end = 16.dp)
+                .fluidBounceClick(scaleDown = 0.90f),
+            containerColor = colors.surface.copy(alpha = 0.90f),
             contentColor = colors.textPrimary,
             shape = CircleShape,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp)

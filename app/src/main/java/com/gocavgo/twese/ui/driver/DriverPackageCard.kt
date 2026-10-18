@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,6 +41,8 @@ import com.gocavgo.twese.data.Notice
 import com.gocavgo.twese.data.PackageStatus
 import com.gocavgo.twese.ui.common.PackageStatusIconBadge
 import com.gocavgo.twese.ui.common.StatusIconTooltipBadge
+import com.gocavgo.twese.ui.common.SwipeToActionButton
+import com.gocavgo.twese.ui.common.fluidBounceClick
 import com.gocavgo.twese.data.hasOpenTransfer
 import com.gocavgo.twese.data.hasUnreadNotices
 import com.gocavgo.twese.ui.common.FullScreenMediaViewer
@@ -113,14 +116,21 @@ fun ModernPackageCard(
     )
     val borderColor = if (isHighlighted) colors.purple.copy(alpha = 0.5f + borderProgress * 0.4f) else colors.divider
 
+    val cardInteractionSource = remember { MutableInteractionSource() }
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         color = colors.surface,
         border = BorderStroke(borderWidth, borderColor),
         shadowElevation = if (isHighlighted) 4.dp else 2.dp,
         modifier = modifier
             .fillMaxWidth()
+            .fluidBounceClick(
+                scaleDown = 0.98f,
+                interactionSource = cardInteractionSource
+            )
             .combinedClickable(
+                interactionSource = cardInteractionSource,
+                indication = null,
                 onClick = onDetail,
                 onLongClick = onLongPress
             )
@@ -468,37 +478,30 @@ fun DriverCurrentPackageCard(
 
                 when {
                     needsPickup -> {
-                        Button(
-                            onClick = { if (!isPickingUp) onPickup() },
+                        SwipeToActionButton(
+                            text = "Slide to Pick Up",
+                            icon = Icons.Filled.LocalShipping,
+                            isLoading = isPickingUp,
                             enabled = !isPickingUp,
-                            modifier = Modifier.fillMaxWidth().height(44.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
-                        ) {
-                            if (isPickingUp) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("Picking up...", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            } else {
-                                Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Pick Up Package", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
+                            onSwipeComplete = onPickup,
+                            accentColor = colors.purple
+                        )
                     }
 
                     needsArrival || !isAtDestinationOffice -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val deliverSource = remember { MutableInteractionSource() }
                             Button(
                                 onClick = onDeliver,
                                 modifier = Modifier
                                     .weight(1.3f)
-                                    .height(44.dp),
-                                shape = RoundedCornerShape(12.dp),
+                                    .height(46.dp)
+                                    .fluidBounceClick(interactionSource = deliverSource),
+                                shape = RoundedCornerShape(14.dp),
+                                interactionSource = deliverSource,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = colors.purple
                                 )
@@ -518,24 +521,27 @@ fun DriverCurrentPackageCard(
                             }
 
                             if (!isPendingConfirmation) {
+                                val transferSource = remember { MutableInteractionSource() }
                                 OutlinedButton(
                                     onClick = onTransfer,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(44.dp),
-                                    shape = RoundedCornerShape(12.dp),
+                                        .height(46.dp)
+                                        .fluidBounceClick(interactionSource = transferSource),
+                                    shape = RoundedCornerShape(14.dp),
+                                    interactionSource = transferSource,
                                     border = BorderStroke(1.dp, colors.divider)
                                 ) {
                                     Icon(
                                         Icons.Filled.MoveToInbox,
                                         null,
-                                        modifier = Modifier.size(16.dp),
+                                        modifier = Modifier.size(18.dp),
                                         tint = colors.purple
                                     )
                                     Spacer(Modifier.width(5.dp))
                                     Text(
                                         "Transfer",
-                                        fontSize = 13.sp,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = colors.textPrimary,
                                         maxLines = 1
@@ -547,13 +553,13 @@ fun DriverCurrentPackageCard(
 
                     isAtDestinationOffice -> {
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             color = colors.purple.copy(alpha = 0.08f),
                             border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.2f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(Icons.Filled.HourglassTop, null, tint = colors.purple, modifier = Modifier.size(16.dp))
@@ -571,7 +577,7 @@ fun DriverCurrentPackageCard(
             } else if (isTransferOpen) {
                 Spacer(Modifier.height(10.dp))
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = colors.purple.copy(alpha = 0.06f),
                     border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.2f)),
                     modifier = Modifier.fillMaxWidth()
@@ -581,8 +587,8 @@ fun DriverCurrentPackageCard(
                             Icon(Icons.Filled.HourglassTop, null, tint = colors.purple, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                if (isTransferRequested) "Awaiting owner confirmation"
-                                else "Transfer active — waiting for counterparty pickup",
+                                if (isTransferRequested) "Awaiting counterparty confirmation"
+                                else "Transfer active — waiting for pickup",
                                 color = colors.purple,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium
@@ -591,11 +597,16 @@ fun DriverCurrentPackageCard(
 
                         if (pkg.transferId != null && onCancelTransfer != null) {
                             Spacer(Modifier.height(8.dp))
+                            val cancelSource = remember { MutableInteractionSource() }
                             OutlinedButton(
                                 onClick = { onCancelTransfer(pkg.id, pkg.transferId) },
                                 enabled = !isCancellingTransfer,
-                                modifier = Modifier.fillMaxWidth().height(38.dp),
-                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .fluidBounceClick(interactionSource = cancelSource),
+                                shape = RoundedCornerShape(12.dp),
+                                interactionSource = cancelSource,
                                 border = BorderStroke(1.dp, colors.red.copy(alpha = 0.5f))
                             ) {
                                 if (isCancellingTransfer) {
@@ -605,7 +616,7 @@ fun DriverCurrentPackageCard(
                                 } else {
                                     Icon(Icons.Filled.Close, null, modifier = Modifier.size(14.dp), tint = colors.red)
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Cancel Transfer (Recall)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.red)
+                                    Text("Cancel Transfer", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.red)
                                 }
                             }
                         }
@@ -698,32 +709,19 @@ fun DriverIncomingPackageCard(
         },
         actions = {
             Spacer(Modifier.height(10.dp))
-            Button(
-                onClick = { if (isEnabled) onAccept() },
+            SwipeToActionButton(
+                text = when (ruleType) {
+                    "ASSIGNED" -> "Slide to Pick Up"
+                    "SECURE" -> "Slide to Accept (Code)"
+                    "CONFIRM" -> "Slide to Request"
+                    else -> "Slide to Accept"
+                },
+                icon = actionIcon,
+                isLoading = isAccepting,
                 enabled = isEnabled,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.purple,
-                    disabledContainerColor = colors.divider
-                )
-            ) {
-                if (isAccepting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Accepting...", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                } else {
-                    Icon(actionIcon, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(actionLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                }
-            }
+                onSwipeComplete = { if (isEnabled) onAccept() },
+                accentColor = colors.purple
+            )
         },
         modifier = modifier
     )
@@ -746,14 +744,18 @@ fun SelectableCurrentPackageCard(
     val borderColor = if (isSelected) colors.purple else colors.divider
     val bgColor = if (isSelected) colors.purple.copy(alpha = 0.06f) else colors.surface
 
+    val selectCardSource = remember { MutableInteractionSource() }
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         color = bgColor,
         border = if (isSelected) BorderStroke(2.dp, colors.purple) else BorderStroke(1.dp, borderColor),
         shadowElevation = if (isSelected) 4.dp else 2.dp,
         modifier = Modifier
             .fillMaxWidth()
+            .fluidBounceClick(scaleDown = 0.98f, interactionSource = selectCardSource)
             .combinedClickable(
+                interactionSource = selectCardSource,
+                indication = null,
                 onClick = { if (canSelect) onToggle() },
                 onLongClick = { if (canSelect) onToggle() }
             )

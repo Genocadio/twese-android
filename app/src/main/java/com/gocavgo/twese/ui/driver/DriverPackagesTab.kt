@@ -4,10 +4,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.*
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -51,6 +53,7 @@ import com.gocavgo.twese.data.PackageStatus
 import com.gocavgo.twese.data.hasOpenTransfer
 import com.gocavgo.twese.data.sortedByUnreadNotices
 import com.gocavgo.twese.ui.common.adaptiveHorizontalPadding
+import com.gocavgo.twese.ui.common.fluidBounceClick
 import com.gocavgo.twese.ui.theme.LocalDriversColors
 import com.gocavgo.twese.viewmodel.TripViewModel
 
@@ -205,6 +208,32 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                     )
                 }
 
+                // ── One UI Hero Title Banner (Top 35% viewing area, collapsible) ──
+                AnimatedVisibility(
+                    visible = !isSearchExpanded && !isSelection,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Packages",
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.textPrimary,
+                            letterSpacing = (-0.5).sp
+                        )
+                        Text(
+                            text = "${filteredCurrent.size} on board • ${incomingItems.size} incoming",
+                            fontSize = 13.sp,
+                            color = colors.textSecondary
+                        )
+                    }
+                }
+
                 // ── Header Control: Search bar or 2-Segment Tab Bar ───────────
                 Row(
                     modifier = Modifier
@@ -248,12 +277,16 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                         Spacer(Modifier.width(42.dp)) // Reserve space for floating bell
                     } else {
                         // Search icon button
+                        val searchInteractionSource = remember { MutableInteractionSource() }
                         Surface(
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier
+                                .size(44.dp)
+                                .fluidBounceClick(interactionSource = searchInteractionSource),
                             shape = RoundedCornerShape(14.dp),
                             color = colors.surfaceAlt,
                             border = BorderStroke(1.dp, colors.divider),
-                            onClick = { isSearchExpanded = true }
+                            onClick = { isSearchExpanded = true },
+                            interactionSource = searchInteractionSource
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
@@ -303,18 +336,18 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                         label = "topTabBadgeText$index"
                                     )
 
+                                    val tabInteractionSource = remember { MutableInteractionSource() }
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
                                             .fillMaxHeight()
                                             .clip(RoundedCornerShape(11.dp))
                                             .background(bgPill)
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                enabled = !disabled
+                                            .fluidBounceClick(
+                                                scaleDown = 0.95f,
+                                                interactionSource = tabInteractionSource
                                             ) {
-                                                if (subTab != index) {
+                                                if (subTab != index && !disabled) {
                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     viewModel.setDriverPackageSubTab(index)
                                                 }

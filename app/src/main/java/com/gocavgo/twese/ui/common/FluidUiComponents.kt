@@ -1,0 +1,368 @@
+package com.gocavgo.twese.ui.common
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.gocavgo.twese.ui.theme.LocalDriversColors
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+// ── Continuous Spring Physics (OxygenOS / ColorOS inspired) ──────────────────
+
+/**
+ * Applies continuous spring scale animation on press (stiffness = Medium, dampingRatio = 0.75f).
+ * Makes interactive surfaces feel physical, tactile, and alive.
+ */
+fun Modifier.fluidBounceClick(
+    scaleDown: Float = 0.96f,
+    interactionSource: MutableInteractionSource? = null,
+    onClick: (() -> Unit)? = null
+): Modifier = composed {
+    val effectiveSource = interactionSource ?: remember { MutableInteractionSource() }
+    val isPressed by effectiveSource.collectIsPressedAsState()
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) scaleDown else 1f,
+        animationSpec = spring(
+            dampingRatio = 0.75f,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "fluidBounceScale"
+    )
+
+    this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .then(
+            if (onClick != null) {
+                Modifier.clickable(
+                    interactionSource = effectiveSource,
+                    indication = null,
+                    onClick = onClick
+                )
+            } else {
+                Modifier
+            }
+        )
+}
+
+// ── Frosted Acrylic Glass Container ──────────────────────────────────────────
+
+/**
+ * Modern frosted acrylic glass container inspired by OxygenOS Aquamorphic / One UI.
+ * Combines translucent surface with subtle divider border and smooth squircle corners.
+ */
+@Composable
+fun AcrylicGlassSurface(
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(22.dp),
+    backgroundColor: Color? = null,
+    border: BorderStroke? = null,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val colors = LocalDriversColors.current
+    val effectiveBg = backgroundColor ?: colors.surface.copy(alpha = 0.88f)
+    val effectiveBorder = border ?: BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f))
+
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        color = effectiveBg,
+        border = effectiveBorder,
+        shadowElevation = 4.dp
+    ) {
+        Box(content = content)
+    }
+}
+
+// ── Live Fluid Cloud Capsule (Dynamic Activity Pill) ─────────────────────────
+
+/**
+ * OxygenOS Fluid Cloud / Capsule Pill:
+ * Displays dynamic live status at the top of the screen (e.g. active trip, next stop, live packages).
+ * Single tap expands into active trip or detail view.
+ */
+@Composable
+fun FluidCloudCapsule(
+    visible: Boolean,
+    title: String,
+    subtitle: String,
+    icon: ImageVector = Icons.Filled.DirectionsCar,
+    accentColor: Color? = null,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalDriversColors.current
+    val accent = accentColor ?: colors.purple
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.75f)) +
+                slideInVertically(spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.75f)) { -it },
+        exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { -it },
+        modifier = modifier
+    ) {
+        AcrylicGlassSurface(
+            shape = RoundedCornerShape(26.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .fluidBounceClick(scaleDown = 0.97f, onClick = onClick)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Pulsing live indicator
+                val pulseAnim = rememberInfiniteTransition(label = "capsulePulse")
+                val pulseScale by pulseAnim.animateFloat(
+                    initialValue = 0.88f,
+                    targetValue = 1.15f,
+                    animationSpec = infiniteRepeatable(
+                        tween(900, easing = FastOutSlowInEasing),
+                        RepeatMode.Reverse
+                    ),
+                    label = "pulseScale"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .graphicsLayer { scaleX = pulseScale; scaleY = pulseScale }
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(accent)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = title,
+                            color = colors.textPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (subtitle.isNotBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = subtitle,
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(8.dp))
+
+                // Trailing arrow pill
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(colors.surfaceAlt),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Swipe-to-Complete Action Slider (Tier-1 Logistics / Driver Ergonomics) ───
+
+/**
+ * High-contrast swipe-to-complete slider for critical driver operations (e.g. Pick Up, Deliver, Confirm).
+ * Prevents accidental taps while in vehicle cradle or in motion.
+ * Features spring snap-back physics and haptic trigger.
+ */
+@Composable
+fun SwipeToActionButton(
+    text: String,
+    icon: ImageVector = Icons.Filled.Check,
+    isLoading: Boolean = false,
+    enabled: Boolean = true,
+    onSwipeComplete: () -> Unit,
+    modifier: Modifier = Modifier,
+    accentColor: Color? = null
+) {
+    val colors = LocalDriversColors.current
+    val accent = accentColor ?: colors.purple
+    val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val trackHeight = 52.dp
+    val thumbSize = 44.dp
+    val density = LocalDensity.current
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(trackHeight)
+            .clip(RoundedCornerShape(16.dp))
+            .background(accent.copy(alpha = 0.12f))
+    ) {
+        val totalWidthPx = constraints.maxWidth.toFloat()
+        val thumbSizePx = with(density) { thumbSize.toPx() }
+        val maxDragPx = (totalWidthPx - thumbSizePx - with(density) { 8.dp.toPx() }).coerceAtLeast(0f)
+
+        val offsetX = remember { Animatable(0f) }
+
+        val isCompleted = offsetX.value >= maxDragPx * 0.85f
+
+        // Centered guiding action text
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = accent
+                )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = text,
+                        color = accent,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        null,
+                        tint = accent.copy(alpha = 0.7f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
+        // Draggable thumb pill
+        if (!isLoading && enabled) {
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(offsetX.value.roundToInt() + with(density) { 4.dp.roundToPx() }, with(density) { 4.dp.roundToPx() }) }
+                    .size(thumbSize)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(accent)
+                    .draggable(
+                        orientation = Orientation.Horizontal,
+                        state = rememberDraggableState { delta ->
+                            coroutineScope.launch {
+                                val next = (offsetX.value + delta).coerceIn(0f, maxDragPx)
+                                offsetX.snapTo(next)
+                            }
+                        },
+                        onDragStopped = {
+                            if (offsetX.value >= maxDragPx * 0.8f) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                coroutineScope.launch {
+                                    offsetX.animateTo(
+                                        targetValue = maxDragPx,
+                                        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium)
+                                    )
+                                    onSwipeComplete()
+                                    // Reset after trigger
+                                    offsetX.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium)
+                                    )
+                                }
+                            } else {
+                                coroutineScope.launch {
+                                    offsetX.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium)
+                                    )
+                                }
+                            }
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = text,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
