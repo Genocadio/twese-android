@@ -1121,200 +1121,202 @@ private fun ProfileSheetContent(
     onLogout: () -> Unit
 ) {
     val colors = LocalDriversColors.current
+    var isThemeDropdownExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // ── 1. Settings Grid (2 Columned) on Top ─────────────────────────────
+        // ── Row 1: Theme Dropdown + Keep Awake ────────────────────────────────
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Card 1: Theme Switcher
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(82.dp)
-                    .fluidBounceClick(scaleDown = 0.93f) {
-                        val nextTheme = when (themeMode) {
-                            AppThemeMode.SYSTEM -> AppThemeMode.DARK
-                            AppThemeMode.DARK -> AppThemeMode.LIGHT
-                            AppThemeMode.LIGHT -> AppThemeMode.SYSTEM
-                        }
-                        onThemeModeChange(nextTheme)
-                    },
-                shape = FluidShapes.card,
-                color = colors.surfaceAlt,
-                border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
-            ) {
-                Column(
+            // Theme Switcher Tile (with Dropdown)
+            Box(modifier = Modifier.weight(1f)) {
+                Surface(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .fluidBounceClick(scaleDown = 0.93f) { isThemeDropdownExpanded = true },
+                    shape = FluidShapes.card,
+                    color = colors.surfaceAlt,
+                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxSize(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(colors.purple.copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Filled.Settings, null, tint = colors.purple, modifier = Modifier.size(16.dp))
-                        }
-                        Text(
-                            when (themeMode) {
-                                AppThemeMode.SYSTEM -> "System"
-                                AppThemeMode.DARK -> "Dark"
-                                AppThemeMode.LIGHT -> "Light"
-                            },
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.purple
+                        Icon(
+                            Icons.Filled.Settings,
+                            contentDescription = "Theme",
+                            tint = colors.purple,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            Icons.Filled.ArrowDropDown,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
-                    Text("Theme", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                }
+
+                DropdownMenu(
+                    expanded = isThemeDropdownExpanded,
+                    onDismissRequest = { isThemeDropdownExpanded = false },
+                    modifier = Modifier.background(colors.surface),
+                    shape = FluidShapes.card
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "System",
+                                color = if (themeMode == AppThemeMode.SYSTEM) colors.purple else colors.textPrimary,
+                                fontWeight = if (themeMode == AppThemeMode.SYSTEM) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 13.sp
+                            )
+                        },
+                        trailingIcon = {
+                            if (themeMode == AppThemeMode.SYSTEM) {
+                                Icon(Icons.Filled.Check, contentDescription = null, tint = colors.purple, modifier = Modifier.size(16.dp))
+                            }
+                        },
+                        onClick = {
+                            onThemeModeChange(AppThemeMode.SYSTEM)
+                            isThemeDropdownExpanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Light",
+                                color = if (themeMode == AppThemeMode.LIGHT) colors.purple else colors.textPrimary,
+                                fontWeight = if (themeMode == AppThemeMode.LIGHT) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 13.sp
+                            )
+                        },
+                        trailingIcon = {
+                            if (themeMode == AppThemeMode.LIGHT) {
+                                Icon(Icons.Filled.Check, contentDescription = null, tint = colors.purple, modifier = Modifier.size(16.dp))
+                            }
+                        },
+                        onClick = {
+                            onThemeModeChange(AppThemeMode.LIGHT)
+                            isThemeDropdownExpanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Dark",
+                                color = if (themeMode == AppThemeMode.DARK) colors.purple else colors.textPrimary,
+                                fontWeight = if (themeMode == AppThemeMode.DARK) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 13.sp
+                            )
+                        },
+                        trailingIcon = {
+                            if (themeMode == AppThemeMode.DARK) {
+                                Icon(Icons.Filled.Check, contentDescription = null, tint = colors.purple, modifier = Modifier.size(16.dp))
+                            }
+                        },
+                        onClick = {
+                            onThemeModeChange(AppThemeMode.DARK)
+                            isThemeDropdownExpanded = false
+                        }
+                    )
                 }
             }
 
-            // Card 2: Keep Screen Awake
+            // Keep Screen Awake Tile
             Surface(
                 modifier = Modifier
                     .weight(1f)
-                    .height(82.dp)
+                    .height(52.dp)
                     .fluidBounceClick(scaleDown = 0.93f) {
                         onKeepScreenAwakeChange(!keepScreenAwake)
                     },
                 shape = FluidShapes.card,
-                color = colors.surfaceAlt,
+                color = if (keepScreenAwake) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt,
                 border = BorderStroke(
                     1.dp,
                     if (keepScreenAwake) colors.purple.copy(alpha = 0.4f) else colors.divider.copy(alpha = 0.5f)
                 )
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                    Icon(
+                        Icons.Filled.ScreenLockLandscape,
+                        contentDescription = "Keep Screen Awake",
+                        tint = if (keepScreenAwake) colors.purple else colors.textSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    if (keepScreenAwake) {
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .size(6.dp)
                                 .clip(CircleShape)
-                                .background(
-                                    if (keepScreenAwake) colors.purple.copy(alpha = 0.18f)
-                                    else colors.textSecondary.copy(alpha = 0.12f)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Filled.ScreenLockLandscape,
-                                null,
-                                tint = if (keepScreenAwake) colors.purple else colors.textSecondary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(if (keepScreenAwake) CavgoGreen else colors.textSecondary.copy(alpha = 0.3f))
+                                .background(CavgoGreen)
                         )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Keep Awake", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-                        Text(if (keepScreenAwake) "On" else "Off", fontSize = 11.sp, color = if (keepScreenAwake) colors.purple else colors.textSecondary)
                     }
                 }
             }
         }
 
+        // ── Row 2: Picture-in-Picture + Trip History ─────────────────────────
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Card 3: Picture-in-Picture
+            // Picture-in-Picture Tile
             Surface(
                 modifier = Modifier
                     .weight(1f)
-                    .height(82.dp)
+                    .height(52.dp)
                     .fluidBounceClick(scaleDown = 0.93f) {
                         onPipEnabledChange(!isPipEnabled)
                     },
                 shape = FluidShapes.card,
-                color = colors.surfaceAlt,
+                color = if (isPipEnabled) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt,
                 border = BorderStroke(
                     1.dp,
                     if (isPipEnabled) colors.purple.copy(alpha = 0.4f) else colors.divider.copy(alpha = 0.5f)
                 )
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                    Icon(
+                        Icons.Filled.PictureInPicture,
+                        contentDescription = "Picture-in-Picture",
+                        tint = if (isPipEnabled) colors.purple else colors.textSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    if (isPipEnabled) {
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .size(6.dp)
                                 .clip(CircleShape)
-                                .background(
-                                    if (isPipEnabled) colors.purple.copy(alpha = 0.18f)
-                                    else colors.textSecondary.copy(alpha = 0.12f)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Filled.PictureInPicture,
-                                null,
-                                tint = if (isPipEnabled) colors.purple else colors.textSecondary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(if (isPipEnabled) CavgoGreen else colors.textSecondary.copy(alpha = 0.3f))
+                                .background(CavgoGreen)
                         )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("PiP Window", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-                        Text(if (isPipEnabled) "On" else "Off", fontSize = 11.sp, color = if (isPipEnabled) colors.purple else colors.textSecondary)
                     }
                 }
             }
 
-            // Card 4: Trip History
+            // Trip History Tile
             Surface(
                 modifier = Modifier
                     .weight(1f)
-                    .height(82.dp)
+                    .height(52.dp)
                     .fluidBounceClick(scaleDown = 0.93f) {
                         onCompletedTripsClick()
                     },
@@ -1322,40 +1324,32 @@ private fun ProfileSheetContent(
                 color = colors.surfaceAlt,
                 border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                    Icon(
+                        Icons.Filled.History,
+                        contentDescription = "Trip History",
+                        tint = colors.purple,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    if (completedTrips.isNotEmpty()) {
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .align(Alignment.TopEnd)
+                                .padding(6.dp)
                                 .clip(CircleShape)
-                                .background(colors.purple.copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center
+                                .background(colors.purple)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
                         ) {
-                            Icon(Icons.Filled.History, null, tint = colors.purple, modifier = Modifier.size(16.dp))
+                            Text(
+                                "${completedTrips.size}",
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
-                        Icon(Icons.Filled.ChevronRight, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Trip History", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-                        Text(
-                            if (completedTrips.isNotEmpty()) "${completedTrips.size}" else "0",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.purple
-                        )
                     }
                 }
             }
@@ -1363,27 +1357,31 @@ private fun ProfileSheetContent(
 
         Spacer(Modifier.weight(1f, fill = false))
 
-        // ── 2. Last Row: Driver Profile & Logout Button ───────────────────────
+        // ── Row 3: Driver Profile (Avatar + Name only, no phone) + Logout ────
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Driver Profile info
+            // Driver Profile info (Avatar + Name only)
             Surface(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp),
                 shape = FluidShapes.card,
                 color = colors.surfaceAlt,
                 border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val avatarUrl = profile.avatarUrl
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
                             .background(colors.purple.copy(alpha = 0.14f)),
                         contentAlignment = Alignment.Center
@@ -1395,57 +1393,40 @@ private fun ProfileSheetContent(
                                 profile.name.firstOrNull()?.uppercase() ?: "D",
                                 color = colors.purple,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
+                                fontSize = 14.sp
                             )
                         }
                     }
                     Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            profile.name,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = colors.textPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            profile.phone.ifBlank { profile.email },
-                            fontSize = 12.sp,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    Text(
+                        profile.name,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 
             // Logout Button
             Surface(
                 modifier = Modifier
-                    .height(58.dp)
+                    .size(52.dp)
                     .fluidBounceClick(scaleDown = 0.90f, onClick = onLogout),
                 shape = FluidShapes.card,
                 color = colors.red.copy(alpha = 0.12f),
                 border = BorderStroke(1.dp, colors.red.copy(alpha = 0.35f))
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Logout,
                         contentDescription = "Log Out",
                         tint = colors.red,
                         modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "Logout",
-                        color = colors.red,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
                     )
                 }
             }
