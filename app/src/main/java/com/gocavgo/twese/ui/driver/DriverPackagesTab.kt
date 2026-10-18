@@ -56,12 +56,17 @@ import com.gocavgo.twese.ui.common.AcrylicGlassSurface
 import com.gocavgo.twese.ui.common.FluidShapes
 import com.gocavgo.twese.ui.common.adaptiveHorizontalPadding
 import com.gocavgo.twese.ui.common.fluidBounceClick
+import com.gocavgo.twese.ui.common.FrostedFloatingIconButton
 import com.gocavgo.twese.ui.theme.LocalDriversColors
 import com.gocavgo.twese.viewmodel.TripViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DriverPackagesTab(viewModel: TripViewModel) {
+fun DriverPackagesTab(
+    viewModel: TripViewModel,
+    onNoticesClick: () -> Unit = {},
+    noticeCount: Int = 0
+) {
     val state by viewModel.state.collectAsState()
     val colors = LocalDriversColors.current
     LaunchedEffect(Unit) { viewModel.loadDriverPackages() }
@@ -210,37 +215,11 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                     )
                 }
 
-                // ── One UI Hero Title Banner (Top 35% viewing area, collapsible) ──
-                AnimatedVisibility(
-                    visible = !isSearchExpanded && !isSelection,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 68.dp, end = 68.dp, top = 2.dp, bottom = 6.dp)
-                    ) {
-                        Text(
-                            text = "Packages",
-                            fontSize = 26.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.textPrimary,
-                            letterSpacing = (-0.5).sp
-                        )
-                        Text(
-                            text = "${filteredCurrent.size} on board • ${incomingItems.size} incoming",
-                            fontSize = 13.sp,
-                            color = colors.textSecondary
-                        )
-                    }
-                }
-
-                // ── Header Control: Search bar or 2-Segment Tab Bar ───────────
+                // ── Header Control: Search + 2-Segment Tab Bar + Notification Bell (Same line & height) ──
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
+                        .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 6.dp)
                         .animateContentSize(tween(220)),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -248,7 +227,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { viewModel.updateDriverPackageSearch(it) },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).height(44.dp),
                             placeholder = { Text("Search by code, destination...", fontSize = 14.sp) },
                             leadingIcon = {
                                 Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
@@ -276,7 +255,22 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                             textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
                         )
                         Spacer(Modifier.width(8.dp))
-                        Spacer(Modifier.width(42.dp)) // Reserve space for floating bell
+                        // Notification bell button (SAME HEIGHT 44.dp!)
+                        FrostedFloatingIconButton(
+                            onClick = onNoticesClick,
+                            shape = FluidShapes.button,
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            BadgedBox(badge = {
+                                if (noticeCount > 0) {
+                                    Badge(containerColor = colors.purple, contentColor = Color.White) {
+                                        Text("$noticeCount", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }) {
+                                Icon(Icons.Filled.Notifications, contentDescription = "Notifications", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                            }
+                        }
                     } else {
                         // Search icon button
                         val searchInteractionSource = remember { MutableInteractionSource() }
@@ -295,7 +289,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                             }
                         }
 
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(8.dp))
 
                         // ── Modern 2-Segment Control (On Board vs Incoming) ─
                         AcrylicGlassSurface(
@@ -389,7 +383,23 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                         }
 
                         Spacer(Modifier.width(8.dp))
-                        Spacer(Modifier.width(42.dp)) // Reserve space for floating bell
+
+                        // Notification bell button (SAME HEIGHT 44.dp!)
+                        FrostedFloatingIconButton(
+                            onClick = onNoticesClick,
+                            shape = FluidShapes.button,
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            BadgedBox(badge = {
+                                if (noticeCount > 0) {
+                                    Badge(containerColor = colors.purple, contentColor = Color.White) {
+                                        Text("$noticeCount", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }) {
+                                Icon(Icons.Filled.Notifications, contentDescription = "Notifications", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                            }
+                        }
                     }
                 }
 

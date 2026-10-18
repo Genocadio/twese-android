@@ -102,18 +102,23 @@ fun DriverHomeScreen(
                 Modifier.fillMaxSize()
             }
             Box(modifier = contentMod) {
-                DriverPackagesTab(viewModel = viewModel)
+                DriverPackagesTab(
+                    viewModel = viewModel,
+                    onNoticesClick = onNoticesClick,
+                    noticeCount = noticeCount
+                )
             }
         }
 
-        // ── Top-Start: Driver Profile Avatar Button (Frosted floating) ──────
+        // ── Bottom-Start: Driver Profile Avatar Button (Frosted floating) ────
         FrostedFloatingIconButton(
             onClick = onProfileMenuClick,
             shape = FluidShapes.pill,
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(top = 2.dp, start = 16.dp)
+                .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .padding(start = 16.dp, bottom = 16.dp)
+                .size(52.dp)
         ) {
             val avatarUrl = profile.avatarUrl
             if (!avatarUrl.isNullOrBlank()) {
@@ -127,32 +132,7 @@ fun DriverHomeScreen(
                     profile.name.firstOrNull()?.uppercase() ?: "D",
                     color = colors.purple,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-            }
-        }
-
-        // ── Top-End: Notification Bell Button (Frosted floating) ───────────
-        FrostedFloatingIconButton(
-            onClick = onNoticesClick,
-            shape = FluidShapes.pill,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 2.dp, end = 16.dp)
-        ) {
-            BadgedBox(badge = {
-                if (noticeCount > 0) {
-                    Badge(containerColor = colors.purple, contentColor = Color.White) {
-                        Text("$noticeCount", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }) {
-                Icon(
-                    Icons.Filled.Notifications,
-                    contentDescription = "Notifications",
-                    tint = colors.textPrimary,
-                    modifier = Modifier.size(20.dp)
+                    fontSize = 18.sp
                 )
             }
         }
@@ -207,13 +187,13 @@ fun DriverHomeScreen(
             )
         }
 
-        // Profile quick menu dropdown (expands from top-start avatar)
+        // Profile quick menu dropdown (expands upwards from bottom-start avatar)
         AnimatedVisibility(
             visible = isDriverProfileMenuOpen,
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = 16.dp, top = 56.dp),
+                .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .padding(start = 16.dp, bottom = 78.dp),
             enter = expandVertically(tween(250, easing = FastOutSlowInEasing)) + fadeIn(tween(250)),
             exit = shrinkVertically(tween(200)) + fadeOut(tween(200))
         ) {
@@ -227,13 +207,13 @@ fun DriverHomeScreen(
             )
         }
 
-        // Settings dropdown
+        // Settings dropdown (expands upwards from bottom-start avatar)
         AnimatedVisibility(
             visible = isDriverSettingsOpen,
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = 16.dp, top = 56.dp),
+                .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .padding(start = 16.dp, bottom = 78.dp),
             enter = expandVertically(tween(250, easing = FastOutSlowInEasing)) + fadeIn(tween(250)),
             exit = shrinkVertically(tween(200)) + fadeOut(tween(200))
         ) {

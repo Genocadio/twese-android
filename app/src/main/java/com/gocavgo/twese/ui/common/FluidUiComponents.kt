@@ -168,7 +168,7 @@ fun FrostedFloatingIconButton(
         modifier = modifier.fluidBounceClick(scaleDown = 0.90f, interactionSource = interactionSource)
     ) {
         Box(
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp),
             contentAlignment = Alignment.Center
         ) {
             icon()
