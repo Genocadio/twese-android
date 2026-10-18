@@ -611,7 +611,28 @@ fun DriverHomeScreen(
         }
 
         if (state.isPackageDetailSheetOpen && selectedPkg != null) {
-            PackageDetailSheet(pkg = selectedPkg, onDismiss = { viewModel.closePackageDetail() })
+            PackageDetailSheet(
+                pkg = selectedPkg,
+                onDismiss = { viewModel.closePackageDetail() },
+                onDeliver = {
+                    val id = selectedPkg.id
+                    viewModel.closePackageDetail()
+                    viewModel.openDeliverDialog(id)
+                },
+                onTransfer = {
+                    val id = selectedPkg.id
+                    viewModel.closePackageDetail()
+                    viewModel.openTransferDialog(id)
+                },
+                onPickup = {
+                    viewModel.pickupPackage(selectedPkg.id)
+                },
+                onCancelTransfer = { pkgId, tId ->
+                    viewModel.cancelTransferOffer(pkgId, tId)
+                },
+                isCancellingTransfer = state.isCancellingTransfer,
+                isPickingUp = state.pickingUpPackageId == selectedPkg.id
+            )
         }
 
         // ── Batch Transfer Dialog (selection mode) ────────────────────────

@@ -21,6 +21,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.PackageStatus
+import com.gocavgo.twese.data.hasOpenTransfer
 import com.gocavgo.twese.ui.common.FullScreenMediaViewer
 import com.gocavgo.twese.ui.common.MediaCarousel
 import com.gocavgo.twese.ui.common.SmartTimeText
@@ -32,7 +33,16 @@ import androidx.compose.ui.text.font.FontWeight
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PackageDetailSheet(pkg: ClientPackage, onDismiss: () -> Unit) {
+fun PackageDetailSheet(
+    pkg: ClientPackage,
+    onDismiss: () -> Unit,
+    onDeliver: (() -> Unit)? = null,
+    onTransfer: (() -> Unit)? = null,
+    onPickup: (() -> Unit)? = null,
+    onCancelTransfer: ((String, String) -> Unit)? = null,
+    isCancellingTransfer: Boolean = false,
+    isPickingUp: Boolean = false
+) {
     val colors     = LocalDriversColors.current
     val sheetState = rememberModalBottomSheetState()
 
@@ -185,6 +195,118 @@ fun PackageDetailSheet(pkg: ClientPackage, onDismiss: () -> Unit) {
                             if (update.location.isNotBlank()) {
                                 Text(" • ${update.location}",
                                     color = colors.textSecondary, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Action dock ──
+        if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED) {
+            HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 12.dp))
+
+            val isPendingConfirmation = pkg.status == PackageStatus.PENDING_CONFIRMATION
+            val needsPickup = pkg.backendStatus in listOf("ASSIGNED_DRIVER", "ORIGIN_OFFICE")
+            val isTransferOpen = pkg.hasOpenTransfer
+
+            when {
+                needsPickup && onPickup != null -> {
+                    Button(
+                        onClick = { if (!isPickingUp) onPickup() },
+                        enabled = !isPickingUp,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+                    ) {
+                        if (isPickingUp) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Picking up...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Pick Up Package", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                isTransferOpen -> {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = colors.blue.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.HourglassTop, null, tint = colors.blue, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "Transfer active — awaiting counterparty pickup",
+                                    color = colors.blue, fontSize = 12.sp, fontWeight = FontWeight.Medium
+                                )
+                            }
+                            if (pkg.transferId != null && onCancelTransfer != null) {
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { onCancelTransfer(pkg.id, pkg.transferId) },
+                                    enabled = !isCancellingTransfer,
+                                    modifier = Modifier.fillMaxWidth().height(38.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, colors.red.copy(alpha = 0.5f))
+                                ) {
+                                    if (isCancellingTransfer) {
+                                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = colors.red, strokeWidth = 2.dp)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Cancelling...", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.red)
+                                    } else {
+                                        Icon(Icons.Filled.Close, null, modifier = Modifier.size(14.dp), tint = colors.red)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Cancel Transfer Offer (Recall)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.red)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                onDeliver != null -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = onDeliver,
+                            modifier = Modifier.weight(1.3f).height(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isPendingConfirmation) colors.blue else colors.green
+                            )
+                        ) {
+                            Icon(
+                                if (isPendingConfirmation) Icons.Filled.Lock else Icons.Filled.Check,
+                                null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (isPendingConfirmation) "Enter Code" else "Deliver",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (!isPendingConfirmation && onTransfer != null) {
+                            OutlinedButton(
+                                onClick = onTransfer,
+                                modifier = Modifier.weight(1f).height(44.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, colors.divider)
+                            ) {
+                                Icon(Icons.Filled.MoveToInbox, null, modifier = Modifier.size(16.dp), tint = colors.amber)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Transfer", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
                             }
                         }
                     }

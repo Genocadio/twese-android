@@ -1634,6 +1634,7 @@ class TripViewModel : ViewModel() {
         val id = s.selectedDriverPackageId ?: return null
         return s.driverCurrentPackages.find { it.id == id || it.packageUuid == id }
             ?: s.driverAvailableOffers.find { it.id == id || it.packageUuid == id }
+            ?: s.driverIncomingTransfers.flatMap { it.packages }.find { it.id == id || it.packageUuid == id }
     }
 
     // ── Client Methods ────────────────────────────────────────────────────────

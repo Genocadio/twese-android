@@ -1,30 +1,28 @@
 package com.gocavgo.twese.ui.driver
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,41 +33,23 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
-import androidx.compose.ui.graphics.PathEffect
 import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.PackageStatus
 import com.gocavgo.twese.data.hasOpenTransfer
-import com.gocavgo.twese.data.hasUnreadNotices
 import com.gocavgo.twese.data.sortedByUnreadNotices
-import com.gocavgo.twese.ui.common.FullScreenMediaViewer
-import com.gocavgo.twese.ui.common.MediaCarousel
 import com.gocavgo.twese.ui.common.adaptiveHorizontalPadding
-import com.gocavgo.twese.ui.common.formatTime
 import com.gocavgo.twese.ui.theme.LocalDriversColors
 import com.gocavgo.twese.viewmodel.TripViewModel
 
@@ -80,47 +60,81 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
     val colors = LocalDriversColors.current
     LaunchedEffect(Unit) { viewModel.loadDriverPackages() }
 
-    val subTab              = state.driverPackageSubTab
-    val searchQuery         = state.driverPackageSearchQuery
-    val isRefreshing        = state.isRefreshingPackages
+    val subTab = state.driverPackageSubTab.coerceIn(0, 1)
+    val searchQuery = state.driverPackageSearchQuery
+    val isRefreshing = state.isRefreshingPackages
     val isDriverInitLoading = state.isDriverInitialLoading
-    val isSelection         = state.isSelectionMode
-    val selectedIds         = state.selectedPackageIds    // Exclude packages that are incoming transfers (from office) not yet accepted —
-    // these belong in the Transfers tab, not Active.
-    // Also exclude packages assigned by office but not yet picked up (ORIGIN_OFFICE / ASSIGNED_DRIVER).
-    val incomingPackageUuids = state.driverIncomingTransfers
-        .flatMap { it.packages.map { pkg -> pkg.packageUuid } }.toSet()
-    val NOT_PICKED_UP_BACKEND_STATUSES = setOf("ORIGIN_OFFICE", "ASSIGNED_DRIVER")
+    val isSelection = state.isSelectionMode
+    val selectedIds = state.selectedPackageIds
 
-    // Packages assigned by office but driver hasn't picked up yet → Transfers tab
+    val incomingPackageUuids = remember(state.driverIncomingTransfers) {
+        state.driverIncomingTransfers.flatMap { it.packages.map { pkg -> pkg.packageUuid } }.toSet()
+    }
+    val NOT_PICKED_UP_BACKEND_STATUSES = remember { setOf("ORIGIN_OFFICE", "ASSIGNED_DRIVER") }
+
+    // Packages assigned by office but driver hasn't picked up yet
     val assignedToDriverPackages = state.driverCurrentPackages.filter {
         it.backendStatus in NOT_PICKED_UP_BACKEND_STATUSES
     }
 
+    // Packages currently on board the vehicle
     val filteredCurrent = state.driverCurrentPackages.filter {
         it.packageUuid !in incomingPackageUuids &&
         it.backendStatus !in NOT_PICKED_UP_BACKEND_STATUSES &&
         (searchQuery.isBlank() || it.id.contains(searchQuery, true) ||
         it.description.contains(searchQuery, true) || it.toAddress.contains(searchQuery, true) || it.fromAddress.contains(searchQuery, true))
     }.let { list ->
-        // Sort: in-progress (needs action) first, pending-confirmation / awaiting acceptance
-        // in the middle, delivered/cancelled last
         val inProgress = list.filter { it.status != PackageStatus.DELIVERED && it.status != PackageStatus.CANCELLED && it.status != PackageStatus.PENDING_CONFIRMATION && !it.hasOpenTransfer }
         val pendingAction = list.filter { it.status == PackageStatus.PENDING_CONFIRMATION || it.hasOpenTransfer }
         val done = list.filter { it.status == PackageStatus.DELIVERED || it.status == PackageStatus.CANCELLED }
         inProgress.sortedByUnreadNotices(state.notices) + pendingAction + done
     }
-    val filteredOffers = state.driverAvailableOffers.filter {
-        searchQuery.isBlank() || it.id.contains(searchQuery, true) ||
-        it.description.contains(searchQuery, true) ||
-        it.toAddress.contains(searchQuery, true) || it.fromAddress.contains(searchQuery, true)
-    }
+
     val driverUserId = state.authUser?.id
-    // Only show packages that have a real transfer offer — packages without a transferId
-    // are not offers and should not appear in this list.
-    val visibleOffers = filteredOffers.filter { pkg ->
+    val visibleOffers = state.driverAvailableOffers.filter { pkg ->
         val alreadyCustodian = driverUserId != null && pkg.custodians.any { it.userId == driverUserId }
         pkg.transferId != null && !alreadyCustodian && pkg.transferStatus != "REQUESTED"
+    }
+
+    val filteredTransfers = state.driverIncomingTransfers
+
+    // ── Unified Incoming Items (Assigned + Transfers + Offers) ─────────────
+    val incomingItems: List<IncomingPackageItem> = remember(
+        assignedToDriverPackages,
+        filteredTransfers,
+        visibleOffers,
+        incomingPackageUuids,
+        searchQuery
+    ) {
+        val list = mutableListOf<IncomingPackageItem>()
+
+        // 1. Direct Office Assignments (highest priority to pick up)
+        assignedToDriverPackages.forEach { pkg ->
+            list.add(IncomingPackageItem.Assigned(pkg))
+        }
+
+        // 2. Incoming Worker/Driver Transfers
+        filteredTransfers.forEach { matched ->
+            matched.packages.forEach { pkg ->
+                list.add(IncomingPackageItem.Transfer(pkg, matched.transferId, matched.ruleType))
+            }
+        }
+
+        // 3. Open Broadcast Offers
+        visibleOffers.filter { it.packageUuid !in incomingPackageUuids }.forEach { pkg ->
+            list.add(IncomingPackageItem.Offer(pkg, pkg.transferId ?: "", pkg.transferRuleType ?: "AUTO"))
+        }
+
+        if (searchQuery.isBlank()) {
+            list
+        } else {
+            list.filter { item ->
+                item.pkg.id.contains(searchQuery, true) ||
+                item.pkg.description.contains(searchQuery, true) ||
+                item.pkg.toAddress.contains(searchQuery, true) ||
+                item.pkg.fromAddress.contains(searchQuery, true)
+            }
+        }
     }
 
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
@@ -131,9 +145,6 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
         else -> GridCells.Fixed(1)
     }
 
-    // Combined transfers: explicit incoming transfers + packages assigned by office not yet picked up
-    val filteredTransfers = state.driverIncomingTransfers
-
     val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
     val shimmerAlpha by infiniteTransition.animateFloat(
         initialValue = 0.3f, targetValue = 0.6f,
@@ -143,7 +154,8 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
 
     var isSearchExpanded by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    val pagerState = rememberPagerState(pageCount = { 2 })
+
     // Sync pager → subTab
     LaunchedEffect(pagerState.currentPage) {
         if (subTab != pagerState.currentPage) {
@@ -151,35 +163,16 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         }
     }
-    // Sync subTab → pager (for tab button clicks)
+    // Sync subTab → pager
     LaunchedEffect(subTab) {
         if (pagerState.currentPage != subTab) {
             pagerState.animateScrollToPage(subTab)
         }
     }
 
-    // Exit selection mode if switching away from current tab
+    // Exit selection mode if switching away from On Board tab
     LaunchedEffect(subTab) {
         if (subTab != 0 && isSelection) viewModel.exitSelectionMode()
-    }
-
-    // Block horizontal swipe while pull-to-refresh is active
-    var isVerticalScrolling by remember { mutableStateOf(false) }
-    val noHorizontalDuringRefresh = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y != 0f) {
-                    isVerticalScrolling = true
-                }
-                return Offset.Zero
-            }
-            override fun onPostScroll(available: Offset, consumed: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y == 0f && consumed.y == 0f) {
-                    isVerticalScrolling = false
-                }
-                return Offset.Zero
-            }
-        }
     }
 
     var isPullRefreshing by remember { mutableStateOf(false) }
@@ -198,10 +191,9 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
         modifier = Modifier.fillMaxSize()
     ) {
         Box(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-
             Column(modifier = Modifier.fillMaxSize()) {
 
-                // ── Selection mode compact bar (shown above search when selecting) ─
+                // ── Selection mode compact bar ──────────────────────────────
                 if (isSelection) {
                     SelectionChipRow(
                         selectedCount = selectedIds.size,
@@ -209,31 +201,35 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                     )
                 }
 
-                // ── Row: search bar (expanded) or sub-tabs + search icon (collapsed) ──
-                // animateContentSize smooths the 42dp→56dp height change when the
-                // bar expands, instead of snapping the row (and the list) down.
+                // ── Header Control: Search bar or 2-Segment Tab Bar ───────────
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).animateContentSize(tween(220)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .animateContentSize(tween(220)),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (isSearchExpanded) {
-                        // Expanded search bar — constrained by weight so it leaves room for the bell.
-                        // No vertical padding: the field's top edge stays aligned with the icon row.
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { viewModel.updateDriverPackageSearch(it) },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("Search package code...", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp)) },
+                            placeholder = { Text("Search by code, destination...", fontSize = 13.sp) },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                            },
                             trailingIcon = {
-                                IconButton(onClick = {
-                                    viewModel.updateDriverPackageSearch("")
-                                    isSearchExpanded = false
-                                }, modifier = Modifier.size(24.dp)) {
+                                IconButton(
+                                    onClick = {
+                                        viewModel.updateDriverPackageSearch("")
+                                        isSearchExpanded = false
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
                                     Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
                                 }
                             },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 unfocusedBorderColor = colors.divider,
@@ -244,14 +240,13 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                             ),
                             textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
                         )
-                        // Reserve space for the floating bell so the search bar doesn't extend behind it
                         Spacer(Modifier.width(8.dp))
-                        Spacer(Modifier.width(42.dp))
+                        Spacer(Modifier.width(42.dp)) // Reserve space for floating bell
                     } else {
-                        // Search icon button (left side)
+                        // Search icon button
                         Surface(
-                            modifier = Modifier.size(42.dp),
-                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.size(44.dp),
+                            shape = RoundedCornerShape(14.dp),
                             color = colors.surfaceAlt,
                             border = BorderStroke(1.dp, colors.divider),
                             onClick = { isSearchExpanded = true }
@@ -260,77 +255,135 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                 Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
                             }
                         }
-                        Spacer(Modifier.width(8.dp))
-                        Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            val tabIcons = listOf(
-                                0 to Icons.Filled.LocalShipping,
-                                1 to Icons.Filled.NewReleases,
-                                2 to Icons.AutoMirrored.Filled.CompareArrows
-                            )
-                            tabIcons.forEach { (index, icon) ->
-                                val selected = subTab == index
-                                val count    = when (index) {
-                                    0 -> filteredCurrent.size
-                                    1 -> visibleOffers.size
-                                    else -> filteredTransfers.size + assignedToDriverPackages.size
-                                }
-                                val disabled  = isSelection && index != 0
-                                Surface(
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (selected) colors.blue else colors.surfaceAlt,
-                                    border = if (selected) null else BorderStroke(1.dp, colors.divider),
-                                    onClick = { if (!disabled) viewModel.setDriverPackageSubTab(index) }
-                                ) {
-                                    Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                                        Icon(icon, null, modifier = Modifier.size(16.dp), tint = if (selected) Color.White else if (disabled) colors.textSecondary.copy(alpha = 0.5f) else colors.textSecondary)
-                                        Spacer(Modifier.width(6.dp))
-                                        Box(
-                                            modifier = Modifier.widthIn(min = 20.dp).heightIn(min = 20.dp).clip(CircleShape)
-                                                .background(if (selected) Color.White.copy(alpha = 0.25f) else if (disabled) colors.divider.copy(alpha = 0.3f) else colors.divider)
-                                                .padding(horizontal = 5.dp, vertical = 2.dp),
-                                            contentAlignment = Alignment.Center
+
+                        Spacer(Modifier.width(10.dp))
+
+                        // ── Modern 2-Segment Control (On Board vs Incoming) ─
+                        Surface(
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            color = colors.surfaceAlt,
+                            border = BorderStroke(1.dp, colors.divider)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize().padding(3.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                val tabs = listOf(
+                                    0 to ("On Board" to filteredCurrent.size),
+                                    1 to ("Incoming" to incomingItems.size)
+                                )
+
+                                tabs.forEach { (index, pair) ->
+                                    val (label, count) = pair
+                                    val isSelected = subTab == index
+                                    val disabled = isSelection && index != 0
+
+                                    val bgColor by animateColorAsState(
+                                        if (isSelected) colors.surface else Color.Transparent,
+                                        tween(200),
+                                        label = "segmentBg"
+                                    )
+                                    val contentColor by animateColorAsState(
+                                        if (isSelected) colors.textPrimary else colors.textSecondary,
+                                        tween(200),
+                                        label = "segmentText"
+                                    )
+
+                                    Surface(
+                                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                                        shape = RoundedCornerShape(11.dp),
+                                        color = bgColor,
+                                        border = if (isSelected) BorderStroke(1.dp, colors.divider.copy(alpha = 0.8f)) else null,
+                                        shadowElevation = if (isSelected) 2.dp else 0.dp,
+                                        onClick = {
+                                            if (!disabled) viewModel.setDriverPackageSubTab(index)
+                                        }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
                                         ) {
-                                            Text("$count", color = if (selected) Color.White else if (disabled) colors.textSecondary.copy(alpha = 0.3f) else colors.textSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                            Text(
+                                                text = label,
+                                                color = contentColor,
+                                                fontSize = 13.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+
+                                            // Count badge
+                                            val badgeBg = if (isSelected) colors.blue else colors.divider
+                                            val badgeText = if (isSelected) Color.White else colors.textSecondary
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .background(badgeBg)
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "$count",
+                                                    color = badgeText,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                        // Right-side spacer to reserve room for the floating bell
+
                         Spacer(Modifier.width(8.dp))
-                        Spacer(Modifier.width(42.dp))
+                        Spacer(Modifier.width(42.dp)) // Reserve space for floating bell
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
 
-                // ── Tab content ─────────────────────────────────────────────────
+                // ── Tab Content Pager (2 pages) ──────────────────────────────
                 HorizontalPager(
                     state = pagerState,
-                    modifier = Modifier.fillMaxSize().nestedScroll(noHorizontalDuringRefresh)
-                ) { tab ->
-                        val listState = remember { LazyListState() }
-                        
-                        // Search collapse handled by search bar toggle
-                        
-                        when (tab) {                            0 -> {
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    val listState = remember { LazyListState() }
+
+                    when (page) {
+                        0 -> {
+                            // ── PAGE 0: ON BOARD (ACTIVE PACKAGES) ───────────
                             if (isDriverInitLoading && filteredCurrent.isEmpty() && !isSelection) {
                                 ShimmerList(shimmerAlpha)
                             } else if (filteredCurrent.isEmpty()) {
-                                EmptyPackagesState("No current packages", "Packages assigned to you will appear here")
+                                EmptyPackagesState(
+                                    title = "No packages on board",
+                                    subtitle = "Packages you pick up or load will appear here"
+                                )
                             } else if (isWide) {
                                 LazyVerticalGrid(
                                     columns = gridCols,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = adaptiveHorizontalPadding(), end = adaptiveHorizontalPadding(), top = 4.dp, bottom = if (isSelection) 160.dp else 90.dp),
+                                    contentPadding = PaddingValues(
+                                        start = adaptiveHorizontalPadding(),
+                                        end = adaptiveHorizontalPadding(),
+                                        top = 4.dp,
+                                        bottom = if (isSelection) 160.dp else 90.dp
+                                    ),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     items(filteredCurrent, key = { it.id }) { pkg ->
-                                        val isReq = pkg.transferStatus == "REQUESTED"
                                         if (isSelection) {
-                                            SelectableCurrentPackageCard(pkg = pkg, isSelected = pkg.id in selectedIds, canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq, onToggle = { viewModel.togglePackageSelection(pkg.id) }, onDetail = { viewModel.openPackageDetail(pkg.id) })
+                                            val isReq = pkg.transferStatus == "REQUESTED"
+                                            SelectableCurrentPackageCard(
+                                                pkg = pkg,
+                                                isSelected = pkg.id in selectedIds,
+                                                canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq,
+                                                onToggle = { viewModel.togglePackageSelection(pkg.id) },
+                                                onDetail = { viewModel.openPackageDetail(pkg.id) }
+                                            )
                                         } else {
                                             DriverCurrentPackageCard(
                                                 pkg = pkg,
@@ -339,7 +392,11 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                                 onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
                                                 isCancellingTransfer = state.isCancellingTransfer,
                                                 onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                                onLongPress = { if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) { viewModel.startSelectionMode(pkg.id) } },
+                                                onLongPress = {
+                                                    if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) {
+                                                        viewModel.startSelectionMode(pkg.id)
+                                                    }
+                                                },
                                                 onPickup = { viewModel.pickupPackage(pkg.id) },
                                                 isPickingUp = state.pickingUpPackageId == pkg.id,
                                                 notices = state.notices
@@ -354,13 +411,24 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                 LazyColumn(
                                     state = listState,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = if (isSelection) 160.dp else 90.dp),
+                                    contentPadding = PaddingValues(
+                                        start = 16.dp,
+                                        end = 16.dp,
+                                        top = 4.dp,
+                                        bottom = if (isSelection) 160.dp else 90.dp
+                                    ),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     items(filteredCurrent, key = { it.id }) { pkg ->
-                                        val isReq = pkg.transferStatus == "REQUESTED"
                                         if (isSelection) {
-                                            SelectableCurrentPackageCard(pkg = pkg, isSelected = pkg.id in selectedIds, canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq, onToggle = { viewModel.togglePackageSelection(pkg.id) }, onDetail = { viewModel.openPackageDetail(pkg.id) })
+                                            val isReq = pkg.transferStatus == "REQUESTED"
+                                            SelectableCurrentPackageCard(
+                                                pkg = pkg,
+                                                isSelected = pkg.id in selectedIds,
+                                                canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq,
+                                                onToggle = { viewModel.togglePackageSelection(pkg.id) },
+                                                onDetail = { viewModel.openPackageDetail(pkg.id) }
+                                            )
                                         } else {
                                             DriverCurrentPackageCard(
                                                 pkg = pkg,
@@ -369,7 +437,11 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                                 onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
                                                 isCancellingTransfer = state.isCancellingTransfer,
                                                 onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                                onLongPress = { if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) { viewModel.startSelectionMode(pkg.id) } },
+                                                onLongPress = {
+                                                    if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) {
+                                                        viewModel.startSelectionMode(pkg.id)
+                                                    }
+                                                },
                                                 onPickup = { viewModel.pickupPackage(pkg.id) },
                                                 isPickingUp = state.pickingUpPackageId == pkg.id,
                                                 notices = state.notices
@@ -382,51 +454,86 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                 }
                             }
                         }
+
                         1 -> {
+                            // ── PAGE 1: INCOMING (OFFERS + TRANSFERS + ASSIGNED) ─
                             if (!state.driverHasVehicle) {
-                                EmptyPackagesState("Vehicle Required", "You must have an assigned vehicle to access package offers")
-                            } else if (isDriverInitLoading && filteredOffers.isEmpty()) {
+                                EmptyPackagesState(
+                                    title = "Vehicle Required",
+                                    subtitle = "You must have an assigned vehicle to access incoming packages"
+                                )
+                            } else if (isDriverInitLoading && incomingItems.isEmpty()) {
                                 ShimmerList(shimmerAlpha)
-                            } else if (visibleOffers.isEmpty()) {
+                            } else if (incomingItems.isEmpty()) {
                                 Column(modifier = Modifier.fillMaxSize()) {
                                     if (!state.hasActiveTrip) {
                                         NoActiveTripWarningBanner()
                                     }
-                                    EmptyPackagesState("No available offers", "New delivery offers will appear here")
+                                    EmptyPackagesState(
+                                        title = "No incoming packages",
+                                        subtitle = "Offers, transfers, and assignments will appear here"
+                                    )
                                 }
                             } else if (isWide) {
                                 LazyVerticalGrid(
                                     columns = gridCols,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = adaptiveHorizontalPadding(), end = adaptiveHorizontalPadding(), top = 4.dp, bottom = 90.dp),
+                                    contentPadding = PaddingValues(
+                                        start = adaptiveHorizontalPadding(),
+                                        end = adaptiveHorizontalPadding(),
+                                        top = 4.dp,
+                                        bottom = 90.dp
+                                    ),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     if (!state.hasActiveTrip) {
-                                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                        item(span = { GridItemSpan(maxLineSpan) }) {
                                             NoActiveTripWarningBanner()
                                         }
                                     }
-                                    items(visibleOffers, key = { it.id }) { pkg ->
-                                        val acceptInfo: Pair<(() -> Unit), String>? = pkg.transferId?.let { transferId ->
-                                            when (pkg.transferRuleType ?: "AUTO") {
-                                                "CONFIRM" -> ({ viewModel.openRequestTransferDialog(pkg.id, transferId) } to "Request Offer")
-                                                "SECURE" -> ({ viewModel.openAcceptTransferCodeDialog(pkg.id, transferId, "SECURE") } to "Accept Offer")
-                                                "AUTO" -> ({ viewModel.acceptAUTOTransfer(pkg.id, transferId) } to "Accept Offer")
-                                                else -> ({ viewModel.acceptAUTOTransfer(pkg.id, transferId) } to "Accept Offer")
+
+                                    items(incomingItems, key = {
+                                        when (it) {
+                                            is IncomingPackageItem.Assigned -> "assigned-${it.pkg.id}"
+                                            is IncomingPackageItem.Transfer -> "transfer-${it.transferId}-${it.pkg.id}"
+                                            is IncomingPackageItem.Offer -> "offer-${it.transferId}-${it.pkg.id}"
+                                        }
+                                    }) { item ->
+                                        val pkg = item.pkg
+                                        val acceptAction: () -> Unit = when (item) {
+                                            is IncomingPackageItem.Assigned -> {
+                                                { viewModel.pickupPackage(pkg.id) }
+                                            }
+                                            is IncomingPackageItem.Transfer -> {
+                                                when (item.ruleType) {
+                                                    "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
+                                                    "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
+                                                    else -> { { viewModel.acceptIncomingTransfer(item.transferId, pkg.id) } }
+                                                }
+                                            }
+                                            is IncomingPackageItem.Offer -> {
+                                                when (item.ruleType) {
+                                                    "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
+                                                    "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
+                                                    else -> { { viewModel.acceptAUTOTransfer(pkg.id, item.transferId) } }
+                                                }
                                             }
                                         }
-                                        val isThisAccepting = state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)
-                                        DriverOfferCard(
-                                            pkg = pkg,
-                                            onAccept = acceptInfo?.first,
-                                            acceptButtonLabel = acceptInfo?.second ?: "Accept Offer",
+
+                                        val isThisAccepting = (state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)) ||
+                                                (state.pickingUpPackageId == pkg.id)
+
+                                        DriverIncomingPackageCard(
+                                            item = item,
+                                            onAccept = acceptAction,
                                             onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                            isNew = pkg.id == state.newPackageFromSubscription?.id,
+                                            isAccepting = isThisAccepting,
                                             hasActiveTrip = state.hasActiveTrip,
-                                            isAccepting = isThisAccepting
+                                            isNew = pkg.id == state.newPackageFromSubscription?.id
                                         )
                                     }
+
                                     if (state.driverOffersHasMore && !state.isLoadingMorePackages && !isRefreshing) {
                                         item { LaunchedEffect(Unit) { viewModel.loadMoreDriverOffers() } }
                                     }
@@ -435,7 +542,12 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                 LazyColumn(
                                     state = listState,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 90.dp),
+                                    contentPadding = PaddingValues(
+                                        start = 16.dp,
+                                        end = 16.dp,
+                                        top = 4.dp,
+                                        bottom = 90.dp
+                                    ),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     if (!state.hasActiveTrip) {
@@ -443,81 +555,50 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                             NoActiveTripWarningBanner()
                                         }
                                     }
-                                    items(visibleOffers, key = { it.id }) { pkg ->
-                                        val acceptInfo: Pair<(() -> Unit), String>? = pkg.transferId?.let { transferId ->
-                                            when (pkg.transferRuleType ?: "AUTO") {
-                                                "CONFIRM" -> ({ viewModel.openRequestTransferDialog(pkg.id, transferId) } to "Request Offer")
-                                                "SECURE" -> ({ viewModel.openAcceptTransferCodeDialog(pkg.id, transferId, "SECURE") } to "Accept Offer")
-                                                "AUTO" -> ({ viewModel.acceptAUTOTransfer(pkg.id, transferId) } to "Accept Offer")
-                                                else -> ({ viewModel.acceptAUTOTransfer(pkg.id, transferId) } to "Accept Offer")
+
+                                    items(incomingItems, key = {
+                                        when (it) {
+                                            is IncomingPackageItem.Assigned -> "assigned-${it.pkg.id}"
+                                            is IncomingPackageItem.Transfer -> "transfer-${it.transferId}-${it.pkg.id}"
+                                            is IncomingPackageItem.Offer -> "offer-${it.transferId}-${it.pkg.id}"
+                                        }
+                                    }) { item ->
+                                        val pkg = item.pkg
+                                        val acceptAction: () -> Unit = when (item) {
+                                            is IncomingPackageItem.Assigned -> {
+                                                { viewModel.pickupPackage(pkg.id) }
+                                            }
+                                            is IncomingPackageItem.Transfer -> {
+                                                when (item.ruleType) {
+                                                    "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
+                                                    "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
+                                                    else -> { { viewModel.acceptIncomingTransfer(item.transferId, pkg.id) } }
+                                                }
+                                            }
+                                            is IncomingPackageItem.Offer -> {
+                                                when (item.ruleType) {
+                                                    "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
+                                                    "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
+                                                    else -> { { viewModel.acceptAUTOTransfer(pkg.id, item.transferId) } }
+                                                }
                                             }
                                         }
-                                        val isThisAccepting = state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)
-                                        DriverOfferCard(
-                                            pkg = pkg,
-                                            onAccept = acceptInfo?.first,
-                                            acceptButtonLabel = acceptInfo?.second ?: "Accept Offer",
+
+                                        val isThisAccepting = (state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)) ||
+                                                (state.pickingUpPackageId == pkg.id)
+
+                                        DriverIncomingPackageCard(
+                                            item = item,
+                                            onAccept = acceptAction,
                                             onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                            isNew = pkg.id == state.newPackageFromSubscription?.id,
+                                            isAccepting = isThisAccepting,
                                             hasActiveTrip = state.hasActiveTrip,
-                                            isAccepting = isThisAccepting
+                                            isNew = pkg.id == state.newPackageFromSubscription?.id
                                         )
                                     }
+
                                     if (state.driverOffersHasMore && !state.isLoadingMorePackages && !isRefreshing) {
                                         item { LaunchedEffect(Unit) { viewModel.loadMoreDriverOffers() } }
-                                    }
-                                }
-                            }
-                        }
-                        2 -> {
-                            // ── Transfers Tab: packages assigned by office (not yet picked up) + explicit incoming transfers ──
-                            val hasTransfers = filteredTransfers.isNotEmpty()
-                            val hasAssigned = assignedToDriverPackages.isNotEmpty()
-                            val hasAny = hasTransfers || hasAssigned
-                            if (state.isLoadingTransfers && !hasAny) {
-                                ShimmerList(shimmerAlpha)
-                            } else if (!hasAny) {
-                                EmptyPackagesState("No incoming packages", "Packages transferred to you will appear here")
-                            } else {
-                                LazyColumn(
-                                    state = remember { LazyListState() },
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 90.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    // ── Assigned by office, not yet picked up ──
-                                    if (hasAssigned) {
-                                        items(assignedToDriverPackages, key = { "assigned-${it.id}" }) { pkg ->
-                                            DriverAssignedCard(
-                                                pkg = pkg,
-                                                onPickup = { viewModel.pickupPackage(pkg.id) },
-                                                onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                                onTransfer = { viewModel.openTransferDialog(pkg.id) },
-                                                isPickingUp = state.pickingUpPackageId == pkg.id,
-                                                notices = state.notices
-                                            )
-                                        }
-                                    }
-                                    // ── Explicit incoming transfers from workers ──
-                                    if (hasTransfers) {
-                                        items(filteredTransfers, key = { it.transferId }) { matched ->
-                                            matched.packages.forEach { pkg ->
-                                                val acceptAction: () -> Unit = when (matched.ruleType) {
-                                                    "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, matched.transferId, "SECURE") } }
-                                                    "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, matched.transferId) } }
-                                                    else -> { { viewModel.acceptIncomingTransfer(matched.transferId, pkg.id) } }
-                                                }
-                                                val isThisAccepting = state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)
-                                                DriverTransferCard(
-                                                    pkg = pkg,
-                                                    transferId = matched.transferId,
-                                                    ruleType = matched.ruleType,
-                                                    onAccept = acceptAction,
-                                                    onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                                    isAccepting = isThisAccepting
-                                                )
-                                            }
-                                        }
                                     }
                                 }
                             }
@@ -526,7 +607,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                 }
             }
 
-            // ── Floating Create Transfer button (selection mode) ─────────────────
+            // ── Floating Create Transfer button (selection mode) ─────────────
             val allDriverPackages = state.driverCurrentPackages + state.driverAvailableOffers
             val eligibleSelectedCount = selectedIds.count { id ->
                 allDriverPackages.find { it.id == id }?.hasOpenTransfer != true
@@ -583,343 +664,11 @@ private fun SelectionChipRow(selectedCount: Int, onCancel: () -> Unit) {
     }
 }
 
-// ── Selectable Current Package Card ──────────────────────────────────────────
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun SelectableCurrentPackageCard(
-    pkg: ClientPackage,
-    isSelected: Boolean,
-    canSelect: Boolean,
-    onToggle: () -> Unit,
-    onDetail: () -> Unit
-) {
-    val colors = LocalDriversColors.current
-    var showMedia by remember { mutableStateOf(false) }
-
-    val statusColor = when (pkg.status) {
-        PackageStatus.PICKED_UP -> colors.amber
-        PackageStatus.IN_TRANSIT -> colors.blue
-        PackageStatus.ARRIVED_AT_OFFICE -> colors.blue
-        PackageStatus.OUT_FOR_DELIVERY, PackageStatus.DELIVERED -> colors.green
-        else -> colors.textSecondary
-    }
-
-    val borderColor = if (isSelected) colors.blue else colors.divider
-    val bgColor = if (isSelected) colors.blue.copy(alpha = 0.04f) else colors.surface
-
-    val cardAlpha = if (canSelect) 1f else 0.5f
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = bgColor,
-        border = if (isSelected) BorderStroke(2.dp, colors.blue.copy(alpha = 0.6f)) else BorderStroke(1.dp, borderColor),
-        shadowElevation = if (isSelected) 4.dp else 2.dp,
-        modifier = Modifier.combinedClickable(
-            onClick = { if (canSelect) onToggle() },
-            onLongClick = { if (canSelect) onToggle() }
-        ).alpha(cardAlpha)
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Checkbox for selection
-                if (canSelect) {
-                    Checkbox(
-                        checked = isSelected,
-                        onCheckedChange = { onToggle() },
-                        colors = CheckboxDefaults.colors(checkedColor = colors.blue, uncheckedColor = colors.textSecondary),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(statusColor.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.LocalShipping, null, tint = statusColor, modifier = Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(pkg.id, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    TruncatedDescription(pkg.description)
-                }
-                Surface(shape = RoundedCornerShape(8.dp), color = statusColor.copy(alpha = 0.12f)) {
-                    Text(pkg.status.name.replace("_", " "), modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = statusColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            AddressRow(Icons.Filled.MyLocation, colors.green, pkg.fromAddress)
-            Spacer(Modifier.height(4.dp))
-            AddressRow(Icons.Filled.LocationOn, colors.red, pkg.toAddress)
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (pkg.weight.isNotBlank()) { Icon(Icons.Filled.Scale, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text(pkg.weight, color = colors.textSecondary, fontSize = 11.sp) }
-                if (pkg.photoCount > 0) { Spacer(Modifier.width(12.dp)); Row(modifier = Modifier.clickable { showMedia = true }, verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Filled.Photo, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("${pkg.photoCount}", color = colors.textSecondary, fontSize = 11.sp) } }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDetail, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("Details", color = colors.blue, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-            }
-            if (!canSelect) {
-                Spacer(Modifier.height(6.dp))
-                val msg = when {
-                    pkg.status == PackageStatus.DELIVERED || pkg.status == PackageStatus.CANCELLED -> "Already completed"
-                    pkg.transferStatus == "REQUESTED" -> "Transfer request pending — waiting for confirmation"
-                    else -> "Not available for transfer"
-                }
-                Text(msg, color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Normal)
-            }
-        }
-    }
-    if (showMedia) { MediaCarouselDialog(pkg.mediaUrls) { showMedia = false } }
-}
-
-// ── Package Cards ──────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun DriverCurrentPackageCard(
-    pkg: ClientPackage,
-    onDeliver: () -> Unit,
-    onTransfer: () -> Unit,
-    onDetail: () -> Unit,
-    onLongPress: () -> Unit = {},
-    onPickup: () -> Unit = {},
-    onCancelTransfer: ((String, String) -> Unit)? = null,
-    isCancellingTransfer: Boolean = false,
-    isPickingUp: Boolean = false,
-    notices: List<com.gocavgo.twese.data.Notice> = emptyList()
-) {
-    val colors = LocalDriversColors.current
-    val isDelivered = pkg.status == PackageStatus.DELIVERED
-    val isTransferRequested = pkg.transferStatus == "REQUESTED"
-    val isTransferOpen = pkg.hasOpenTransfer
-    val isUnread = pkg.hasUnreadNotices(notices)
-    var showMedia by remember { mutableStateOf(false) }
-
-    val statusColor = when (pkg.status) {
-        PackageStatus.PICKED_UP -> colors.amber
-        PackageStatus.IN_TRANSIT -> colors.blue
-        PackageStatus.ARRIVED_AT_OFFICE -> colors.blue
-        PackageStatus.PENDING_CONFIRMATION -> colors.amber
-        PackageStatus.OUT_FOR_DELIVERY, PackageStatus.DELIVERED -> colors.green
-        else -> colors.textSecondary
-    }
-
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = colors.surface,
-        border = BorderStroke(1.dp, colors.divider),
-        shadowElevation = 2.dp,
-        modifier = Modifier.combinedClickable(
-            onClick = { onDetail() },
-            onLongClick = onLongPress
-        )
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(statusColor.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                    Icon(if (isDelivered) Icons.Filled.CheckCircle else Icons.Filled.LocalShipping, null, tint = statusColor, modifier = Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (isUnread) {
-                            val dotTransition = rememberInfiniteTransition(label = "unread")
-                            val dotAlpha by dotTransition.animateFloat(
-                                initialValue = 0.35f, targetValue = 1f,
-                                animationSpec = infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                                label = "dotAlpha"
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.red.copy(alpha = dotAlpha))
-                            )
-                            Spacer(Modifier.width(5.dp))
-                        }
-                        Text(pkg.id, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        if (isTransferOpen) {
-                            Spacer(Modifier.width(6.dp))
-                            Surface(shape = RoundedCornerShape(6.dp), color = colors.amber.copy(alpha = 0.12f)) {
-                                Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.AutoMirrored.Filled.CompareArrows, null, modifier = Modifier.size(10.dp), tint = colors.amber)
-                                    Spacer(Modifier.width(3.dp))
-                                    Text("Outgoing", color = colors.amber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                    TruncatedDescription(pkg.description)
-                }
-                Surface(shape = RoundedCornerShape(8.dp), color = statusColor.copy(alpha = 0.12f)) {
-                    Text(pkg.status.name.replace("_", " "), modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = statusColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            AddressRow(Icons.Filled.MyLocation, colors.green, pkg.fromAddress)
-            Spacer(Modifier.height(4.dp))
-            AddressRow(Icons.Filled.LocationOn, colors.red, pkg.toAddress)
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (pkg.weight.isNotBlank()) { Icon(Icons.Filled.Scale, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text(pkg.weight, color = colors.textSecondary, fontSize = 11.sp) }
-                if (pkg.photoCount > 0) { Spacer(Modifier.width(12.dp)); Row(modifier = Modifier.clickable { showMedia = true }, verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Filled.Photo, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("${pkg.photoCount}", color = colors.textSecondary, fontSize = 11.sp) } }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDetail, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("Details", color = colors.blue, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-            }
-            if (!isDelivered && !isTransferOpen) {
-                Spacer(Modifier.height(8.dp))
-                val isPendingConfirmation = pkg.status == PackageStatus.PENDING_CONFIRMATION
-                val isFixedRoute = pkg.deliveryType == "FIXED_ROUTE"
-                val needsPickup = isFixedRoute && pkg.backendStatus in listOf("ASSIGNED_DRIVER", "ORIGIN_OFFICE")
-                val needsArrival = isFixedRoute && pkg.backendStatus == "IN_TRANSIT"
-                val isAtDestinationOffice = isFixedRoute && pkg.backendStatus == "DESTINATION_OFFICE"
-                val canDeliver = !needsPickup && !needsArrival && !isAtDestinationOffice
-                
-                when {
-                    // FIXED_ROUTE: Driver needs to pick up first (ASSIGNED_DRIVER or ORIGIN_OFFICE)
-                    needsPickup -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = { if (!isPickingUp) onPickup() },
-                                enabled = !isPickingUp,
-                                modifier = Modifier.weight(1f).heightIn(min = 38.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
-                            ) {
-                                if (isPickingUp) {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Picking up...", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                                } else {
-                                    Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Pick Up Package", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                                }
-                            }
-                        }
-                    }
-                    // FIXED_ROUTE: Driver in transit — deliver to receiver or transfer to next office
-                    needsArrival -> {
-                        if (isPendingConfirmation) {
-                            // Delivery initiated — show only Enter Delivery Code button
-                            Button(
-                                onClick = onDeliver,
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 38.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
-                            ) {
-                                Icon(Icons.Filled.Lock, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Enter Delivery Code", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                            }
-                        } else {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = onDeliver,
-                                    modifier = Modifier.weight(1f).heightIn(min = 38.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = colors.green)
-                                ) {
-                                    Icon(Icons.Filled.Check, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Deliver", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                                }
-                                OutlinedButton(onClick = onTransfer, modifier = Modifier.weight(1f).heightIn(min = 38.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, colors.divider)) {
-                                    Icon(Icons.Filled.MoveToInbox, null, modifier = Modifier.size(16.dp), tint = colors.amber); Spacer(Modifier.width(6.dp)); Text("Transfer to Office", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                                }
-                            }
-                        }
-                    }
-                    // FIXED_ROUTE: Arrived at destination office — in office custody, driver done
-                    isAtDestinationOffice -> {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = colors.blue.copy(alpha = 0.06f),
-                            border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.2f))
-                        ) {
-                            Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Filled.HourglassTop, null, tint = colors.blue, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Package delivered to office — awaiting worker collection", color = colors.blue, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                            }
-                        }
-                    }
-                    // Standard deliver / confirm flow
-                    else -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = onDeliver,
-                                modifier = Modifier.weight(1f).heightIn(min = 38.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = if (isPendingConfirmation) colors.blue else colors.green)
-                            ) {
-                                Icon(
-                                    if (isPendingConfirmation) Icons.Filled.Lock else Icons.Filled.Check,
-                                    null,
-                                    modifier = Modifier.size(16.dp)
-                                );
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    if (isPendingConfirmation) "Enter Delivery Code" else "Deliver",
-                                    fontSize = if (isPendingConfirmation) 11.sp else 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1
-                                )
-                            }
-                            if (!isPendingConfirmation) {
-                                OutlinedButton(onClick = onTransfer, modifier = Modifier.weight(1f).heightIn(min = 38.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, colors.divider)) {
-                                    Icon(Icons.Filled.MoveToInbox, null, modifier = Modifier.size(16.dp), tint = colors.amber); Spacer(Modifier.width(6.dp)); Text("Transfer to Office", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if (isTransferOpen) {
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = colors.blue.copy(alpha = 0.06f),
-                    border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.2f))
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.HourglassTop, null, tint = colors.blue, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                if (isTransferRequested) "Awaiting owner confirmation — actions disabled while pending"
-                                else "Transfer in progress — awaiting counterparty pickup",
-                                color = colors.blue, fontSize = 11.sp, fontWeight = FontWeight.Medium
-                            )
-                        }
-                        if (pkg.transferId != null && onCancelTransfer != null) {
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = { onCancelTransfer(pkg.id, pkg.transferId) },
-                                enabled = !isCancellingTransfer,
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 34.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, colors.red.copy(alpha = 0.5f))
-                            ) {
-                                if (isCancellingTransfer) {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = colors.red, strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Cancelling...", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.red)
-                                } else {
-                                    Icon(Icons.Filled.Close, null, modifier = Modifier.size(14.dp), tint = colors.red)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Cancel Transfer Offer (Recall)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.red)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (showMedia) { MediaCarouselDialog(pkg.mediaUrls) { showMedia = false } }
-}
-
 @Composable
 private fun NoActiveTripWarningBanner() {
     val colors = LocalDriversColors.current
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         shape = RoundedCornerShape(12.dp),
         color = colors.amber.copy(alpha = 0.12f),
         border = BorderStroke(1.dp, colors.amber.copy(alpha = 0.4f))
@@ -936,352 +685,13 @@ private fun NoActiveTripWarningBanner() {
             )
             Spacer(Modifier.width(10.dp))
             Text(
-                text = "No active trip — you cannot accept package offers until a trip is scheduled for you",
+                text = "No active trip — you cannot accept broadcast offers until a trip is scheduled for you",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 color = colors.textPrimary,
                 lineHeight = 16.sp
             )
         }
-    }
-}
-
-@Composable
-fun DriverOfferCard(
-    pkg: ClientPackage,
-    onAccept: (() -> Unit)?,
-    acceptButtonLabel: String = "Accept Offer",
-    onDetail: () -> Unit,
-    isNew: Boolean = false,
-    hasActiveTrip: Boolean = true,
-    isAccepting: Boolean = false
-) {
-    val colors = LocalDriversColors.current
-    var showMedia by remember { mutableStateOf(false) }
-
-    // ── Growing-border animation for new packages ────────────────────────
-    val infiniteTransition = rememberInfiniteTransition(label = "growingBorder")
-    val borderProgress by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2000, easing = androidx.compose.animation.core.FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Restart),
-        label = "borderProgress"
-    )
-    val borderWidth by animateDpAsState(
-        targetValue = if (isNew) (1.dp + 2.dp * borderProgress) else 1.dp,
-        label = "borderWidth"
-    )
-    val borderColor = if (isNew) colors.blue.copy(alpha = 0.4f + borderProgress * 0.4f) else colors.divider
-
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = colors.surface,
-        border = if (isNew) BorderStroke(borderWidth, borderColor) else BorderStroke(1.dp, colors.divider),
-        shadowElevation = if (isNew) 4.dp else 2.dp
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.amber.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.NewReleases, null, tint = colors.amber, modifier = Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) { Text(pkg.id, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp); TruncatedDescription(pkg.description) }
-                // ── Transfer-type indicator icons ─────────────────────
-                if (pkg.transferRuleType == "SECURE") {
-                    Box(
-                        modifier = Modifier.size(22.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.Lock, null, tint = colors.blue, modifier = Modifier.size(12.dp))
-                    }
-                    Spacer(Modifier.width(4.dp))
-                } else if (pkg.transferRuleType == "CONFIRM") {
-                    Box(
-                        modifier = Modifier.size(22.dp).clip(CircleShape).background(colors.amber.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.HourglassTop, null, tint = colors.amber, modifier = Modifier.size(12.dp))
-                    }
-                    Spacer(Modifier.width(4.dp))
-                }
-                if (isNew) {
-                    Surface(shape = RoundedCornerShape(8.dp), color = colors.amber.copy(alpha = 0.12f)) { Text("NEW", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = colors.amber, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            AddressRow(Icons.Filled.MyLocation, colors.green, pkg.fromAddress)
-            Spacer(Modifier.height(4.dp))
-            AddressRow(Icons.Filled.LocationOn, colors.red, pkg.toAddress)
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (pkg.weight.isNotBlank()) { Icon(Icons.Filled.Scale, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text(pkg.weight, color = colors.textPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium) }
-                if (pkg.category.isNotBlank()) { if (pkg.weight.isNotBlank()) Spacer(Modifier.width(16.dp)); Icon(Icons.Filled.Category, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text(pkg.category, color = colors.textPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium) }
-                if (pkg.fragile) { Spacer(Modifier.width(16.dp)); Icon(Icons.Filled.Warning, null, tint = colors.amber, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("Fragile", color = colors.amber, fontSize = 11.sp, fontWeight = FontWeight.Medium) }
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (pkg.photoCount > 0) { Row(modifier = Modifier.clickable { showMedia = true }, verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Filled.Photo, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("${pkg.photoCount}", color = colors.textSecondary, fontSize = 11.sp) } }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDetail, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("View Details", color = colors.blue, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-            }
-            if (onAccept != null) {
-                val icon = when {
-                    acceptButtonLabel.contains("Transfer") -> Icons.AutoMirrored.Filled.CompareArrows
-                    acceptButtonLabel.contains("Code") -> Icons.Filled.Lock
-                    else -> Icons.Filled.AddTask
-                }
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = { if (hasActiveTrip && !isAccepting) onAccept() },
-                    enabled = hasActiveTrip && !isAccepting,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.blue,
-                        disabledContainerColor = colors.divider
-                    )
-                ) {
-                    if (isAccepting) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Accepting...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    } else {
-                        Icon(icon, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(acceptButtonLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-    if (showMedia) { MediaCarouselDialog(pkg.mediaUrls) { showMedia = false } }
-}
-
-// ── Transfer Card (worker-to-driver assignment) ───────────────────────────────
-
-@Composable
-fun DriverTransferCard(
-    pkg: ClientPackage,
-    transferId: String,
-    ruleType: String,
-    onAccept: () -> Unit,
-    onDetail: () -> Unit,
-    isAccepting: Boolean = false
-) {
-    val colors = LocalDriversColors.current
-    var showMedia by remember { mutableStateOf(false) }
-
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = colors.surface,
-        border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.3f)),
-        shadowElevation = 3.dp
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.AutoMirrored.Filled.CompareArrows, null, tint = colors.blue, modifier = Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(pkg.id, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        // ── Transfer-type indicator icon ─────────────────
-                        if (ruleType == "SECURE") {
-                            Spacer(Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier.size(20.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center
-                            ) { Icon(Icons.Filled.Lock, null, tint = colors.blue, modifier = Modifier.size(11.dp)) }
-                        } else if (ruleType == "CONFIRM") {
-                            Spacer(Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier.size(20.dp).clip(CircleShape).background(colors.amber.copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center
-                            ) { Icon(Icons.Filled.HourglassTop, null, tint = colors.amber, modifier = Modifier.size(11.dp)) }
-                        }
-                    }
-                    TruncatedDescription(pkg.description)
-                }
-                Surface(shape = RoundedCornerShape(8.dp), color = colors.blue.copy(alpha = 0.12f)) {
-                    Text("TRANSFER", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = colors.blue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            AddressRow(Icons.Filled.MyLocation, colors.green, pkg.fromAddress)
-            Spacer(Modifier.height(4.dp))
-            AddressRow(Icons.Filled.LocationOn, colors.red, pkg.toAddress)
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (pkg.weight.isNotBlank()) { Icon(Icons.Filled.Scale, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text(pkg.weight, color = colors.textSecondary, fontSize = 11.sp) }
-                if (pkg.category.isNotBlank()) { if (pkg.weight.isNotBlank()) Spacer(Modifier.width(16.dp)); Icon(Icons.Filled.Category, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text(pkg.category, color = colors.textSecondary, fontSize = 11.sp) }
-                if (pkg.fragile) { Spacer(Modifier.width(16.dp)); Icon(Icons.Filled.Warning, null, tint = colors.amber, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("Fragile", color = colors.amber, fontSize = 11.sp) }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (pkg.photoCount > 0) { Row(modifier = Modifier.clickable { showMedia = true }, verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Filled.Photo, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("${pkg.photoCount}", color = colors.textSecondary, fontSize = 11.sp) } }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDetail, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("View Details", color = colors.blue, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-            }
-            Spacer(Modifier.height(8.dp))
-            // ── Accept button — label and icon vary by rule type ─────────
-            val acceptLabel = when (ruleType) {
-                "SECURE" -> "Accept with Code"
-                "CONFIRM" -> "Request to Accept"
-                else -> "Accept Transfer"
-            }
-            val acceptIcon = when (ruleType) {
-                "SECURE" -> Icons.Filled.Lock
-                "CONFIRM" -> Icons.Filled.Send
-                else -> Icons.AutoMirrored.Filled.CompareArrows
-            }
-            Button(
-                onClick = { if (!isAccepting) onAccept() },
-                enabled = !isAccepting,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
-            ) {
-                if (isAccepting) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Accepting...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                } else {
-                    Icon(acceptIcon, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(acceptLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-    if (showMedia) { MediaCarouselDialog(pkg.mediaUrls) { showMedia = false } }
-}
-
-// ── Assigned Package Card (office assigned, driver not yet picked up) ─────────
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun DriverAssignedCard(
-    pkg: ClientPackage,
-    onPickup: () -> Unit,
-    onDetail: () -> Unit,
-    onTransfer: () -> Unit = {},
-    isPickingUp: Boolean = false,
-    notices: List<com.gocavgo.twese.data.Notice> = emptyList()
-) {
-    val colors = LocalDriversColors.current
-    val isUnread = pkg.hasUnreadNotices(notices)
-    var showMedia by remember { mutableStateOf(false) }
-
-    val statusColor = when (pkg.backendStatus) {
-        "ASSIGNED_DRIVER" -> colors.amber
-        "ORIGIN_OFFICE" -> colors.blue
-        else -> colors.textSecondary
-    }
-
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = colors.surface,
-        border = BorderStroke(1.dp, colors.amber.copy(alpha = 0.3f)),
-        shadowElevation = 2.dp
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(statusColor.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.LocalShipping, null, tint = statusColor, modifier = Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (isUnread) {
-                            val dotTransition = rememberInfiniteTransition(label = "unread")
-                            val dotAlpha by dotTransition.animateFloat(
-                                initialValue = 0.35f, targetValue = 1f,
-                                animationSpec = infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                                label = "dotAlpha"
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.red.copy(alpha = dotAlpha))
-                            )
-                            Spacer(Modifier.width(5.dp))
-                        }
-                        Text(pkg.id, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                    TruncatedDescription(pkg.description)
-                }
-                Surface(shape = RoundedCornerShape(8.dp), color = colors.amber.copy(alpha = 0.12f)) {
-                    Text("ASSIGNED", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = colors.amber, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            AddressRow(Icons.Filled.MyLocation, colors.green, pkg.fromAddress)
-            Spacer(Modifier.height(4.dp))
-            AddressRow(Icons.Filled.LocationOn, colors.red, pkg.toAddress)
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (pkg.weight.isNotBlank()) { Icon(Icons.Filled.Scale, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text(pkg.weight, color = colors.textSecondary, fontSize = 11.sp) }
-                if (pkg.photoCount > 0) { Spacer(Modifier.width(12.dp)); Row(modifier = Modifier.clickable { showMedia = true }, verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Filled.Photo, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text("${pkg.photoCount}", color = colors.textSecondary, fontSize = 11.sp) } }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDetail, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("Details", color = colors.blue, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { if (!isPickingUp) onPickup() },
-                    enabled = !isPickingUp,
-                    modifier = Modifier.weight(1f).heightIn(min = 38.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
-                ) {
-                    if (isPickingUp) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Picking up...", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    } else {
-                        Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Pick Up Package", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    }
-                }
-            }
-        }
-    }
-    if (showMedia) { MediaCarouselDialog(pkg.mediaUrls) { showMedia = false } }
-}
-
-// ── Private helpers ───────────────────────────────────────────────────────────
-
-@Composable
-private fun TruncatedDescription(description: String) {
-    val colors = LocalDriversColors.current
-    var showFull by remember { mutableStateOf(false) }
-    Text(description, color = colors.textSecondary, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable { showFull = true })
-    if (showFull) {
-        AlertDialog(
-            onDismissRequest = { showFull = false },
-            title = { Text("Description", fontWeight = FontWeight.Bold) },
-            text = { Text(description, color = colors.textPrimary) },
-            confirmButton = { TextButton(onClick = { showFull = false }) { Text("Close", color = colors.blue, fontWeight = FontWeight.Bold) } }
-        )
-    }
-}
-
-@Composable
-private fun AddressRow(icon: ImageVector, iconTint: androidx.compose.ui.graphics.Color, address: String) {
-    val colors = LocalDriversColors.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = iconTint, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(address, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun MediaCarouselDialog(mediaUrls: List<String>, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        FullScreenMediaViewer(mediaUrls = mediaUrls, onClose = onDismiss, showClose = true)
     }
 }
 
@@ -1297,29 +707,22 @@ private fun ShimmerList(alpha: Float) {
 @Composable
 private fun PackageSkeleton(alpha: Float) {
     val colors = LocalDriversColors.current
-    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = colors.surface.copy(alpha = alpha), border = BorderStroke(1.dp, colors.divider.copy(alpha = alpha))) {
-        Column(Modifier.padding(12.dp)) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = colors.surface.copy(alpha = alpha),
+        border = BorderStroke(1.dp, colors.divider.copy(alpha = alpha))
+    ) {
+        Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(80.dp, 10.dp).background(colors.textSecondary.copy(alpha = 0.2f), RoundedCornerShape(4.dp)))
+                Box(Modifier.size(80.dp, 12.dp).background(colors.textSecondary.copy(alpha = 0.2f), RoundedCornerShape(4.dp)))
                 Spacer(Modifier.weight(1f))
-                Box(Modifier.size(16.dp).background(colors.textSecondary.copy(alpha = 0.2f), CircleShape))
+                Box(Modifier.size(20.dp).background(colors.textSecondary.copy(alpha = 0.2f), CircleShape))
             }
+            Spacer(Modifier.height(14.dp))
+            Box(Modifier.fillMaxWidth().height(48.dp).background(colors.textSecondary.copy(alpha = 0.1f), RoundedCornerShape(10.dp)))
             Spacer(Modifier.height(12.dp))
-            Row {
-                Column(Modifier.weight(1f)) {
-                    Box(Modifier.size(40.dp, 8.dp).background(colors.textSecondary.copy(alpha = 0.1f), RoundedCornerShape(4.dp)))
-                    Spacer(Modifier.height(4.dp))
-                    Box(Modifier.size(70.dp, 12.dp).background(colors.textSecondary.copy(alpha = 0.2f), RoundedCornerShape(4.dp)))
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                    Box(Modifier.size(40.dp, 8.dp).background(colors.textSecondary.copy(alpha = 0.1f), RoundedCornerShape(4.dp)))
-                    Spacer(Modifier.height(4.dp))
-                    Box(Modifier.size(70.dp, 12.dp).background(colors.textSecondary.copy(alpha = 0.2f), RoundedCornerShape(4.dp)))
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().height(10.dp).background(colors.textSecondary.copy(alpha = 0.1f), RoundedCornerShape(4.dp)))
+            Box(Modifier.fillMaxWidth().height(14.dp).background(colors.textSecondary.copy(alpha = 0.15f), RoundedCornerShape(4.dp)))
         }
     }
 }
@@ -1327,7 +730,6 @@ private fun PackageSkeleton(alpha: Float) {
 @Composable
 fun EmptyPackagesState(title: String, subtitle: String) {
     val colors = LocalDriversColors.current
-    // LazyColumn so PullToRefreshBox can detect the pull gesture even when list is empty
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 90.dp)
@@ -1338,9 +740,9 @@ fun EmptyPackagesState(title: String, subtitle: String) {
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Inventory2, null, tint = colors.textSecondary, modifier = Modifier.size(48.dp))
-                    Spacer(Modifier.height(10.dp))
-                    Text(title, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Filled.Inventory2, null, tint = colors.textSecondary, modifier = Modifier.size(52.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text(title, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
                     Text(subtitle, color = colors.textSecondary, fontSize = 12.sp)
                 }
