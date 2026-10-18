@@ -1137,24 +1137,53 @@ private fun ProfileSheetContent(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
+                        .height(56.dp)
                         .fluidBounceClick(scaleDown = 0.93f) { isThemeDropdownExpanded = true },
                     shape = FluidShapes.card,
                     color = colors.surfaceAlt,
                     border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Filled.Settings,
-                            contentDescription = "Theme",
-                            tint = colors.purple,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(colors.purple.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Filled.Settings,
+                                contentDescription = "Theme",
+                                tint = colors.purple,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Theme",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.textPrimary,
+                                maxLines = 1
+                            )
+                            Text(
+                                when (themeMode) {
+                                    AppThemeMode.SYSTEM -> "System"
+                                    AppThemeMode.DARK -> "Dark"
+                                    AppThemeMode.LIGHT -> "Light"
+                                },
+                                fontSize = 11.sp,
+                                color = colors.purple,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1
+                            )
+                        }
                         Icon(
                             Icons.Filled.ArrowDropDown,
                             contentDescription = null,
@@ -1234,37 +1263,62 @@ private fun ProfileSheetContent(
             Surface(
                 modifier = Modifier
                     .weight(1f)
-                    .height(52.dp)
+                    .height(56.dp)
                     .fluidBounceClick(scaleDown = 0.93f) {
                         onKeepScreenAwakeChange(!keepScreenAwake)
                     },
                 shape = FluidShapes.card,
-                color = if (keepScreenAwake) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt,
+                color = if (keepScreenAwake) colors.purple.copy(alpha = 0.10f) else colors.surfaceAlt,
                 border = BorderStroke(
                     1.dp,
                     if (keepScreenAwake) colors.purple.copy(alpha = 0.4f) else colors.divider.copy(alpha = 0.5f)
                 )
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Filled.ScreenLockLandscape,
-                        contentDescription = "Keep Screen Awake",
-                        tint = if (keepScreenAwake) colors.purple else colors.textSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    if (keepScreenAwake) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(8.dp)
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(CavgoGreen)
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (keepScreenAwake) colors.purple.copy(alpha = 0.18f)
+                                else colors.textSecondary.copy(alpha = 0.12f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.ScreenLockLandscape,
+                            contentDescription = "Keep Screen Awake",
+                            tint = if (keepScreenAwake) colors.purple else colors.textSecondary,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Keep Awake",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.textPrimary,
+                            maxLines = 1
+                        )
+                        Text(
+                            if (keepScreenAwake) "Always on" else "Off",
+                            fontSize = 11.sp,
+                            color = if (keepScreenAwake) colors.purple else colors.textSecondary,
+                            maxLines = 1
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (keepScreenAwake) CavgoGreen else colors.textSecondary.copy(alpha = 0.3f))
+                    )
                 }
             }
         }
@@ -1278,37 +1332,62 @@ private fun ProfileSheetContent(
             Surface(
                 modifier = Modifier
                     .weight(1f)
-                    .height(52.dp)
+                    .height(56.dp)
                     .fluidBounceClick(scaleDown = 0.93f) {
                         onPipEnabledChange(!isPipEnabled)
                     },
                 shape = FluidShapes.card,
-                color = if (isPipEnabled) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt,
+                color = if (isPipEnabled) colors.purple.copy(alpha = 0.10f) else colors.surfaceAlt,
                 border = BorderStroke(
                     1.dp,
                     if (isPipEnabled) colors.purple.copy(alpha = 0.4f) else colors.divider.copy(alpha = 0.5f)
                 )
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Filled.PictureInPicture,
-                        contentDescription = "Picture-in-Picture",
-                        tint = if (isPipEnabled) colors.purple else colors.textSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    if (isPipEnabled) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(8.dp)
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(CavgoGreen)
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isPipEnabled) colors.purple.copy(alpha = 0.18f)
+                                else colors.textSecondary.copy(alpha = 0.12f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.PictureInPicture,
+                            contentDescription = "Picture-in-Picture",
+                            tint = if (isPipEnabled) colors.purple else colors.textSecondary,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "PiP Window",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.textPrimary,
+                            maxLines = 1
+                        )
+                        Text(
+                            if (isPipEnabled) "Enabled" else "Off",
+                            fontSize = 11.sp,
+                            color = if (isPipEnabled) colors.purple else colors.textSecondary,
+                            maxLines = 1
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (isPipEnabled) CavgoGreen else colors.textSecondary.copy(alpha = 0.3f))
+                    )
                 }
             }
 
@@ -1316,7 +1395,7 @@ private fun ProfileSheetContent(
             Surface(
                 modifier = Modifier
                     .weight(1f)
-                    .height(52.dp)
+                    .height(56.dp)
                     .fluidBounceClick(scaleDown = 0.93f) {
                         onCompletedTripsClick()
                     },
@@ -1324,50 +1403,65 @@ private fun ProfileSheetContent(
                 color = colors.surfaceAlt,
                 border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Filled.History,
-                        contentDescription = "Trip History",
-                        tint = colors.purple,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    if (completedTrips.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(6.dp)
-                                .clip(CircleShape)
-                                .background(colors.purple)
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                "${completedTrips.size}",
-                                color = Color.White,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(colors.purple.copy(alpha = 0.14f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.History,
+                            contentDescription = "Trip History",
+                            tint = colors.purple,
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Trip History",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.textPrimary,
+                            maxLines = 1
+                        )
+                        Text(
+                            "${completedTrips.size} trips",
+                            fontSize = 11.sp,
+                            color = colors.textSecondary,
+                            maxLines = 1
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
 
         Spacer(Modifier.weight(1f, fill = false))
 
-        // ── Row 3: Driver Profile (Avatar + Name only, no phone) + Logout ────
+        // ── Row 3: Equal Width Driver Profile Button + Logout Button ─────────
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Driver Profile info (Avatar + Name only)
+            // Driver Profile (Avatar + Name only, equal width)
             Surface(
                 modifier = Modifier
                     .weight(1f)
-                    .height(52.dp),
+                    .height(56.dp),
                 shape = FluidShapes.card,
                 color = colors.surfaceAlt,
                 border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
@@ -1401,7 +1495,7 @@ private fun ProfileSheetContent(
                     Text(
                         profile.name,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         color = colors.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1409,24 +1503,35 @@ private fun ProfileSheetContent(
                 }
             }
 
-            // Logout Button
+            // Logout Button (Equal width with driver profile)
             Surface(
                 modifier = Modifier
-                    .size(52.dp)
-                    .fluidBounceClick(scaleDown = 0.90f, onClick = onLogout),
+                    .weight(1f)
+                    .height(56.dp)
+                    .fluidBounceClick(scaleDown = 0.93f, onClick = onLogout),
                 shape = FluidShapes.card,
                 color = colors.red.copy(alpha = 0.12f),
                 border = BorderStroke(1.dp, colors.red.copy(alpha = 0.35f))
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Logout,
                         contentDescription = "Log Out",
                         tint = colors.red,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Log Out",
+                        color = colors.red,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
                     )
                 }
             }
