@@ -88,6 +88,32 @@ fun Modifier.fluidBounceClick(
         )
 }
 
+// ── Standard Continuous Squircle & Pill Design Tokens ───────────────────────
+
+/**
+ * Standard continuous squircle & pill shape scale for consistent modern roundness.
+ * Proportional scaling across component sizes (OxygenOS Aquamorphic / One UI inspired).
+ */
+object FluidShapes {
+    /** Floating docks, bottom navigation bars, full-width dynamic activity capsules */
+    val dock = RoundedCornerShape(26.dp)
+
+    /** Dynamic top capsules, floating car plate pills, floating headers */
+    val capsule = RoundedCornerShape(22.dp)
+
+    /** Standard content cards, modals, hero containers, vehicle info */
+    val card = RoundedCornerShape(20.dp)
+
+    /** Interactive buttons, text fields, action sliders, floating square buttons */
+    val button = RoundedCornerShape(16.dp)
+
+    /** Compact chips, tags, status tooltips, sub-segment pills */
+    val chip = RoundedCornerShape(12.dp)
+
+    /** Full round pills, floating circular action buttons, slider thumbs, avatar frames */
+    val pill = CircleShape
+}
+
 // ── Frosted Acrylic Glass Container ──────────────────────────────────────────
 
 /**
@@ -97,9 +123,10 @@ fun Modifier.fluidBounceClick(
 @Composable
 fun AcrylicGlassSurface(
     modifier: Modifier = Modifier,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(22.dp),
+    shape: androidx.compose.ui.graphics.Shape = FluidShapes.dock,
     backgroundColor: Color? = null,
     border: BorderStroke? = null,
+    shadowElevation: androidx.compose.ui.unit.Dp = 4.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     val colors = LocalDriversColors.current
@@ -111,9 +138,41 @@ fun AcrylicGlassSurface(
         shape = shape,
         color = effectiveBg,
         border = effectiveBorder,
-        shadowElevation = 4.dp
+        shadowElevation = shadowElevation
     ) {
         Box(content = content)
+    }
+}
+
+/**
+ * Frosted acrylic glass floating button for secondary floating actions
+ * (e.g. notifications bell, quick search, floating tool heads).
+ */
+@Composable
+fun FrostedFloatingIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = FluidShapes.pill,
+    icon: @Composable () -> Unit
+) {
+    val colors = LocalDriversColors.current
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Surface(
+        onClick = onClick,
+        shape = shape,
+        color = colors.surface.copy(alpha = 0.88f),
+        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f)),
+        shadowElevation = 4.dp,
+        interactionSource = interactionSource,
+        modifier = modifier.fluidBounceClick(scaleDown = 0.90f, interactionSource = interactionSource)
+    ) {
+        Box(
+            modifier = Modifier.size(44.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            icon()
+        }
     }
 }
 
@@ -145,7 +204,7 @@ fun FluidCloudCapsule(
         modifier = modifier
     ) {
         AcrylicGlassSurface(
-            shape = RoundedCornerShape(26.dp),
+            shape = FluidShapes.dock,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
@@ -269,7 +328,7 @@ fun SwipeToActionButton(
         modifier = modifier
             .fillMaxWidth()
             .height(trackHeight)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(FluidShapes.button)
             .background(accent.copy(alpha = 0.12f))
     ) {
         val totalWidthPx = constraints.maxWidth.toFloat()
@@ -318,9 +377,9 @@ fun SwipeToActionButton(
             Box(
                 modifier = Modifier
                     .offset { IntOffset(offsetX.value.roundToInt() + with(density) { 4.dp.roundToPx() }, with(density) { 4.dp.roundToPx() }) }
-                    .size(thumbSize)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(accent)
+                .size(thumbSize)
+                .clip(FluidShapes.pill)
+                .background(accent)
                     .draggable(
                         orientation = Orientation.Horizontal,
                         state = rememberDraggableState { delta ->

@@ -46,7 +46,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gocavgo.twese.ui.TripContent
 import com.gocavgo.twese.ui.common.CachedAvatarImage
+import com.gocavgo.twese.ui.common.AcrylicGlassSurface
 import com.gocavgo.twese.ui.common.FluidCloudCapsule
+import com.gocavgo.twese.ui.common.FluidShapes
+import com.gocavgo.twese.ui.common.FrostedFloatingIconButton
 import com.gocavgo.twese.ui.common.ProfileQuickMenu
 import com.gocavgo.twese.ui.common.SettingsMenu
 import com.gocavgo.twese.ui.common.VehiclePlatePill
@@ -175,13 +178,12 @@ fun DriverHomeScreen(
                                         .padding(top = 2.dp, bottom = 16.dp),
                                     horizontalArrangement = Arrangement.Center
                                 ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(18.dp),
-                                        color = colors.surface,
-                                        border = BorderStroke(1.dp, colors.divider)
+                                    AcrylicGlassSurface(
+                                        shape = FluidShapes.capsule,
+                                        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f))
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(Icons.Filled.DirectionsCar, null, tint = colors.amber, modifier = Modifier.size(18.dp))
@@ -227,15 +229,20 @@ fun DriverHomeScreen(
                                 }
                             }
                             item {
-                                Column(
+                                AcrylicGlassSurface(
+                                    shape = FluidShapes.card,
+                                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f)),
+                                    shadowElevation = 3.dp,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onVehicleClick() }
-                                        .background(colors.surface, RoundedCornerShape(18.dp))
-                                        .border(1.dp, colors.divider, RoundedCornerShape(18.dp))
-                                        .padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                                        .fluidBounceClick(scaleDown = 0.98f, onClick = onVehicleClick)
                                 ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
                                     Box(
                                         modifier = Modifier
                                             .size(48.dp)
@@ -267,7 +274,8 @@ fun DriverHomeScreen(
                                     Text("Tap to view details", color = colors.blue, fontSize = 11.sp, textAlign = TextAlign.Center)
                                 }
                             }
-                            item {
+                        }
+                        item {
                                 Spacer(Modifier.height(16.dp))
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
@@ -386,12 +394,10 @@ fun DriverHomeScreen(
                     modifier = Modifier.navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 14.dp).fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
+                    AcrylicGlassSurface(
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(26.dp),
-                        color = colors.surface.copy(alpha = 0.88f),
-                        shadowElevation = 6.dp,
-                        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f))
+                        shape = FluidShapes.dock,
+                        shadowElevation = 6.dp
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
@@ -402,7 +408,7 @@ fun DriverHomeScreen(
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .clip(CircleShape)
+                                    .clip(FluidShapes.pill)
                                     .background(if (isDriverProfileMenuOpen) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt)
                                     .fluidBounceClick(scaleDown = 0.92f) { onProfileMenuClick() },
                                 contentAlignment = Alignment.Center
@@ -436,7 +442,7 @@ fun DriverHomeScreen(
                                         .weight(1f)
                                         .padding(horizontal = 8.dp)
                                         .height(42.dp)
-                                        .clip(RoundedCornerShape(14.dp))
+                                        .clip(FluidShapes.button)
                                         .background(bgPill)
                                         .fluidBounceClick(scaleDown = 0.94f) { onTabChange(idx) },
                                     contentAlignment = Alignment.Center
@@ -459,7 +465,7 @@ fun DriverHomeScreen(
                         modifier = Modifier.fluidBounceClick(scaleDown = 0.92f),
                         containerColor = colors.purple,
                         contentColor   = Color.White,
-                        shape          = CircleShape,
+                        shape          = FluidShapes.pill,
                         elevation      = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp)
                     ) { Icon(Icons.Filled.Add, null, modifier = Modifier.size(26.dp)) }
                 }
@@ -489,18 +495,14 @@ fun DriverHomeScreen(
                 .padding(top = 4.dp, end = 60.dp)
         )
 
-        // ── Bell notification button (floating, visible on all pages) ──────
-        SmallFloatingActionButton(
+        // ── Bell notification button (frosted glass floating, visible on all pages) ──
+        FrostedFloatingIconButton(
             onClick = onNoticesClick,
+            shape = FluidShapes.pill,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .padding(top = 2.dp, end = 16.dp)
-                .fluidBounceClick(scaleDown = 0.90f),
-            containerColor = colors.surface.copy(alpha = 0.90f),
-            contentColor = colors.textPrimary,
-            shape = CircleShape,
-            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp)
         ) {
             BadgedBox(badge = {
                 if (noticeCount > 0) {
@@ -509,7 +511,7 @@ fun DriverHomeScreen(
                     }
                 }
             }) {
-                Icon(Icons.Filled.Notifications, null, modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.Notifications, null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
             }
         }
 

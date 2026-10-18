@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -76,17 +77,21 @@ fun VehiclePlatePill(
         label = "alpha"
     )
 
-    Surface(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(if (isLandscape) 14.dp else 18.dp),
-        color = colors.surface,
-        border = BorderStroke(1.dp, if (isMoving) colors.purple.copy(alpha = 0.5f) else colors.divider)
+    val pillShape = if (isLandscape) FluidShapes.button else FluidShapes.capsule
+    val pillBorder = BorderStroke(1.dp, if (isMoving) colors.purple.copy(alpha = 0.5f) else colors.divider.copy(alpha = 0.7f))
+    val pillInteractionSource = remember { MutableInteractionSource() }
+
+    AcrylicGlassSurface(
+        shape = pillShape,
+        border = pillBorder,
+        shadowElevation = 3.dp,
+        modifier = modifier
+            .fluidBounceClick(scaleDown = 0.95f, interactionSource = pillInteractionSource, onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(
-                horizontal = if (isLandscape) 10.dp else 14.dp,
-                vertical = if (isLandscape) 4.dp else 6.dp
+                horizontal = if (isLandscape) 12.dp else 16.dp,
+                vertical = if (isLandscape) 5.dp else 7.dp
             ),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -121,7 +126,7 @@ fun VehiclePlatePill(
                     )
                     Spacer(Modifier.width(5.dp))
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = FluidShapes.chip,
                         color = colors.purpleLight,
                         border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.3f))
                     ) {

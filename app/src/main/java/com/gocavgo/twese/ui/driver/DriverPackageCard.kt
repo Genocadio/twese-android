@@ -39,6 +39,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.Notice
 import com.gocavgo.twese.data.PackageStatus
+import com.gocavgo.twese.ui.common.FluidShapes
 import com.gocavgo.twese.ui.common.PackageStatusIconBadge
 import com.gocavgo.twese.ui.common.StatusIconTooltipBadge
 import com.gocavgo.twese.ui.common.SwipeToActionButton
@@ -118,7 +119,7 @@ fun ModernPackageCard(
 
     val cardInteractionSource = remember { MutableInteractionSource() }
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = FluidShapes.card,
         color = colors.surface,
         border = BorderStroke(borderWidth, borderColor),
         shadowElevation = if (isHighlighted) 4.dp else 2.dp,
@@ -210,7 +211,7 @@ fun ModernPackageCard(
 
             // ── 2. Route Timeline (Origin ➔ Destination) ───────────────────
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = FluidShapes.chip,
                 color = colors.surfaceAlt,
                 border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.6f)),
                 modifier = Modifier.fillMaxWidth()
@@ -500,7 +501,7 @@ fun DriverCurrentPackageCard(
                                     .weight(1.3f)
                                     .height(46.dp)
                                     .fluidBounceClick(interactionSource = deliverSource),
-                                shape = RoundedCornerShape(14.dp),
+                                shape = FluidShapes.button,
                                 interactionSource = deliverSource,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = colors.purple
@@ -528,7 +529,7 @@ fun DriverCurrentPackageCard(
                                         .weight(1f)
                                         .height(46.dp)
                                         .fluidBounceClick(interactionSource = transferSource),
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = FluidShapes.button,
                                     interactionSource = transferSource,
                                     border = BorderStroke(1.dp, colors.divider)
                                 ) {
@@ -553,7 +554,7 @@ fun DriverCurrentPackageCard(
 
                     isAtDestinationOffice -> {
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
+                            shape = FluidShapes.chip,
                             color = colors.purple.copy(alpha = 0.08f),
                             border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.2f)),
                             modifier = Modifier.fillMaxWidth()
@@ -577,7 +578,7 @@ fun DriverCurrentPackageCard(
             } else if (isTransferOpen) {
                 Spacer(Modifier.height(10.dp))
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = FluidShapes.card,
                     color = colors.purple.copy(alpha = 0.06f),
                     border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.2f)),
                     modifier = Modifier.fillMaxWidth()
@@ -605,7 +606,7 @@ fun DriverCurrentPackageCard(
                                     .fillMaxWidth()
                                     .height(40.dp)
                                     .fluidBounceClick(interactionSource = cancelSource),
-                                shape = RoundedCornerShape(12.dp),
+                                shape = FluidShapes.button,
                                 interactionSource = cancelSource,
                                 border = BorderStroke(1.dp, colors.red.copy(alpha = 0.5f))
                             ) {
@@ -746,7 +747,7 @@ fun SelectableCurrentPackageCard(
 
     val selectCardSource = remember { MutableInteractionSource() }
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = FluidShapes.card,
         color = bgColor,
         border = if (isSelected) BorderStroke(2.dp, colors.purple) else BorderStroke(1.dp, borderColor),
         shadowElevation = if (isSelected) 4.dp else 2.dp,

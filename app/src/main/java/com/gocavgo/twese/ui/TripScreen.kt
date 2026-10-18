@@ -76,6 +76,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gocavgo.twese.BuildConfig
 import com.gocavgo.twese.data.Package
+import com.gocavgo.twese.ui.common.AcrylicGlassSurface
+import com.gocavgo.twese.ui.common.FluidShapes
 import com.gocavgo.twese.ui.common.VehiclePlatePill
 import com.gocavgo.twese.ui.common.adaptiveHorizontalPadding
 import com.gocavgo.twese.ui.common.contentMaxWidth
@@ -275,11 +277,10 @@ fun TripTopBar(
             // Inline vehicle info from trip — type + remaining seats
             if (isVehicleMenuOpen) {
                 Spacer(Modifier.height(8.dp))
-                Surface(
+                AcrylicGlassSurface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = colors.surface,
-                    border = BorderStroke(1.dp, colors.divider)
+                    shape = FluidShapes.card,
+                    shadowElevation = 3.dp
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),

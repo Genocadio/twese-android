@@ -52,6 +52,8 @@ import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.PackageStatus
 import com.gocavgo.twese.data.hasOpenTransfer
 import com.gocavgo.twese.data.sortedByUnreadNotices
+import com.gocavgo.twese.ui.common.AcrylicGlassSurface
+import com.gocavgo.twese.ui.common.FluidShapes
 import com.gocavgo.twese.ui.common.adaptiveHorizontalPadding
 import com.gocavgo.twese.ui.common.fluidBounceClick
 import com.gocavgo.twese.ui.theme.LocalDriversColors
@@ -262,7 +264,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                     Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
                                 }
                             },
-                            shape = RoundedCornerShape(14.dp),
+                            shape = FluidShapes.button,
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 unfocusedBorderColor = colors.divider,
@@ -278,17 +280,17 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                     } else {
                         // Search icon button
                         val searchInteractionSource = remember { MutableInteractionSource() }
-                        Surface(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .fluidBounceClick(interactionSource = searchInteractionSource),
-                            shape = RoundedCornerShape(14.dp),
-                            color = colors.surfaceAlt,
-                            border = BorderStroke(1.dp, colors.divider),
-                            onClick = { isSearchExpanded = true },
-                            interactionSource = searchInteractionSource
+                        AcrylicGlassSurface(
+                            modifier = Modifier.size(44.dp),
+                            shape = FluidShapes.button,
+                            shadowElevation = 3.dp
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .fluidBounceClick(interactionSource = searchInteractionSource, onClick = { isSearchExpanded = true }),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
                             }
                         }
@@ -296,11 +298,10 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                         Spacer(Modifier.width(10.dp))
 
                         // ── Modern 2-Segment Control (On Board vs Incoming) ─
-                        Surface(
+                        AcrylicGlassSurface(
                             modifier = Modifier.weight(1f).height(44.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            color = colors.surface,
-                            border = BorderStroke(1.dp, colors.divider)
+                            shape = FluidShapes.button,
+                            shadowElevation = 3.dp
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 3.dp),
@@ -341,7 +342,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                         modifier = Modifier
                                             .weight(1f)
                                             .fillMaxHeight()
-                                            .clip(RoundedCornerShape(11.dp))
+                                            .clip(FluidShapes.chip)
                                             .background(bgPill)
                                             .fluidBounceClick(
                                                 scaleDown = 0.95f,
