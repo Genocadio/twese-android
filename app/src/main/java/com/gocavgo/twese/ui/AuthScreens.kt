@@ -20,9 +20,13 @@ import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import com.gocavgo.twese.ui.common.FluidShapes
+import com.gocavgo.twese.ui.common.VehiclePlatePill
+import com.gocavgo.twese.viewmodel.AppRole
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -594,6 +598,103 @@ fun ProfileScreen(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.textSecondary)
                     } else {
                         Text("Update Password", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // ── Assigned Vehicle section (for drivers) ──────────────────────────
+        val isDriver = state.appRole == AppRole.DRIVER || state.driverHasVehicle || state.vehicle.plateNumber.isNotBlank()
+        if (isDriver) {
+            Spacer(Modifier.height(16.dp))
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = FluidShapes.card,
+                color = colors.surface,
+                border = BorderStroke(1.dp, colors.divider)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Assigned Vehicle", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(
+                                if (state.driverHasVehicle && state.vehicle.plateNumber.isNotBlank())
+                                    "Assigned fleet vehicle for deliveries"
+                                else "No vehicle assigned to your profile",
+                                color = colors.textSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(FluidShapes.pill)
+                                .background(colors.purple.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Filled.DirectionsCar, null, tint = colors.purple, modifier = Modifier.size(20.dp))
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    if (state.driverHasVehicle && state.vehicle.plateNumber.isNotBlank()) {
+                        val veh = state.vehicle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            VehiclePlatePill(
+                                plateNumber = veh.plateNumber,
+                                speedKmh = state.driverLocation.speedKmh,
+                                onClick = { viewModel.toggleVehicleMenu() }
+                            )
+                            if (veh.model.isNotBlank()) {
+                                Text(veh.model, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            }
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            veh.vehicleType?.let { type ->
+                                AssistChip(
+                                    onClick = { viewModel.toggleVehicleMenu() },
+                                    label = { Text(type, fontSize = 12.sp) },
+                                    leadingIcon = { Icon(Icons.Filled.DirectionsCar, null, modifier = Modifier.size(14.dp)) }
+                                )
+                            }
+                            if (veh.seats > 0) {
+                                AssistChip(
+                                    onClick = { viewModel.toggleVehicleMenu() },
+                                    label = { Text("${veh.seats} seats", fontSize = 12.sp) },
+                                    leadingIcon = { Icon(Icons.Filled.EventSeat, null, modifier = Modifier.size(14.dp)) }
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(FluidShapes.button)
+                                .background(colors.amber.copy(alpha = 0.1f))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.Info, null, tint = colors.amber, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "Contact your fleet manager or company admin to assign a vehicle to your account.",
+                                color = colors.textPrimary,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
             }

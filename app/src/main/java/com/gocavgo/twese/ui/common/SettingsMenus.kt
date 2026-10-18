@@ -33,6 +33,8 @@ import com.gocavgo.twese.ui.theme.LocalDriversColors
 import com.gocavgo.twese.viewmodel.AppThemeMode
 import com.gocavgo.twese.viewmodel.DriverProfile
 
+import com.gocavgo.twese.viewmodel.DriverVehicle
+
 // ── Profile Quick Menu ────────────────────────────────────────────────────────
 
 @Composable
@@ -43,6 +45,8 @@ fun ProfileQuickMenu(
     onProfileClick: () -> Unit,
     modifier: Modifier = Modifier,
     accentColorOverride: androidx.compose.ui.graphics.Color? = null,
+    vehicle: DriverVehicle? = null,
+    onVehicleClick: (() -> Unit)? = null,
     onRequestDriver: (() -> Unit)? = null,
     driverRequestStatus: String? = null,
     driverRequestCompanyCode: String? = null,
@@ -50,13 +54,13 @@ fun ProfileQuickMenu(
     driverRequestRejectionReason: String? = null,
 ) {
     val colors = LocalDriversColors.current
-    val accent = accentColorOverride ?: colors.blue
+    val accent = accentColorOverride ?: colors.purple
 
     Surface(
         modifier = modifier
             .width(230.dp)
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = {}),
-        shape = RoundedCornerShape(14.dp),
+        shape = FluidShapes.card,
         color = colors.surface,
         tonalElevation = 8.dp,
         shadowElevation = 8.dp,
@@ -64,11 +68,15 @@ fun ProfileQuickMenu(
     ) {
         Column(Modifier.padding(8.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onProfileClick() }.padding(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(FluidShapes.button)
+                    .clickable { onProfileClick() }
+                    .padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
-                    modifier = Modifier.size(34.dp).clip(CircleShape).background(accent.copy(alpha = 0.14f)),
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(accent.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center
                 ) {
                     val avatarUrl = profile.avatarUrl
@@ -82,6 +90,21 @@ fun ProfileQuickMenu(
                 Column {
                     Text(profile.name, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Text(profile.email, color = colors.textSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (vehicle != null && vehicle.plateNumber.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier
+                                .clip(FluidShapes.chip)
+                                .background(accent.copy(alpha = 0.12f))
+                                .clickable(enabled = onVehicleClick != null) { onVehicleClick?.invoke() }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.DirectionsCar, null, tint = accent, modifier = Modifier.size(11.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(vehicle.plateNumber, color = accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
             HorizontalDivider(color = colors.divider)

@@ -219,7 +219,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 6.dp)
+                            .padding(start = 68.dp, end = 68.dp, top = 2.dp, bottom = 6.dp)
                     ) {
                         Text(
                             text = "Packages",

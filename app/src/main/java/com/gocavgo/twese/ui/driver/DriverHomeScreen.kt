@@ -1,7 +1,6 @@
 package com.gocavgo.twese.ui.driver
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -12,14 +11,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,31 +25,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.gocavgo.twese.ui.TripContent
+import kotlin.math.roundToInt
 import com.gocavgo.twese.ui.common.CachedAvatarImage
-import com.gocavgo.twese.ui.common.AcrylicGlassSurface
-import com.gocavgo.twese.ui.common.FluidCloudCapsule
 import com.gocavgo.twese.ui.common.FluidShapes
 import com.gocavgo.twese.ui.common.FrostedFloatingIconButton
 import com.gocavgo.twese.ui.common.ProfileQuickMenu
 import com.gocavgo.twese.ui.common.SettingsMenu
-import com.gocavgo.twese.ui.common.VehiclePlatePill
 import com.gocavgo.twese.ui.common.contentMaxWidth
 import com.gocavgo.twese.ui.common.fluidBounceClick
 import com.gocavgo.twese.ui.common.isWideScreen
@@ -63,13 +50,13 @@ import com.gocavgo.twese.viewmodel.DriverProfile
 import com.gocavgo.twese.viewmodel.DriverVehicle
 import com.gocavgo.twese.viewmodel.TripViewModel
 
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.animation.ExperimentalAnimationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DriverHomeScreen(
     viewModel: TripViewModel,
     profile: DriverProfile,
     vehicle: DriverVehicle,
-    driverHomeTab: Int,
+    driverHomeTab: Int = 0,
     isDriverProfileMenuOpen: Boolean,
     isDriverSettingsOpen: Boolean,
     themeMode: AppThemeMode,
@@ -81,7 +68,7 @@ fun DriverHomeScreen(
     defaultPage: String = "trips",
     keepScreenAwake: Boolean = false,
     onCreatePackage: () -> Unit,
-    onTabChange: (Int) -> Unit,
+    onTabChange: (Int) -> Unit = {},
     onProfileMenuClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onThemeModeChange: (AppThemeMode) -> Unit,
@@ -97,405 +84,55 @@ fun DriverHomeScreen(
     onNoticesClick: () -> Unit = {},
     noticeCount: Int = 0
 ) {
-    val state  by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsState()
     val colors = LocalDriversColors.current
-    val wide   = isWideScreen()
-    val maxW   = contentMaxWidth()
-    var hasAppeared by remember { mutableStateOf(false) }
-    val haptic = LocalHapticFeedback.current
-    val pagerState = rememberPagerState(pageCount = { 2 })
-    // Sync pager → driverHomeTab (for bottom bar)
-    LaunchedEffect(pagerState.currentPage) {
-        if (driverHomeTab != pagerState.currentPage) {
-            onTabChange(pagerState.currentPage)
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
-    }
-    // Sync driverHomeTab → pager (for bottom bar clicks)
-    LaunchedEffect(driverHomeTab) {
-        if (pagerState.currentPage != driverHomeTab) {
-            pagerState.animateScrollToPage(driverHomeTab)
-        }
-    }
-    LaunchedEffect(Unit) { hasAppeared = true }
-
-    // ── Main content composable (shared between compact and wide layouts) ─
-    val mainContent: @Composable () -> Unit = {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize()
-        ) { tab ->
-            when (tab) {
-                0 -> {
-                    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
-                        isRefreshing = state.isRefreshingDriverTrips,
-                        onRefresh = { viewModel.refreshDriverTrips() }
-                    ) {
-                    if (state.hasActiveTrip) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            // Active trip content — slightly dimmed when stale
-                            Box(modifier = Modifier.fillMaxSize().let { mod ->
-                                if (state.isTripDataStale) mod.graphicsLayer { alpha = 0.6f } else mod
-                            }) {
-                                TripContent(
-                                    viewModel       = viewModel,
-                                    vehiclePlate    = vehicle.plateNumber,
-                                    onVehicleClick  = onVehicleClick,
-                                    onProfileClick  = onProfileClick
-                                )
-                            }
-                            // Disconnect banner at top
-                            if (state.isTripDataStale) {
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = colors.amber.copy(alpha = 0.15f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, colors.amber.copy(alpha = 0.4f))
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Filled.CloudOff, null, tint = colors.amber, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("Connection lost — showing cached data", color = colors.textPrimary, fontSize = 12.sp)
-                                    }
-                                }
-                            }
-                        }
-                    } else if (!state.driverHasVehicle) {
-                        // No vehicle assigned — silent gate, show message
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = 0.dp, bottom = 90.dp, start = 16.dp, end = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(0.dp)
-                        ) {
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .statusBarsPadding()
-                                        .padding(top = 2.dp, bottom = 16.dp),
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    AcrylicGlassSurface(
-                                        shape = FluidShapes.capsule,
-                                        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f))
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(Icons.Filled.DirectionsCar, null, tint = colors.amber, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            Text("No vehicle", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
-                            }
-                            item {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = if (completedTrips.isEmpty()) 0.dp else 24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(Icons.Filled.DirectionsCar, null, tint = colors.amber, modifier = Modifier.size(56.dp))
-                                    Spacer(Modifier.height(12.dp))
-                                    Text("No vehicle assigned", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                                    Spacer(Modifier.height(4.dp))
-                                    Text("Contact your fleet manager to assign a vehicle", color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
-                                }
-                            }
-                        }
-                    } else {
-                        // Has vehicle but no active trip — show plate pill header + vehicle info + history
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = 0.dp, bottom = 90.dp, start = 16.dp, end = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(0.dp)
-                        ) {
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .statusBarsPadding()
-                                        .padding(top = 2.dp, bottom = 12.dp),
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    VehiclePlatePill(
-                                        plateNumber = vehicle.plateNumber,
-                                        speedKmh = state.driverLocation.speedKmh,
-                                        onClick = onVehicleClick
-                                    )
-                                }
-                            }
-                            item {
-                                AcrylicGlassSurface(
-                                    shape = FluidShapes.card,
-                                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f)),
-                                    shadowElevation = 3.dp,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .fluidBounceClick(scaleDown = 0.98f, onClick = onVehicleClick)
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .background(colors.purple.copy(alpha = 0.14f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Filled.DirectionsCar, null, tint = colors.purple, modifier = Modifier.size(24.dp))
-                                    }
-                                    Spacer(Modifier.height(10.dp))
-                                    Text(vehicle.plateNumber, color = colors.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                                    Spacer(Modifier.height(2.dp))
-                                    Text(vehicle.model, color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
-                                    Spacer(Modifier.height(6.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        vehicle.vehicleType?.let { type ->
-                                            AssistChip(
-                                                onClick = {},
-                                                label = { Text(type, fontSize = 12.sp) },
-                                                leadingIcon = { Icon(Icons.Filled.DirectionsCar, null, modifier = Modifier.size(14.dp)) }
-                                            )
-                                        }
-                                        AssistChip(
-                                            onClick = {},
-                                            label = { Text("${vehicle.seats} seats", fontSize = 12.sp) },
-                                            leadingIcon = { Icon(Icons.Filled.EventSeat, null, modifier = Modifier.size(14.dp)) }
-                                        )
-                                    }
-                                    Spacer(Modifier.height(8.dp))
-                                    Text("Tap to view details", color = colors.blue, fontSize = 11.sp, textAlign = TextAlign.Center)
-                                }
-                            }
-                        }
-                        item {
-                                Spacer(Modifier.height(16.dp))
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(Icons.Filled.LocalShipping, null, tint = colors.textSecondary, modifier = Modifier.size(40.dp))
-                                    Spacer(Modifier.height(8.dp))
-                                    Text("No active trip", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                                    Spacer(Modifier.height(2.dp))
-                                    Text("Create a trip to start driving", color = colors.textSecondary, fontSize = 12.sp, textAlign = TextAlign.Center)
-                                }
-                            }
-                            if (completedTrips.isNotEmpty()) {
-                                item {
-                                    Spacer(Modifier.height(16.dp))
-                                    CompletedTripsHistorySection(trips = completedTrips)
-                                }
-                            }
-                        }
-                    }
-                    } // PullToRefreshBox
-                }
-                else -> DriverPackagesTab(viewModel = viewModel)
-            }
-        }
-    }
+    val wide = isWideScreen()
+    val maxW = contentMaxWidth()
 
     Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
 
-        if (wide) {
-            // ── WIDE SCREEN LAYOUT (landscape/tablet): Side rail + content ──
-            Row(modifier = Modifier.fillMaxSize()) {
-                // Side navigation rail
-                Surface(
-                    modifier = Modifier.widthIn(min = 72.dp, max = 88.dp).fillMaxHeight(),
-                    color = colors.surface,
-                    border = BorderStroke(1.dp, colors.divider)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().statusBarsPadding().padding(vertical = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Top: profile + tabs
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            // Profile avatar
-                            Box(
-                                modifier = Modifier.size(42.dp).clip(CircleShape)
-                                    .background(if (isDriverProfileMenuOpen) colors.blue.copy(alpha = 0.12f) else colors.surfaceAlt)
-                                    .clickable { onProfileMenuClick() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                val avatarUrl = profile.avatarUrl
-                                if (!avatarUrl.isNullOrBlank()) {
-                                    CachedAvatarImage(remoteUrl = avatarUrl, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                                } else {
-                                    Text(profile.name.first().uppercase(),
-                                        color = if (isDriverProfileMenuOpen) colors.blue else colors.textSecondary,
-                                        fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                }
-                            }
-                            Spacer(Modifier.height(24.dp))
-
-                            // Tab buttons (vertical)
-                            listOf(0 to Icons.Filled.DirectionsCar, 1 to Icons.Filled.Inventory2).forEach { (idx, icon) ->
-                                val selected = driverHomeTab == idx
-                                Surface(
-                                    modifier = Modifier.size(48.dp).padding(vertical = 4.dp),
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (selected) colors.purple.copy(alpha = 0.14f) else Color.Transparent,
-                                    border = if (selected) BorderStroke(1.dp, colors.purple.copy(alpha = 0.4f)) else null,
-                                    onClick = { onTabChange(idx) }
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            icon,
-                                            null,
-                                            tint = if (selected) colors.purple else colors.textSecondary,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Bottom: Create package FAB (vertical)
-                        FloatingActionButton(
-                            onClick = onCreatePackage,
-                            modifier = Modifier.size(48.dp),
-                            containerColor = colors.purple,
-                            contentColor = Color.White,
-                            shape = RoundedCornerShape(14.dp)
-                        ) { Icon(Icons.Filled.Add, null, modifier = Modifier.size(24.dp)) }
-                    }
-                }
-
-                // Main content area (centered with max-width constraint)
-                Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-                    val contentMod = if (maxW != Dp.Unspecified) Modifier.widthIn(max = maxW).fillMaxHeight() else Modifier.fillMaxSize()
-                    Box(modifier = contentMod) {
-                        mainContent()
-                    }
-                }
+        // ── Primary View: DriverPackagesTab (Full screen real estate) ──────
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            val contentMod = if (wide && maxW != Dp.Unspecified) {
+                Modifier.widthIn(max = maxW).fillMaxHeight()
+            } else {
+                Modifier.fillMaxSize()
             }
-        } else {
-            // ── COMPACT: existing vertical layout with bottom bar ──
-            mainContent()
-
-            // Bottom bar
-            AnimatedVisibility(
-                visible  = hasAppeared,
-                modifier = Modifier.align(Alignment.BottomCenter),
-                enter    = slideInVertically(tween(400, easing = FastOutSlowInEasing)) { it / 2 } + fadeIn(tween(400))
-            ) {
-                Row(
-                    modifier = Modifier.navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 14.dp).fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    AcrylicGlassSurface(
-                        modifier = Modifier.weight(1f),
-                        shape = FluidShapes.dock,
-                        shadowElevation = 6.dp
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            // Profile avatar with spring bounce
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(FluidShapes.pill)
-                                    .background(if (isDriverProfileMenuOpen) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt)
-                                    .fluidBounceClick(scaleDown = 0.92f) { onProfileMenuClick() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                val avatarUrl = profile.avatarUrl
-                                if (!avatarUrl.isNullOrBlank()) {
-                                    CachedAvatarImage(remoteUrl = avatarUrl, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                                } else {
-                                    Text(
-                                        profile.name.first().uppercase(),
-                                        color = if (isDriverProfileMenuOpen) colors.purple else colors.textSecondary,
-                                        fontWeight = FontWeight.Bold, fontSize = 16.sp
-                                    )
-                                }
-                            }
-
-                            // Clean modern icon-only tabs with spring bounce physics
-                            listOf(0 to Icons.Filled.DirectionsCar, 1 to Icons.Filled.Inventory2).forEach { (idx, icon) ->
-                                val isSelected = driverHomeTab == idx
-                                val iconTint by animateColorAsState(
-                                    if (isSelected) colors.purple else colors.textSecondary,
-                                    tween(250), label = "dockIconTint$idx"
-                                )
-                                val bgPill by animateColorAsState(
-                                    if (isSelected) colors.purple.copy(alpha = 0.12f) else Color.Transparent,
-                                    tween(250), label = "dockPillBg$idx"
-                                )
-
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(horizontal = 8.dp)
-                                        .height(42.dp)
-                                        .clip(FluidShapes.button)
-                                        .background(bgPill)
-                                        .fluidBounceClick(scaleDown = 0.94f) { onTabChange(idx) },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        icon,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                        tint = iconTint
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.width(10.dp))
-
-                    FloatingActionButton(
-                        onClick = onCreatePackage,
-                        modifier = Modifier.fluidBounceClick(scaleDown = 0.92f),
-                        containerColor = colors.purple,
-                        contentColor   = Color.White,
-                        shape          = FluidShapes.pill,
-                        elevation      = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp)
-                    ) { Icon(Icons.Filled.Add, null, modifier = Modifier.size(26.dp)) }
-                }
+            Box(modifier = contentMod) {
+                DriverPackagesTab(viewModel = viewModel)
             }
         }
 
-        // ── OxygenOS / ColorOS Fluid Cloud Capsule (Live Shift / Trip Activity) ──
-        val activeTrip = state.activeDriverTrip
-        val hasActiveTrip = state.hasActiveTrip || activeTrip != null
-        val tripRouteName = activeTrip?.routeName
-            ?: (if (activeTrip?.origin != null && activeTrip.destination != null) "${activeTrip.origin} → ${activeTrip.destination}" else null)
-            ?: state.trip.routeLabel.ifBlank { "Active Shift" }
-        val stopsCount = state.trip.stops.size
-        val stopsInfo = if (stopsCount > 0) "${state.currentStopIndex}/$stopsCount stops" else "Active Trip"
-        val pkgCountInfo = "${state.driverCurrentPackages.size} pkgs"
-
-        FluidCloudCapsule(
-            visible = hasActiveTrip && driverHomeTab != 0,
-            title = "Trip In Progress • $tripRouteName",
-            subtitle = "$stopsInfo • $pkgCountInfo",
-            icon = Icons.Filled.DirectionsCar,
-            accentColor = colors.purple,
-            onClick = { onTabChange(0) },
+        // ── Top-Start: Driver Profile Avatar Button (Frosted floating) ──────
+        FrostedFloatingIconButton(
+            onClick = onProfileMenuClick,
+            shape = FluidShapes.pill,
             modifier = Modifier
-                .align(Alignment.TopCenter)
+                .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(top = 4.dp, end = 60.dp)
-        )
+                .padding(top = 2.dp, start = 16.dp)
+        ) {
+            val avatarUrl = profile.avatarUrl
+            if (!avatarUrl.isNullOrBlank()) {
+                CachedAvatarImage(
+                    remoteUrl = avatarUrl,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Text(
+                    profile.name.firstOrNull()?.uppercase() ?: "D",
+                    color = colors.purple,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            }
+        }
 
-        // ── Bell notification button (frosted glass floating, visible on all pages) ──
+        // ── Top-End: Notification Bell Button (Frosted floating) ───────────
         FrostedFloatingIconButton(
             onClick = onNoticesClick,
             shape = FluidShapes.pill,
@@ -511,73 +148,122 @@ fun DriverHomeScreen(
                     }
                 }
             }) {
-                Icon(Icons.Filled.Notifications, null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                Icon(
+                    Icons.Filled.Notifications,
+                    contentDescription = "Notifications",
+                    tint = colors.textPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 
-        // ── Shared: overlays, menus, dialogs (same for both layouts) ──────────
-        
+        // ── Bottom-End Thumb Zone: Stacked Floating Trip HUD + New Package FAB ──
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 16.dp, bottom = 16.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Floating minimisable trip overlay (bubble directly above the [+] FAB)
+            FloatingTripOverlay(
+                viewModel = viewModel,
+                onOpenCreateTrip = { viewModel.openDriverCreateTrip() }
+            )
+
+            // New Package [+] FAB
+            FloatingActionButton(
+                onClick = onCreatePackage,
+                modifier = Modifier
+                    .size(56.dp)
+                    .fluidBounceClick(scaleDown = 0.92f),
+                containerColor = colors.purple,
+                contentColor = Color.White,
+                shape = FluidShapes.pill,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = "Create Package",
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        // ── Shared: overlays, menus, dialogs ──────────────────────────────
+
         // Overlay scrim
         if (isDriverProfileMenuOpen || isDriverSettingsOpen) {
             Box(
-                modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.3f))
-                    .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onDismissMenus)
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = onDismissMenus
+                    )
             )
         }
 
-        // Profile dropdown
+        // Profile quick menu dropdown (expands from top-start avatar)
         AnimatedVisibility(
-            visible  = isDriverProfileMenuOpen,
-            modifier = Modifier.align(if (wide) Alignment.TopStart else Alignment.BottomStart)
+            visible = isDriverProfileMenuOpen,
+            modifier = Modifier
+                .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(start = if (wide) 80.dp else 16.dp, bottom = if (wide) 0.dp else 80.dp, top = if (wide) 80.dp else 0.dp),
-            enter    = expandVertically(tween(250, easing = FastOutSlowInEasing)) + fadeIn(tween(250)),
-            exit     = shrinkVertically(tween(200)) + fadeOut(tween(200))
+                .padding(start = 16.dp, top = 56.dp),
+            enter = expandVertically(tween(250, easing = FastOutSlowInEasing)) + fadeIn(tween(250)),
+            exit = shrinkVertically(tween(200)) + fadeOut(tween(200))
         ) {
             ProfileQuickMenu(
-                profile        = profile,
+                profile = profile,
+                vehicle = vehicle,
+                onVehicleClick = onVehicleClick,
                 onSettingsClick = { onDismissMenus(); onSettingsClick() },
-                onLogoutClick   = onLogout,
-                onProfileClick  = { onDismissMenus(); onProfileClick() }
+                onLogoutClick = onLogout,
+                onProfileClick = { onDismissMenus(); onProfileClick() }
             )
         }
 
         // Settings dropdown
         AnimatedVisibility(
-            visible  = isDriverSettingsOpen,
-            modifier = Modifier.align(if (wide) Alignment.TopStart else Alignment.BottomStart)
+            visible = isDriverSettingsOpen,
+            modifier = Modifier
+                .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(start = if (wide) 80.dp else 16.dp, bottom = if (wide) 0.dp else 80.dp, top = if (wide) 80.dp else 0.dp),
-            enter    = expandVertically(tween(250, easing = FastOutSlowInEasing)) + fadeIn(tween(250)),
-            exit     = shrinkVertically(tween(200)) + fadeOut(tween(200))
+                .padding(start = 16.dp, top = 56.dp),
+            enter = expandVertically(tween(250, easing = FastOutSlowInEasing)) + fadeIn(tween(250)),
+            exit = shrinkVertically(tween(200)) + fadeOut(tween(200))
         ) {
             SettingsMenu(
-                themeMode             = themeMode,
-                onThemeModeChange     = onThemeModeChange,
-                onClose               = onCloseSettings,
-                isPipEnabled          = isPipEnabled,
-                onPipEnabledChange    = onPipEnabledChange,
-                defaultPage           = defaultPage,
-                onDefaultPageChange   = onDefaultPageChange,
-                keepScreenAwake       = keepScreenAwake,
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
+                onClose = onCloseSettings,
+                isPipEnabled = isPipEnabled,
+                onPipEnabledChange = onPipEnabledChange,
+                defaultPage = defaultPage,
+                onDefaultPageChange = onDefaultPageChange,
+                keepScreenAwake = keepScreenAwake,
                 onKeepScreenAwakeChange = onKeepScreenAwakeChange
             )
         }
 
-        // ── Floating new-package toast (shown at top, swipeable to dismiss) ─
+        // ── Floating new-package toast (shown at top, swipeable to dismiss) ──
         AnimatedVisibility(
             visible = state.showNewPackageToast,
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 8.dp),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 8.dp),
             enter = slideInVertically(tween(300)) { -it / 2 } + fadeIn(tween(300)),
-            exit  = slideOutVertically(tween(200)) { -it / 2 } + fadeOut(tween(200))
+            exit = slideOutVertically(tween(200)) { -it / 2 } + fadeOut(tween(200))
         ) {
             val newPkg = state.newPackageFromSubscription
             if (newPkg != null) {
-                // ── Swipe-to-dismiss: drag offset + fade on swipe ────────────
                 var swipeOffset by remember { mutableFloatStateOf(0f) }
-                val dismissThreshold = -160f // px — must swipe up past this to dismiss
+                val dismissThreshold = -160f
 
                 Box(
                     modifier = Modifier
@@ -586,13 +272,13 @@ fun DriverHomeScreen(
                         .draggable(
                             orientation = Orientation.Vertical,
                             state = rememberDraggableState { delta ->
-                                swipeOffset = (swipeOffset + delta).coerceAtMost(0f) // only upward
+                                swipeOffset = (swipeOffset + delta).coerceAtMost(0f)
                             },
                             onDragStopped = {
                                 if (swipeOffset < dismissThreshold) {
                                     viewModel.dismissNewPackageToast()
                                 }
-                                swipeOffset = 0f // snap back if not dismissed
+                                swipeOffset = 0f
                             }
                         )
                 ) {
@@ -604,22 +290,25 @@ fun DriverHomeScreen(
                         color = colors.surface,
                         tonalElevation = 8.dp,
                         shadowElevation = 12.dp,
-                        border = BorderStroke(1.5.dp, colors.blue.copy(alpha = 0.5f))
+                        border = BorderStroke(1.5.dp, colors.purple.copy(alpha = 0.5f))
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
-                                modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.green.copy(alpha = 0.12f)),
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.purple.copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Filled.LocalShipping, null, tint = colors.green, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.LocalShipping, null, tint = colors.purple, modifier = Modifier.size(18.dp))
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("New package available!", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text( newPkg.id, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                Text(newPkg.id, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                                 Text("${newPkg.fromAddress} → ${newPkg.toAddress}", color = colors.textSecondary, fontSize = 10.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             }
                             Spacer(Modifier.width(8.dp))
@@ -628,7 +317,6 @@ fun DriverHomeScreen(
                     }
                 }
 
-                // Auto-dismiss after 8 seconds
                 LaunchedEffect(newPkg.id) {
                     kotlinx.coroutines.delay(8_000)
                     viewModel.dismissNewPackageToast()
@@ -636,29 +324,29 @@ fun DriverHomeScreen(
             }
         }
 
-        // ── Package dialogs ───────────────────────────────────────────────────
+        // ── Package Dialogs & Bottom Sheets ──────────────────────────────────
         val selectedPkg = viewModel.getSelectedDriverPackage()
 
         if (state.isDeliverDialogOpen && selectedPkg != null) {
             DeliverConfirmationDialog(
-                packageId    = selectedPkg.id,
+                packageId = selectedPkg.id,
                 expectedCode = "",
-                codeInput    = state.deliverCodeInput,
-                codeError    = state.deliverCodeError,
+                codeInput = state.deliverCodeInput,
+                codeError = state.deliverCodeError,
                 onCodeChange = { viewModel.updateDeliverCode(it) },
-                onConfirm    = { viewModel.confirmDeliver() },
-                onDismiss    = { viewModel.closeDeliverDialog() },
+                onConfirm = { viewModel.confirmDeliver() },
+                onDismiss = { viewModel.closeDeliverDialog() },
                 isConfirming = state.isConfirmingDelivery
             )
         }
 
         if (state.isTransferDialogOpen && selectedPkg != null) {
             TransferToOfficeDialog(
-                packageId   = selectedPkg.id,
+                packageId = selectedPkg.id,
                 currentStop = state.trip.stops.getOrNull(state.currentStopIndex)?.name ?: "Current location",
-                onConfirm   = { viewModel.confirmTransfer() },
-                onDismiss   = { viewModel.closeTransferDialog() },
-                isCreating  = state.isCreatingTransfer
+                onConfirm = { viewModel.confirmTransfer() },
+                onDismiss = { viewModel.closeTransferDialog() },
+                isCreating = state.isCreatingTransfer
             )
         }
 
@@ -687,7 +375,6 @@ fun DriverHomeScreen(
             )
         }
 
-        // ── Batch Transfer Dialog (selection mode) ────────────────────────
         if (state.showBatchTransferDialog) {
             BatchTransferDialog(
                 packageCount = state.selectedPackageIds.size,
