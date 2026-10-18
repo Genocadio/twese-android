@@ -214,7 +214,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                             value = searchQuery,
                             onValueChange = { viewModel.updateDriverPackageSearch(it) },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("Search by code, destination...", fontSize = 13.sp) },
+                            placeholder = { Text("Search by code, destination...", fontSize = 14.sp) },
                             leadingIcon = {
                                 Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
                             },
@@ -233,12 +233,12 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 unfocusedBorderColor = colors.divider,
-                                focusedBorderColor = colors.blue,
-                                cursorColor = colors.blue,
+                                focusedBorderColor = colors.purple,
+                                cursorColor = colors.purple,
                                 unfocusedLeadingIconColor = colors.textSecondary,
-                                focusedLeadingIconColor = colors.blue
+                                focusedLeadingIconColor = colors.purple
                             ),
-                            textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+                            textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
                         )
                         Spacer(Modifier.width(8.dp))
                         Spacer(Modifier.width(42.dp)) // Reserve space for floating bell
@@ -308,26 +308,26 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                             Text(
                                                 text = label,
                                                 color = contentColor,
-                                                fontSize = 13.sp,
+                                                fontSize = 14.sp,
                                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                             )
                                             Spacer(Modifier.width(6.dp))
 
                                             // Count badge
-                                            val badgeBg = if (isSelected) colors.blue else colors.divider
+                                            val badgeBg = if (isSelected) colors.purple else colors.divider
                                             val badgeText = if (isSelected) Color.White else colors.textSecondary
 
                                             Box(
                                                 modifier = Modifier
                                                     .clip(CircleShape)
                                                     .background(badgeBg)
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    .padding(horizontal = 7.dp, vertical = 2.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
                                                     text = "$count",
                                                     color = badgeText,
-                                                    fontSize = 10.sp,
+                                                    fontSize = 12.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
@@ -620,7 +620,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
             ) {
                 ExtendedFloatingActionButton(
                     onClick = { viewModel.openBatchTransferDialog() },
-                    containerColor = colors.blue,
+                    containerColor = colors.purple,
                     contentColor = Color.White,
                     shape = RoundedCornerShape(16.dp),
                     elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
@@ -643,23 +643,23 @@ private fun SelectionChipRow(selectedCount: Int, onCancel: () -> Unit) {
     ) {
         Surface(
             shape = RoundedCornerShape(10.dp),
-            color = colors.blue.copy(alpha = 0.1f),
-            border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.3f))
+            color = colors.purple.copy(alpha = 0.12f),
+            border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.3f))
         ) {
             Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.CheckCircle, null, tint = colors.blue, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("$selectedCount selected", color = colors.blue, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Icon(Icons.Filled.CheckCircle, null, tint = colors.purple, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("$selectedCount selected", color = colors.purple, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
         Spacer(Modifier.weight(1f))
         TextButton(
             onClick = onCancel,
-            modifier = Modifier.heightIn(min = 30.dp),
+            modifier = Modifier.heightIn(min = 32.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
             shape = RoundedCornerShape(10.dp)
         ) {
-            Text("Cancel", color = colors.textSecondary, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+            Text("Cancel", color = colors.textSecondary, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
         }
     }
 }
@@ -744,7 +744,7 @@ fun EmptyPackagesState(title: String, subtitle: String) {
                     Spacer(Modifier.height(12.dp))
                     Text(title, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text(subtitle, color = colors.textSecondary, fontSize = 12.sp)
+                    Text(subtitle, color = colors.textSecondary, fontSize = 13.sp)
                 }
             }
         }

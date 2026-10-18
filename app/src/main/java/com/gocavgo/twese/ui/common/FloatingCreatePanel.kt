@@ -273,8 +273,8 @@ fun FloatingCreatePanel(
                             val haptic = LocalHapticFeedback.current
                             val btnColor = when {
                                 isSubmitting -> colors.surfaceAlt
-                                isLastStep -> if (stepIsValid) colors.green else colors.surfaceAlt
-                                else -> if (stepIsValid) colors.blue else colors.surfaceAlt
+                                stepIsValid -> colors.purple
+                                else -> colors.surfaceAlt
                             }
                             val btnContentColor = if (stepIsValid && !isSubmitting) Color.White else colors.textSecondary
                             Surface(

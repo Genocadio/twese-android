@@ -173,10 +173,10 @@ fun PickupCodeDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(40.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(40.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Lock, null, tint = colors.blue, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Filled.Lock, null, tint = colors.purple, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Text("Pickup Code", fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -196,14 +196,14 @@ fun PickupCodeDialog(
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    color = colors.blue.copy(alpha = 0.06f),
-                    border = BorderStroke(1.5.dp, colors.blue.copy(alpha = 0.3f))
+                    color = colors.purple.copy(alpha = 0.06f),
+                    border = BorderStroke(1.5.dp, colors.purple.copy(alpha = 0.3f))
                 ) {
                     Text(
                         pickupCode,
                         modifier = Modifier.padding(vertical = 20.dp).fillMaxWidth(),
                         textAlign = TextAlign.Center,
-                        color = colors.blue,
+                        color = colors.purple,
                         fontSize = 36.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 8.sp
@@ -216,7 +216,7 @@ fun PickupCodeDialog(
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                    color = if (remainingSecs > 30) colors.blue else colors.red,
+                    color = if (remainingSecs > 30) colors.purple else colors.red,
                     trackColor = colors.divider
                 )
 
@@ -250,7 +250,7 @@ fun PickupCodeDialog(
                         Text(
                             "remaining",
                             color = if (remainingSecs > 30) colors.textSecondary else colors.red,
-                            fontSize = 11.sp
+                            fontSize = 12.sp
                         )
                     }
                 }
@@ -260,7 +260,7 @@ fun PickupCodeDialog(
                 Text(
                     "The code expires after 2 minutes. You can generate a new one after it expires.",
                     color = colors.textSecondary,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     textAlign = TextAlign.Center
                 )
             }
@@ -269,7 +269,7 @@ fun PickupCodeDialog(
             Button(
                 onClick = onDismiss,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                 modifier = Modifier.height(42.dp)
             ) {
                 Text("Done", fontWeight = FontWeight.Bold)
@@ -303,10 +303,10 @@ fun DeliveryConfirmationDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(40.dp).clip(CircleShape).background(colors.green.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(40.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Verified, null, tint = colors.green, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Filled.Verified, null, tint = colors.purple, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Text("Delivery Confirmation", fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -335,8 +335,8 @@ fun DeliveryConfirmationDialog(
                             Toast.makeText(context, "Code copied to clipboard", Toast.LENGTH_SHORT).show()
                         },
                     shape = RoundedCornerShape(16.dp),
-                    color = colors.green.copy(alpha = 0.06f),
-                    border = BorderStroke(1.5.dp, colors.green.copy(alpha = 0.3f))
+                    color = colors.purple.copy(alpha = 0.06f),
+                    border = BorderStroke(1.5.dp, colors.purple.copy(alpha = 0.3f))
                 ) {
                     Column(
                         modifier = Modifier.padding(vertical = 16.dp).fillMaxWidth(),
@@ -345,16 +345,16 @@ fun DeliveryConfirmationDialog(
                         Text(
                             deliveryCode,
                             textAlign = TextAlign.Center,
-                            color = colors.green,
+                            color = colors.purple,
                             fontSize = 36.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 8.sp
                         )
                         Spacer(Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = colors.green.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = colors.purple.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Tap to copy", color = colors.green.copy(alpha = 0.7f), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Text("Tap to copy", color = colors.purple.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -375,7 +375,7 @@ fun DeliveryConfirmationDialog(
             Button(
                 onClick = onConfirm,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.green),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                 modifier = Modifier.height(40.dp),
                 enabled = !isConfirming
             ) {

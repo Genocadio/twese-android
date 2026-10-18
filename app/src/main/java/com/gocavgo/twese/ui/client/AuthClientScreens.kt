@@ -85,7 +85,7 @@ fun RoleSelectionScreen(
             )
         } else {
             AuthSplitLayout(
-                accent = colors.blue,
+                accent = colors.purple,
                 logo = Icons.Filled.LocalShipping,
                 title = "Twese",
                 subtitle = "Deliver anything, anywhere"
@@ -111,8 +111,8 @@ fun RoleSelectionScreen(
                                 ) {
                                     Column(Modifier.padding(20.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                                                Icon(Icons.Filled.Search, null, tint = colors.blue, modifier = Modifier.size(20.dp))
+                                            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Filled.Search, null, tint = colors.purple, modifier = Modifier.size(20.dp))
                                             }
                                             Spacer(Modifier.width(12.dp))
                                             Text("Track a package", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
@@ -129,14 +129,14 @@ fun RoleSelectionScreen(
                                                 }
                                             },
                                             singleLine = true, shape = RoundedCornerShape(12.dp),
-                                            colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = colors.divider, focusedBorderColor = colors.blue, cursorColor = colors.blue)
+                                            colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = colors.divider, focusedBorderColor = colors.purple, cursorColor = colors.purple)
                                         )
                                         Spacer(Modifier.height(14.dp))
                                         Button(
                                             onClick = { if (trackingCode.isNotBlank()) onTrackByCode(trackingCode.trim()) },
                                             modifier = Modifier.fillMaxWidth().height(50.dp),
                                             shape = RoundedCornerShape(12.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+                                            colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                                         ) {
                                             Icon(Icons.Filled.Search, null, modifier = Modifier.size(20.dp))
                                             Spacer(Modifier.width(8.dp))
@@ -158,14 +158,14 @@ fun RoleSelectionScreen(
                                         onClick = { showAuth = true; isSignUp = false },
                                         modifier = Modifier.weight(1f).height(52.dp),
                                         shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.5.dp, colors.blue),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.blue)
+                                        border = BorderStroke(1.5.dp, colors.purple),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.purple)
                                     ) { Text("Sign In", fontWeight = FontWeight.Bold, fontSize = 15.sp) }
                                     Button(
                                         onClick = { showAuth = true; isSignUp = true },
                                         modifier = Modifier.weight(1f).height(52.dp),
                                         shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+                                        colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                                     ) { Text("Sign Up", fontWeight = FontWeight.Bold, fontSize = 15.sp) }
                                 }
                         }
@@ -238,7 +238,7 @@ fun ClientLoginScreen(
     }
 
     AuthSplitLayout(
-        accent = colors.green,
+        accent = colors.purple,
         logo = Icons.Filled.Inventory2,
         title = "Twese Client",
         subtitle = "Sign in to send & track packages",
@@ -270,7 +270,7 @@ fun ClientLoginScreen(
                     onClick = { onLogin(email.trim(), password) },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.green),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                     enabled = !isAuthLoading && email.isNotBlank() && password.isNotBlank()
                 ) {
                     if (isAuthLoading) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
@@ -286,7 +286,7 @@ fun ClientLoginScreen(
                 }
                 Spacer(Modifier.height(6.dp))
                 TextButton(onClick = onShowForgotPassword, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                    Text("Forgot Password?", color = colors.green, fontSize = 13.sp)
+                    Text("Forgot Password?", color = colors.purple, fontSize = 13.sp)
                 }
             }
         }
@@ -313,13 +313,13 @@ fun OtpVerificationScreen(
     var code by remember { mutableStateOf("") }
 
     AuthSplitLayout(
-        accent = colors.blue,
+        accent = colors.purple,
         logo = Icons.Filled.MarkEmailRead,
         title = "Verify Your Email",
         subtitle = "Enter the verification code sent to"
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-            Text(email, color = colors.blue, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(email, color = colors.purple, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(16.dp))
             Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = colors.surface, border = BorderStroke(1.dp, colors.divider)) {
                 Column(Modifier.padding(16.dp)) {
@@ -334,7 +334,7 @@ fun OtpVerificationScreen(
                         onClick = { onVerify(code.trim()) },
                         modifier = Modifier.fillMaxWidth().height(50.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                         enabled = !isAuthLoading && code.length == 6
                     ) {
                         if (isAuthLoading) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
@@ -350,7 +350,7 @@ fun OtpVerificationScreen(
                     }
                     Spacer(Modifier.height(12.dp))
                     TextButton(onClick = onResend, modifier = Modifier.align(Alignment.CenterHorizontally), enabled = !isAuthLoading) {
-                        Text("Resend Code", color = colors.blue, fontSize = 13.sp)
+                        Text("Resend Code", color = colors.purple, fontSize = 13.sp)
                     }
                 }
             }
@@ -396,7 +396,7 @@ private fun AuthPanel(
                     listOf(false to "Sign In", true to "Sign Up").forEach { (isUp, label) ->
                         Surface(
                             modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { onTabChange(isUp) },
-                            color = if (isSignUp == isUp) colors.blue else androidx.compose.ui.graphics.Color.Transparent
+                            color = if (isSignUp == isUp) colors.purple else androidx.compose.ui.graphics.Color.Transparent
                         ) {
                             Box(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
                                 Text(label, color = if (isSignUp == isUp) MaterialTheme.colorScheme.onPrimary else colors.textSecondary, fontSize = 14.sp, fontWeight = if (isSignUp == isUp) FontWeight.Bold else FontWeight.Normal)
@@ -430,7 +430,7 @@ private fun AuthPanel(
                 onClick = if (isSignUp) onSignUp else onSignIn,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                 enabled = !isAuthLoading && email.isNotBlank() && password.isNotBlank() && (!isSignUp || (fullName.isNotBlank() && phone.isNotBlank()))
             ) {
                 if (isAuthLoading) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
@@ -447,7 +447,7 @@ private fun AuthPanel(
             if (!isSignUp) {
                 Spacer(Modifier.height(4.dp))
                 TextButton(onClick = onShowForgotPassword, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                    Text("Forgot Password?", color = colors.blue, fontSize = 12.sp)
+                    Text("Forgot Password?", color = colors.purple, fontSize = 12.sp)
                 }
             }
         }

@@ -27,9 +27,9 @@ fun CompletedTripsHistorySection(trips: List<CompletedTrip>, modifier: Modifier 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.History, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Completed Trips", color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text("Completed Trips", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
             Spacer(Modifier.weight(1f))
-            Text("${trips.size}", color = colors.textSecondary, fontSize = 11.sp)
+            Text("${trips.size}", color = colors.textSecondary, fontSize = 13.sp)
         }
         Spacer(Modifier.height(10.dp))
         trips.forEachIndexed { index, trip ->
@@ -44,30 +44,30 @@ fun CompletedTripsHistorySection(trips: List<CompletedTrip>, modifier: Modifier 
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
-                        modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.green.copy(alpha = 0.12f)),
+                        modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Filled.CheckCircle, null, tint = colors.green, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.CheckCircle, null, tint = colors.purple, modifier = Modifier.size(18.dp))
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             "${trip.origin} → ${trip.destination}",
                             color = colors.textPrimary,
-                            fontSize = 13.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Spacer(Modifier.height(2.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.DirectionsCar, null, tint = colors.textSecondary, modifier = Modifier.size(11.dp))
+                            Icon(Icons.Filled.DirectionsCar, null, tint = colors.textSecondary, modifier = Modifier.size(13.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(trip.plateNumber, color = colors.textSecondary, fontSize = 11.sp)
+                            Text(trip.plateNumber, color = colors.textSecondary, fontSize = 12.sp)
                         }
                     }
-                    Surface(shape = RoundedCornerShape(8.dp), color = colors.green.copy(alpha = 0.1f)) {
-                        Text("Done", modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = colors.green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Surface(shape = RoundedCornerShape(8.dp), color = colors.purple.copy(alpha = 0.1f)) {
+                        Text("Done", modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = colors.purple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

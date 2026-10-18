@@ -146,17 +146,17 @@ fun TripContent(
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         shape = RoundedCornerShape(14.dp),
-                        color = colors.green.copy(alpha = 0.1f),
-                        border = BorderStroke(1.dp, colors.green.copy(alpha = 0.3f))
+                        color = colors.purple.copy(alpha = 0.1f),
+                        border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.3f))
                     ) {
                         Row(
                             modifier = Modifier.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Filled.CheckCircle, null, tint = colors.green, modifier = Modifier.size(28.dp))
+                            Icon(Icons.Filled.CheckCircle, null, tint = colors.purple, modifier = Modifier.size(28.dp))
                             Spacer(Modifier.width(12.dp))
                             Column {
-                                Text("Trip Completed", color = colors.green, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Trip Completed", color = colors.purple, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Text("All packages delivered successfully", color = colors.textSecondary, fontSize = 12.sp)
                             }
                         }
@@ -230,7 +230,7 @@ fun TripTopBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier.size(28.dp).clip(CircleShape).background(colors.blue),
+                modifier = Modifier.size(28.dp).clip(CircleShape).background(colors.purple),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Filled.LocalShipping, null, tint = Color.White,
@@ -288,7 +288,7 @@ fun TripTopBar(
                     ) {
                         // Vehicle type
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.LocalShipping, null, tint = colors.blue, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Filled.LocalShipping, null, tint = colors.purple, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 vehicle.vehicleType ?: "—",
@@ -299,7 +299,7 @@ fun TripTopBar(
                         }
                         // Remaining seats from trip
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.EventSeat, null, tint = colors.green, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Filled.EventSeat, null, tint = colors.purple, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
                             val remaining = state.activeDriverTrip?.remainingSeats
                             val total = state.activeDriverTrip?.seats ?: vehicle.seats
@@ -326,21 +326,21 @@ fun TripTopBar(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     Box(
-                        modifier = Modifier.size(28.dp).clip(CircleShape).background(colors.blue),
+                        modifier = Modifier.size(28.dp).clip(CircleShape).background(colors.purple),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(Icons.Filled.LocalShipping, null, tint = Color.White,
                             modifier = Modifier.size(15.dp))
                     }
                     Spacer(Modifier.width(8.dp))
-                    Text("Twese Driver", color = colors.textSecondary, fontSize = 10.sp, letterSpacing = 1.5.sp)
+                    Text("Twese Driver", color = colors.textSecondary, fontSize = 12.sp, letterSpacing = 1.sp)
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
                     state.trip.routeLabel,
                     color = colors.textPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     textAlign = TextAlign.Center
                 )
             }
@@ -381,7 +381,7 @@ fun UpcomingStopDashboard(viewModel: TripViewModel, wide: Boolean = false) {
 
     val stop = state.trip.stops.getOrNull(activeStopIndex) ?: viewModel.currentStop
     val isUpcoming = !isScheduled && activeStopIndex > 0
-    val accent = if (isUpcoming) colors.amber else colors.blue
+    val accent = if (isUpcoming) colors.amber else colors.purple
 
     val distMeters = activeWp?.remainingDistance?.takeIf { it > 0.0 }
         ?: activeTrip?.remainingDistanceToDestination?.takeIf { it > 0.0 }
@@ -436,7 +436,7 @@ fun UpcomingStopDashboard(viewModel: TripViewModel, wide: Boolean = false) {
                         Text(
                             if (isUpcoming) "UPCOMING STOP" else "CURRENT STOP",
                             color = accent,
-                            fontSize = if (wide) 11.sp else 10.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
                         )
@@ -489,7 +489,7 @@ fun UpcomingStopDashboard(viewModel: TripViewModel, wide: Boolean = false) {
             }
 
             Text(stop.address, color = colors.textSecondary,
-                fontSize = if (wide) 13.sp else 12.sp,
+                fontSize = 13.sp,
                 modifier = Modifier.padding(start = if (wide) 46.dp else 42.dp))
 
             Spacer(Modifier.height(if (wide) 20.dp else 16.dp))
@@ -506,7 +506,7 @@ fun UpcomingStopDashboard(viewModel: TripViewModel, wide: Boolean = false) {
                     modifier = Modifier.weight(1f),
                     title = "PICK UP",
                     count = stop.pickups.size,
-                    color = colors.green,
+                    color = colors.purple,
                     packages = stop.pickups,
                     icon = Icons.Filled.AddCircle,
                     wide = wide
@@ -550,7 +550,7 @@ fun PackageColumn(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = color, modifier = Modifier.size(if (wide) 16.dp else 14.dp))
             Spacer(Modifier.width(5.dp))
-            Text(title, color = color, fontSize = if (wide) 11.sp else 10.sp,
+            Text(title, color = color, fontSize = 12.sp,
                 fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
             Spacer(Modifier.weight(1f))
             // Count badge
@@ -563,7 +563,7 @@ fun PackageColumn(
                 Text(
                     count.toString(),
                     color = color,
-                    fontSize = if (wide) 12.sp else 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -573,7 +573,7 @@ fun PackageColumn(
 
         when {
             packages.isEmpty() -> {
-                Text("None", color = colors.textSecondary, fontSize = if (wide) 12.sp else 11.sp)
+                Text("None", color = colors.textSecondary, fontSize = 13.sp)
             }
             packages.size == 1 -> {
                 PackagePill(packages[0], color, wide = wide)
@@ -612,7 +612,7 @@ fun PackageColumn(
                         Text(
                             "${pagerState.currentPage + 1}/${packages.size}",
                             color = colors.textSecondary,
-                            fontSize = 9.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -638,7 +638,7 @@ fun PackagePill(pkg: Package, color: Color, wide: Boolean = false) {
             Text(
                 pkg.label,
                 color = colors.textPrimary,
-                fontSize = if (wide) 12.sp else 11.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -646,13 +646,13 @@ fun PackagePill(pkg: Package, color: Color, wide: Boolean = false) {
             Text(
                 pkg.recipient,
                 color = colors.textSecondary,
-                fontSize = if (wide) 11.sp else 10.sp,
+                fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
         Text(pkg.weight, color = color,
-            fontSize = if (wide) 11.sp else 10.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold)
     }
 }
@@ -673,7 +673,7 @@ fun RouteProgressStrip(state: TripUiState) {
     ) {
         Column(Modifier.padding(if (wide) 16.dp else 14.dp)) {
             Text("ROUTE", color = colors.textSecondary,
-                fontSize = if (wide) 11.sp else 10.sp,
+                fontSize = 12.sp,
                 letterSpacing = 1.sp)
             Spacer(Modifier.height(if (wide) 12.dp else 10.dp))
 
@@ -687,8 +687,8 @@ fun RouteProgressStrip(state: TripUiState) {
                         val isDone    = idx < cur
                         val isCurrent = idx == cur
                         val dotColor  = when {
-                            isDone    -> colors.green
-                            isCurrent -> colors.blue
+                            isDone    -> colors.purple
+                            isCurrent -> colors.purple
                             else      -> colors.divider
                         }
                         Column(
@@ -704,10 +704,10 @@ fun RouteProgressStrip(state: TripUiState) {
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isDone) {
-                                    Icon(Icons.Filled.Check, null, tint = colors.green,
+                                    Icon(Icons.Filled.Check, null, tint = colors.purple,
                                         modifier = Modifier.size(14.dp))
                                 } else {
-                                    Text("${idx + 1}", color = dotColor, fontSize = 11.sp,
+                                    Text("${idx + 1}", color = dotColor, fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -715,7 +715,7 @@ fun RouteProgressStrip(state: TripUiState) {
                             Text(
                                 stop.name,
                                 color = if (isCurrent) colors.textPrimary else colors.textSecondary,
-                                fontSize = 10.sp,
+                                fontSize = 12.sp,
                                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
@@ -726,7 +726,7 @@ fun RouteProgressStrip(state: TripUiState) {
                                 modifier = Modifier
                                     .weight(0.4f)
                                     .height(2.dp)
-                                    .background(if (idx < cur) colors.green else colors.divider)
+                                    .background(if (idx < cur) colors.purple else colors.divider)
                             )
                         }
                     }
@@ -741,8 +741,8 @@ fun RouteProgressStrip(state: TripUiState) {
                         val isDone    = idx < cur
                         val isCurrent = idx == cur
                         val dotColor  = when {
-                            isDone    -> colors.green
-                            isCurrent -> colors.blue
+                            isDone    -> colors.purple
+                            isCurrent -> colors.purple
                             else      -> colors.divider
                         }
                         Column(
@@ -758,10 +758,10 @@ fun RouteProgressStrip(state: TripUiState) {
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isDone) {
-                                    Icon(Icons.Filled.Check, null, tint = colors.green,
+                                    Icon(Icons.Filled.Check, null, tint = colors.purple,
                                         modifier = Modifier.size(12.dp))
                                 } else {
-                                    Text("${idx + 1}", color = dotColor, fontSize = 9.sp,
+                                    Text("${idx + 1}", color = dotColor, fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -769,7 +769,7 @@ fun RouteProgressStrip(state: TripUiState) {
                             Text(
                                 stop.name,
                                 color = if (isCurrent) colors.textPrimary else colors.textSecondary,
-                                fontSize = 8.sp,
+                                fontSize = 11.sp,
                                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -781,7 +781,7 @@ fun RouteProgressStrip(state: TripUiState) {
                                 modifier = Modifier
                                     .weight(0.15f)
                                     .height(2.dp)
-                                    .background(if (idx < cur) colors.green else colors.divider)
+                                    .background(if (idx < cur) colors.purple else colors.divider)
                             )
                         }
                     }
@@ -804,17 +804,17 @@ fun TripActionButton(state: TripUiState, viewModel: TripViewModel) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    color = colors.green.copy(alpha = 0.1f),
-                    border = BorderStroke(1.dp, colors.green.copy(alpha = 0.3f))
+                    color = colors.purple.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.3f))
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(Icons.Filled.CheckCircle, null, tint = colors.green, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Filled.CheckCircle, null, tint = colors.purple, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Trip Completed", color = colors.green, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Trip Completed", color = colors.purple, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -822,24 +822,24 @@ fun TripActionButton(state: TripUiState, viewModel: TripViewModel) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    color = colors.blue.copy(alpha = 0.1f),
-                    border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.3f))
+                    color = colors.purple.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.3f))
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(Icons.Filled.Navigation, null, tint = colors.blue, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Filled.Navigation, null, tint = colors.purple, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
                         Column {
-                            Text("Trip In Progress", color = colors.blue, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Trip In Progress", color = colors.purple, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             val nextWp = activeTrip?.waypoints?.firstOrNull { it.isNext }
                             if (nextWp != null) {
                                 val distStr = formatRemainingDistance(nextWp.remainingDistance)
                                 Text(
                                     "Next: ${nextWp.locationName ?: "Stop"}" + (if (distStr != null) " • $distStr" else ""),
-                                    color = colors.textSecondary, fontSize = 11.sp
+                                    color = colors.textSecondary, fontSize = 12.sp
                                 )
                             }
                         }
@@ -878,7 +878,7 @@ fun TripCompletedScreen() {
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Filled.CheckCircle, null, tint = colors.green, modifier = Modifier.size(80.dp))
+            Icon(Icons.Filled.CheckCircle, null, tint = colors.purple, modifier = Modifier.size(80.dp))
             Spacer(Modifier.height(16.dp))
             Text("Trip Completed!", color = colors.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
@@ -898,7 +898,7 @@ fun PipTripView(viewModel: TripViewModel) {
     val colors = LocalDriversColors.current
     val stop   = viewModel.nextStop ?: viewModel.currentStop
     val isNext = viewModel.nextStop != null
-    val color  = if (isNext) colors.amber else colors.blue
+    val color  = if (isNext) colors.amber else colors.purple
 
     val activeTrip = state.activeDriverTrip
     val nextWp = activeTrip?.waypoints?.firstOrNull { it.isNext }
@@ -979,7 +979,7 @@ fun PipTripView(viewModel: TripViewModel) {
                         modifier = Modifier.weight(1f),
                         title = "PICK UP",
                         packages = stop.pickups,
-                        color = colors.green
+                        color = colors.purple
                     )
                     Box(Modifier.width(1.dp).fillMaxHeight().background(colors.divider))
                     PipPackageList(

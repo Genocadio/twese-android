@@ -17,14 +17,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 
 private val DarkColorScheme = darkColorScheme(
-    primary = CavgoBlueDark,
-    secondary = CavgoGreenDark,
-    tertiary = CavgoAmberDark,
+    primary = TwesePurpleDark,
+    secondary = TwesePurpleDark,
+    tertiary = TwesePurpleLight,
     background = DarkBackground,
     surface = DarkSurface,
     surfaceVariant = DarkSurfaceAlt,
-    onPrimary = DarkBackground,
-    onSecondary = DarkBackground,
+    onPrimary = Color.White,
+    onSecondary = Color.White,
     onTertiary = DarkBackground,
     onBackground = DarkOnSurface,
     onSurface = DarkOnSurface,
@@ -34,14 +34,14 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = CavgoBlue,
-    secondary = CavgoGreen,
-    tertiary = CavgoAmber,
+    primary = TwesePurple,
+    secondary = TwesePurple,
+    tertiary = TwesePurpleLight,
     background = LightBackground,
     surface = LightSurface,
     surfaceVariant = LightSurfaceAlt,
-    onPrimary = LightSurface,
-    onSecondary = LightSurface,
+    onPrimary = Color.White,
+    onSecondary = Color.White,
     onTertiary = LightOnSurface,
     onBackground = LightOnSurface,
     onSurface = LightOnSurface,
@@ -52,6 +52,9 @@ private val LightColorScheme = lightColorScheme(
 
 @Immutable
 data class DriversColors(
+    val primary: Color,
+    val purple: Color,
+    val purpleLight: Color,
     val blue: Color,
     val green: Color,
     val amber: Color,
@@ -66,7 +69,10 @@ data class DriversColors(
 )
 
 private val LightDriversColors = DriversColors(
-    blue = CavgoBlue,
+    primary = TwesePurple,
+    purple = TwesePurple,
+    purpleLight = TwesePurpleLight,
+    blue = TwesePurple,
     green = CavgoGreen,
     amber = CavgoAmber,
     red = CavgoRed,
@@ -80,7 +86,10 @@ private val LightDriversColors = DriversColors(
 )
 
 private val DarkDriversColors = DriversColors(
-    blue = CavgoBlueDark,
+    primary = TwesePurpleDark,
+    purple = TwesePurpleDark,
+    purpleLight = TwesePurpleTintDark,
+    blue = TwesePurpleDark,
     green = CavgoGreenDark,
     amber = CavgoAmberDark,
     red = CavgoRedDark,
@@ -95,12 +104,11 @@ private val DarkDriversColors = DriversColors(
 
 val LocalDriversColors = staticCompositionLocalOf { LightDriversColors }
 
-
 @Composable
 fun TweseTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    // False by default to maintain signature Twese Purple brand consistency
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -108,37 +116,21 @@ fun TweseTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
 
-    // Cap the system font scale to 1.2x to prevent layout breakage (badges,
-    // buttons, text overflow) when users set their device font size to large
-    // or extra-large. Users still get a moderate size increase, but the UI
-    // stays usable.
+    // Cap the system font scale to 1.2x to prevent layout breakage
     val fontScale = LocalDensity.current.fontScale.coerceIn(0.85f, 1.2f)
-    val cappedDensity = LocalDensity.current.run { Density(density, fontScale) }
 
     CompositionLocalProvider(
-        LocalDensity provides cappedDensity
+        LocalDriversColors provides if (darkTheme) DarkDriversColors else LightDriversColors,
+        LocalDensity provides Density(LocalDensity.current.density, fontScale = fontScale)
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = Typography
-        ) {
-            val driversColors = if (darkTheme) DarkDriversColors else LightDriversColors
-            CompositionLocalProvider(LocalDriversColors provides driversColors) {
-                content()
-            }
-        }
+            typography = Typography,
+            content = content
+        )
     }
 }
-
-@Deprecated("Renamed to TweseTheme", ReplaceWith("TweseTheme(darkTheme, dynamicColor, content)"))
-@Composable
-fun IkuriyeTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
-    content: @Composable () -> Unit
-) = TweseTheme(darkTheme, dynamicColor, content)

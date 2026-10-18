@@ -81,7 +81,7 @@ fun VehiclePlatePill(
         modifier = modifier,
         shape = RoundedCornerShape(if (isLandscape) 14.dp else 18.dp),
         color = colors.surface,
-        border = BorderStroke(1.dp, if (isMoving) colors.green.copy(alpha = 0.5f) else colors.divider)
+        border = BorderStroke(1.dp, if (isMoving) colors.purple.copy(alpha = 0.5f) else colors.divider)
     ) {
         Row(
             modifier = Modifier.padding(
@@ -93,14 +93,14 @@ fun VehiclePlatePill(
             Icon(
                 Icons.Filled.DirectionsCar,
                 contentDescription = null,
-                tint = if (isMoving) colors.green else colors.blue,
+                tint = colors.purple,
                 modifier = Modifier.size(if (isLandscape) 14.dp else 18.dp)
             )
             Spacer(Modifier.width(if (isLandscape) 4.dp else 8.dp))
             Text(
                 plateNumber.ifBlank { "No vehicle" },
                 color = colors.textPrimary,
-                fontSize = if (isLandscape) 11.sp else 13.sp,
+                fontSize = if (isLandscape) 12.sp else 13.sp,
                 fontWeight = FontWeight.Bold
             )
 
@@ -117,13 +117,13 @@ fun VehiclePlatePill(
                         modifier = Modifier
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(colors.green.copy(alpha = pulse))
+                            .background(colors.purple.copy(alpha = pulse))
                     )
                     Spacer(Modifier.width(5.dp))
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = colors.green.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, colors.green.copy(alpha = 0.3f))
+                        color = colors.purpleLight,
+                        border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.3f))
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -132,14 +132,14 @@ fun VehiclePlatePill(
                             Icon(
                                 Icons.Filled.Speed,
                                 contentDescription = null,
-                                tint = colors.green,
-                                modifier = Modifier.size(10.dp)
+                                tint = colors.purple,
+                                modifier = Modifier.size(12.dp)
                             )
                             Spacer(Modifier.width(3.dp))
                             Text(
                                 formatLiveSpeed(speedKmh),
-                                color = colors.green,
-                                fontSize = 10.sp,
+                                color = colors.purple,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }

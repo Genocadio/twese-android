@@ -120,7 +120,7 @@ fun NoticesPanel(
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     "Updates about your packages will appear here",
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     color = colors.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
                             }
@@ -190,7 +190,7 @@ private fun NoticeItem(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         notice.title,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Medium,
                         color = colors.onSurface,
                         maxLines = 1,
@@ -209,13 +209,13 @@ private fun NoticeItem(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         formatTime(notice.createdAt),
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         color = colors.outlineVariant
                     )
                 }
                 Text(
                     notice.message,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     color = colors.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

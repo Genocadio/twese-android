@@ -330,16 +330,22 @@ fun DriverHomeScreen(
                             Spacer(Modifier.height(24.dp))
 
                             // Tab buttons (vertical)
-                            listOf(0 to Icons.Filled.LocalShipping, 1 to Icons.Filled.Inventory2).forEach { (idx, icon) ->
+                            listOf(0 to Icons.Filled.DirectionsCar, 1 to Icons.Filled.Inventory2).forEach { (idx, icon) ->
                                 val selected = driverHomeTab == idx
                                 Surface(
                                     modifier = Modifier.size(48.dp).padding(vertical = 4.dp),
                                     shape = RoundedCornerShape(14.dp),
-                                    color = if (selected) colors.blue else colors.surfaceAlt,
+                                    color = if (selected) colors.purple.copy(alpha = 0.14f) else Color.Transparent,
+                                    border = if (selected) BorderStroke(1.dp, colors.purple.copy(alpha = 0.4f)) else null,
                                     onClick = { onTabChange(idx) }
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
-                                        Icon(icon, null, tint = if (selected) Color.White else colors.textSecondary, modifier = Modifier.size(22.dp))
+                                        Icon(
+                                            icon,
+                                            null,
+                                            tint = if (selected) colors.purple else colors.textSecondary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
                                     }
                                 }
                             }
@@ -349,10 +355,10 @@ fun DriverHomeScreen(
                         FloatingActionButton(
                             onClick = onCreatePackage,
                             modifier = Modifier.size(48.dp),
-                            containerColor = colors.green,
+                            containerColor = colors.purple,
                             contentColor = Color.White,
                             shape = RoundedCornerShape(14.dp)
-                        ) { Icon(Icons.Filled.Add, null, modifier = Modifier.size(22.dp)) }
+                        ) { Icon(Icons.Filled.Add, null, modifier = Modifier.size(24.dp)) }
                     }
                 }
 
@@ -380,9 +386,9 @@ fun DriverHomeScreen(
                 ) {
                     Surface(
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(22.dp),
                         color = colors.surface,
-                        shadowElevation = 6.dp,
+                        shadowElevation = 4.dp,
                         border = BorderStroke(1.dp, colors.divider)
                     ) {
                         Row(
@@ -393,7 +399,7 @@ fun DriverHomeScreen(
                             // Profile avatar
                             Box(
                                 modifier = Modifier.size(38.dp).clip(CircleShape)
-                                    .background(if (isDriverProfileMenuOpen) colors.blue.copy(alpha = 0.12f) else colors.surfaceAlt)
+                                    .background(if (isDriverProfileMenuOpen) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt)
                                     .clickable { onProfileMenuClick() },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -403,28 +409,40 @@ fun DriverHomeScreen(
                                 } else {
                                     Text(
                                         profile.name.first().uppercase(),
-                                        color = if (isDriverProfileMenuOpen) colors.blue else colors.textSecondary,
-                                        fontWeight = FontWeight.Bold, fontSize = 15.sp
+                                        color = if (isDriverProfileMenuOpen) colors.purple else colors.textSecondary,
+                                        fontWeight = FontWeight.Bold, fontSize = 16.sp
                                     )
                                 }
                             }
 
-                            listOf(0 to (Icons.Filled.LocalShipping to "Trips"), 1 to (Icons.Filled.Inventory2 to "Packages")).forEach { (idx, pair) ->
-                                val (icon, label) = pair
+                            // Clean modern icon-only tabs (like Instagram / Twitter / WhatsApp)
+                            listOf(0 to Icons.Filled.DirectionsCar, 1 to Icons.Filled.Inventory2).forEach { (idx, icon) ->
+                                val isSelected = driverHomeTab == idx
+                                val iconTint by animateColorAsState(
+                                    if (isSelected) colors.purple else colors.textSecondary,
+                                    tween(250), label = "dockIconTint$idx"
+                                )
+                                val bgPill by animateColorAsState(
+                                    if (isSelected) colors.purple.copy(alpha = 0.12f) else Color.Transparent,
+                                    tween(250), label = "dockPillBg$idx"
+                                )
+
                                 Box(
-                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp).height(40.dp).clip(RoundedCornerShape(12.dp))
-                                        .background(animateColorAsState(if (driverHomeTab == idx) colors.blue else Color.Transparent, tween(300), label = "driverTab${idx}Bg").value)
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 8.dp)
+                                        .height(42.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(bgPill)
                                         .clickable { onTabChange(idx) },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(icon, null, modifier = Modifier.size(15.dp),
-                                            tint = animateColorAsState(if (driverHomeTab == idx) Color.White else colors.textSecondary, tween(300), label = "driverTab${idx}Icon").value)
-                                        Spacer(Modifier.width(5.dp))
-                                        Text(label,
-                                            color = animateColorAsState(if (driverHomeTab == idx) Color.White else colors.textSecondary, tween(300), label = "driverTab${idx}Text").value,
-                                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                    }
+                                    Icon(
+                                        icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                        tint = iconTint
+                                    )
                                 }
                             }
                         }
@@ -434,10 +452,10 @@ fun DriverHomeScreen(
 
                     FloatingActionButton(
                         onClick = onCreatePackage,
-                        containerColor = colors.green,
-                        contentColor   = MaterialTheme.colorScheme.onPrimary,
+                        containerColor = colors.purple,
+                        contentColor   = Color.White,
                         shape          = CircleShape,
-                        elevation      = FloatingActionButtonDefaults.elevation(defaultElevation = 5.dp)
+                        elevation      = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp)
                     ) { Icon(Icons.Filled.Add, null, modifier = Modifier.size(26.dp)) }
                 }
             }
@@ -450,12 +468,12 @@ fun DriverHomeScreen(
             containerColor = colors.surface,
             contentColor = colors.textPrimary,
             shape = CircleShape,
-            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp)
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp)
         ) {
             BadgedBox(badge = {
                 if (noticeCount > 0) {
-                    Badge(containerColor = colors.red, contentColor = Color.White) {
-                        Text("$noticeCount", fontSize = 9.sp)
+                    Badge(containerColor = colors.purple, contentColor = Color.White) {
+                        Text("$noticeCount", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }) {

@@ -49,7 +49,7 @@ fun InAppUpdateBanner(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 shape = RoundedCornerShape(16.dp),
                 color = colors.surface,
-                border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.3f)),
+                border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.3f)),
                 shadowElevation = 8.dp,
                 tonalElevation = 6.dp
             ) {
@@ -61,13 +61,13 @@ fun InAppUpdateBanner(
                     Box(
                         modifier = Modifier
                             .size(40.dp)
-                            .background(colors.blue.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
+                            .background(colors.purple.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Filled.SystemUpdate,
                             contentDescription = "Update ready",
-                            tint = colors.blue,
+                            tint = colors.purple,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -82,14 +82,14 @@ fun InAppUpdateBanner(
                         Text(
                             text = "Downloaded & verified — ready to install",
                             color = colors.textSecondary,
-                            fontSize = 11.sp
+                            fontSize = 12.sp
                         )
                     }
                     Spacer(Modifier.width(8.dp))
                     Button(
                         onClick = onInstall,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.blue,
+                            containerColor = colors.purple,
                             contentColor = Color.White
                         ),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),

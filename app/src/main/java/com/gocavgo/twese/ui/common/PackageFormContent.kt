@@ -399,7 +399,7 @@ fun IconsStepIndicator(
                 animationSpec = tween(300),
                 label = "ringAlpha_$idx"
             )
-            val ringColor = colors.blue
+            val ringColor = colors.purple
 
             Box(
                 contentAlignment = Alignment.Center,
@@ -419,8 +419,8 @@ fun IconsStepIndicator(
                     onClick = { if (idx <= maxReachedStep) onStepClick(idx) },
                     shape = CircleShape,
                     color = when {
-                        isCompleted -> colors.green
-                        isActive -> colors.blue
+                        isCompleted -> colors.purple
+                        isActive -> colors.purple
                         else -> colors.divider
                     },
                     modifier = Modifier.size(circleSize),
@@ -439,7 +439,7 @@ fun IconsStepIndicator(
                 }
             }
 
-            // Animated connector line — fills with green as steps are completed
+            // Animated connector line — fills with purple as steps are completed
             if (idx < totalSteps - 1) {
                 val fillFraction by animateFloatAsState(
                     targetValue = if (idx < maxReachedStep) 1f else 0f,
@@ -447,7 +447,7 @@ fun IconsStepIndicator(
                     label = "connector_$idx"
                 )
                 val trackColor = colors.divider
-                val fillColor = colors.green
+                val fillColor = colors.purple
                 Canvas(
                     modifier = Modifier
                         .width(36.dp)
@@ -1688,16 +1688,12 @@ private fun StepHeader(
                 .width(3.dp)
                 .height(26.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(colors.blue, colors.green)
-                    )
-                )
+                .background(colors.purple)
         )
         Spacer(Modifier.width(10.dp))
         Column {
             Text(title, color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = colors.textSecondary, fontSize = 12.sp)
+            Text(subtitle, color = colors.textSecondary, fontSize = 13.sp)
         }
     }
 }
@@ -1714,17 +1710,13 @@ private fun FormLabel(text: String) {
                 .width(3.dp)
                 .height(12.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(colors.blue, colors.green)
-                    )
-                )
+                .background(colors.purple)
         )
         Spacer(Modifier.width(6.dp))
         Text(
             text = text.uppercase(),
             color = colors.textSecondary,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.8.sp
         )
@@ -1774,9 +1766,9 @@ private fun TransferModeChip(
     label: String, description: String, selected: Boolean, onClick: () -> Unit,
     colors: com.gocavgo.twese.ui.theme.DriversColors
 ) {
-    val bgColor = if (selected) colors.blue.copy(alpha = 0.15f) else colors.surfaceAlt
-    val borderColor = if (selected) colors.blue else colors.divider
-    val textColor = if (selected) colors.blue else colors.textSecondary
+    val bgColor = if (selected) colors.purpleLight else colors.surfaceAlt
+    val borderColor = if (selected) colors.purple else colors.divider
+    val textColor = if (selected) colors.purple else colors.textSecondary
     Surface(
         shape = RoundedCornerShape(8.dp), color = bgColor,
         border = BorderStroke(1.dp, borderColor),
@@ -1787,7 +1779,7 @@ private fun TransferModeChip(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(label, color = textColor, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
-            Text(description, color = colors.textSecondary.copy(alpha = 0.7f), fontSize = 10.sp, maxLines = 1)
+            Text(description, color = colors.textSecondary.copy(alpha = 0.7f), fontSize = 12.sp, maxLines = 1)
         }
     }
 }

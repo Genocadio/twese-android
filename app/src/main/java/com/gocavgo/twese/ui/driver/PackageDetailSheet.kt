@@ -74,27 +74,27 @@ fun PackageDetailSheet(
 
         // ── Header: ID + status ──
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(pkg.id, color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(pkg.id, color = colors.textPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             val statusColor = when (pkg.status) {
                 PackageStatus.PICKED_UP          -> colors.amber
-                PackageStatus.IN_TRANSIT         -> colors.blue
-                PackageStatus.ARRIVED_AT_OFFICE  -> colors.blue
+                PackageStatus.IN_TRANSIT         -> colors.purple
+                PackageStatus.ARRIVED_AT_OFFICE  -> colors.purple
                 PackageStatus.OUT_FOR_DELIVERY,
-                PackageStatus.DELIVERED          -> colors.green
+                PackageStatus.DELIVERED          -> colors.purple
                 PackageStatus.CANCELLED          -> colors.red
                 else                             -> colors.textSecondary
             }
             Surface(shape = RoundedCornerShape(8.dp), color = statusColor.copy(alpha = 0.12f)) {
                 Text(pkg.status.name.replace("_", " "),
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    color = statusColor, fontSize = if (isWide) 12.sp else 11.sp,
+                    color = statusColor, fontSize = 12.sp,
                     fontWeight = FontWeight.Bold)
             }
         }
         Spacer(Modifier.height(4.dp))
         Text(pkg.description, color = colors.textSecondary,
-            fontSize = if (isWide) 14.sp else 13.sp)
+            fontSize = 14.sp)
 
         if (pkg.createdAt.isNotBlank()) {
             Spacer(Modifier.height(6.dp))
@@ -109,42 +109,42 @@ fun PackageDetailSheet(
         if (isWide) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("SENDER", color = colors.blue, fontSize = 10.sp,
+                    Text("SENDER", color = colors.purple, fontSize = 12.sp,
                         fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
-                    DetailRow("Name", pkg.senderName, Icons.Filled.Person, colors.blue)
+                    DetailRow("Name", pkg.senderName, Icons.Filled.Person, colors.purple)
                     DetailRow("Phone", PhoneValidation.toDisplayFormat(pkg.senderPhone),
-                        Icons.Filled.Phone, colors.blue)
+                        Icons.Filled.Phone, colors.purple)
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("RECIPIENT", color = colors.green, fontSize = 10.sp,
+                    Text("RECIPIENT", color = colors.purple, fontSize = 12.sp,
                         fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
-                    DetailRow("Name", pkg.recipientName, Icons.Filled.Person, colors.green)
+                    DetailRow("Name", pkg.recipientName, Icons.Filled.Person, colors.purple)
                     DetailRow("Phone", PhoneValidation.toDisplayFormat(pkg.recipientPhone),
-                        Icons.Filled.Phone, colors.green)
+                        Icons.Filled.Phone, colors.purple)
                 }
             }
         } else {
-            DetailRow("Sender", pkg.senderName, Icons.Filled.Person, colors.blue)
+            DetailRow("Sender", pkg.senderName, Icons.Filled.Person, colors.purple)
             DetailRow("Sender phone", PhoneValidation.toDisplayFormat(pkg.senderPhone),
-                Icons.Filled.Phone, colors.blue)
+                Icons.Filled.Phone, colors.purple)
             Spacer(Modifier.height(8.dp))
-            DetailRow("Recipient", pkg.recipientName, Icons.Filled.Person, colors.green)
+            DetailRow("Recipient", pkg.recipientName, Icons.Filled.Person, colors.purple)
             DetailRow("Recipient phone", PhoneValidation.toDisplayFormat(pkg.recipientPhone),
-                Icons.Filled.Phone, colors.green)
+                Icons.Filled.Phone, colors.purple)
         }
 
         Spacer(Modifier.height(if (isWide) 8.dp else 10.dp))
 
         // ── Pickup / Destination (always full width) ──
-        DetailRow("Pickup", pkg.fromAddress, Icons.Filled.MyLocation, colors.green)
-        DetailRow("Destination", pkg.toAddress, Icons.Filled.LocationOn, colors.red)
+        DetailRow("Pickup", pkg.fromAddress, Icons.Filled.MyLocation, colors.purple)
+        DetailRow("Destination", pkg.toAddress, Icons.Filled.LocationOn, colors.textSecondary)
 
         // ── Media carousel ──
         if (pkg.mediaUrls.isNotEmpty()) {
             Spacer(Modifier.height(if (isWide) 12.dp else 14.dp))
-            Text("Media", color = colors.textSecondary, fontSize = 12.sp,
+            Text("Media", color = colors.textSecondary, fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold)
             var showMaximized by remember { mutableStateOf(false) }
             MediaCarousel(mediaUrls = pkg.mediaUrls,
@@ -180,21 +180,21 @@ fun PackageDetailSheet(
         if (pkg.statusHistory.isNotEmpty()) {
             Spacer(Modifier.height(if (isWide) 12.dp else 14.dp))
             Text("Status History", color = colors.textPrimary,
-                fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                fontWeight = FontWeight.Bold, fontSize = 15.sp)
             Spacer(Modifier.height(8.dp))
             pkg.statusHistory.reversed().forEach { update ->
                 Row(modifier = Modifier.padding(vertical = 4.dp)) {
                     Box(modifier = Modifier.size(8.dp).clip(CircleShape)
-                        .background(colors.blue.copy(alpha = 0.3f)).offset(y = 4.dp))
+                        .background(colors.purple.copy(alpha = 0.4f)).offset(y = 4.dp))
                     Spacer(Modifier.width(10.dp))
                     Column {
-                        Text(update.message, color = colors.textPrimary, fontSize = 12.sp)
+                        Text(update.message, color = colors.textPrimary, fontSize = 13.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SmartTimeText(update.timestamp,
-                                color = colors.textSecondary, fontSize = 10.sp)
+                                color = colors.textSecondary, fontSize = 12.sp)
                             if (update.location.isNotBlank()) {
                                 Text(" • ${update.location}",
-                                    color = colors.textSecondary, fontSize = 10.sp)
+                                    color = colors.textSecondary, fontSize = 12.sp)
                             }
                         }
                     }
@@ -217,16 +217,16 @@ fun PackageDetailSheet(
                         enabled = !isPickingUp,
                         modifier = Modifier.fillMaxWidth().height(44.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                     ) {
                         if (isPickingUp) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                             Spacer(Modifier.width(8.dp))
-                            Text("Picking up...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Picking up...", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         } else {
                             Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Pick Up Package", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Pick Up Package", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -234,17 +234,17 @@ fun PackageDetailSheet(
                 isTransferOpen -> {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = colors.blue.copy(alpha = 0.08f),
-                        border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.25f)),
+                        color = colors.purple.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.25f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Filled.HourglassTop, null, tint = colors.blue, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.HourglassTop, null, tint = colors.purple, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     "Transfer active — awaiting counterparty pickup",
-                                    color = colors.blue, fontSize = 12.sp, fontWeight = FontWeight.Medium
+                                    color = colors.purple, fontSize = 13.sp, fontWeight = FontWeight.Medium
                                 )
                             }
                             if (pkg.transferId != null && onCancelTransfer != null) {
@@ -281,7 +281,7 @@ fun PackageDetailSheet(
                             modifier = Modifier.weight(1.3f).height(44.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isPendingConfirmation) colors.blue else colors.green
+                                containerColor = colors.purple
                             )
                         ) {
                             Icon(
@@ -292,7 +292,7 @@ fun PackageDetailSheet(
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 if (isPendingConfirmation) "Enter Code" else "Deliver",
-                                fontSize = 13.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -304,9 +304,9 @@ fun PackageDetailSheet(
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, colors.divider)
                             ) {
-                                Icon(Icons.Filled.MoveToInbox, null, modifier = Modifier.size(16.dp), tint = colors.amber)
+                                Icon(Icons.Filled.MoveToInbox, null, modifier = Modifier.size(16.dp), tint = colors.purple)
                                 Spacer(Modifier.width(4.dp))
-                                Text("Transfer", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                                Text("Transfer", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
                             }
                         }
                     }
@@ -322,12 +322,12 @@ fun PackageDetailSheet(
 @Composable
 private fun DetailRow(label: String, value: String, icon: ImageVector, iconTint: Color) {
     val colors = LocalDriversColors.current
-    Row(modifier = Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = iconTint, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(8.dp))
+    Row(modifier = Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = iconTint, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
         Column {
-            Text(label, color = colors.textSecondary, fontSize = 10.sp)
-            Text(value, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(label, color = colors.textSecondary, fontSize = 12.sp)
+            Text(value, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -335,13 +335,13 @@ private fun DetailRow(label: String, value: String, icon: ImageVector, iconTint:
 @Composable
 private fun DetailTimeRow(label: String, iso: String, icon: ImageVector, iconTint: Color) {
     val colors = LocalDriversColors.current
-    Row(modifier = Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = iconTint, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(8.dp))
+    Row(modifier = Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = iconTint, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
         Column {
-            Text(label, color = colors.textSecondary, fontSize = 10.sp)
+            Text(label, color = colors.textSecondary, fontSize = 12.sp)
             SmartTimeText(iso.ifBlank { "N/A" },
-                color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
     }
 }

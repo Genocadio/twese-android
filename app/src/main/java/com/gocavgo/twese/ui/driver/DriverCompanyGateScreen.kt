@@ -91,7 +91,7 @@ fun DriverCompanyGateScreen(
             ) {
                 when {
                     evaluating || gate == DriverCompanyGate.UNKNOWN -> {
-                        CircularProgressIndicator(color = colors.green, strokeWidth = 3.dp)
+                        CircularProgressIndicator(color = colors.purple, strokeWidth = 3.dp)
                         Spacer(Modifier.height(18.dp))
                         Text(
                             if (error != null) "Couldn't verify your company status" else "Checking your company status…",
@@ -111,7 +111,7 @@ fun DriverCompanyGateScreen(
                             Button(
                                 onClick = onRetry,
                                 shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                             ) {
                                 Text("Retry", fontWeight = FontWeight.Bold)
                             }
@@ -136,7 +136,7 @@ fun DriverCompanyGateScreen(
 
                 Spacer(Modifier.height(16.dp))
                 TextButton(onClick = onLogout) {
-                    Text("Logout", color = colors.red, fontSize = 12.sp)
+                    Text("Logout", color = colors.red, fontSize = 13.sp)
                 }
             }
         }
@@ -152,7 +152,7 @@ private fun RequestCompanyForm(
     onSubmit: () -> Unit
 ) {
     val colors = LocalDriversColors.current
-    CodeBadge(icon = { Icons.Filled.DirectionsCar }, tint = colors.blue)
+    CodeBadge(icon = { Icons.Filled.DirectionsCar }, tint = colors.purple)
     Spacer(Modifier.height(14.dp))
     Text(
         "You need a company to drive",
@@ -166,7 +166,7 @@ private fun RequestCompanyForm(
         "Ask your company for its company code, then enter it below. A fleet manager " +
             "must approve your request before you can use the driver app.",
         color = colors.textSecondary,
-        fontSize = 12.sp,
+        fontSize = 13.sp,
         textAlign = TextAlign.Center
     )
     Spacer(Modifier.height(16.dp))
@@ -178,8 +178,8 @@ private fun RequestCompanyForm(
         enabled = !isSubmitting,
         modifier = Modifier.fillMaxWidth(),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = colors.blue,
-            cursorColor = colors.blue
+            focusedBorderColor = colors.purple,
+            cursorColor = colors.purple
         )
     )
     if (error != null) {
@@ -192,7 +192,7 @@ private fun RequestCompanyForm(
         enabled = inputCode.isNotBlank() && !isSubmitting,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+        colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
     ) {
         if (isSubmitting) {
             CircularProgressIndicator(
@@ -230,7 +230,7 @@ private fun PendingApprovalContent(
         if (companyLabel.isNotBlank()) "Your request to join $companyLabel has been submitted."
         else "Your request to join a company has been submitted.",
         color = colors.textSecondary,
-        fontSize = 12.sp,
+        fontSize = 13.sp,
         textAlign = TextAlign.Center
     )
     Spacer(Modifier.height(10.dp))
@@ -244,7 +244,7 @@ private fun PendingApprovalContent(
         Text(
             "A fleet manager is reviewing it. You'll get access automatically once approved.",
             color = colors.textSecondary,
-            fontSize = 11.sp
+            fontSize = 12.sp
         )
     }
 }
@@ -269,14 +269,14 @@ private fun RejectedContent(
         rejectionReason?.takeIf { it.isNotBlank() }
             ?: "A fleet manager has not approved your company request.",
         color = colors.textSecondary,
-        fontSize = 12.sp,
+        fontSize = 13.sp,
         textAlign = TextAlign.Center
     )
     Spacer(Modifier.height(6.dp))
     Text(
         "You cannot use the driver app until a fleet manager approves you for a company.",
         color = colors.textSecondary,
-        fontSize = 11.sp,
+        fontSize = 12.sp,
         textAlign = TextAlign.Center
     )
     Spacer(Modifier.height(14.dp))
@@ -284,7 +284,7 @@ private fun RejectedContent(
         onClick = onRequestAgain,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+        colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.DirectionsCar, null, tint = Color.White, modifier = Modifier.size(16.dp))

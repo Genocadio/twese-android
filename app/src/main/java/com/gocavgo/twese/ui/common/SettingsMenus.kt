@@ -250,10 +250,10 @@ fun SettingsMenu(
                         Text("Keep Screen Awake", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Text(
                             if (keepScreenAwake) "Screen stays on in foreground or floating" else "Screen may turn off normally",
-                            color = colors.textSecondary, fontSize = 11.sp
+                            color = colors.textSecondary, fontSize = 12.sp
                         )
                     }
-                    Switch(checked = keepScreenAwake, onCheckedChange = onKeepScreenAwakeChange, colors = SwitchDefaults.colors(checkedTrackColor = colors.blue))
+                    Switch(checked = keepScreenAwake, onCheckedChange = onKeepScreenAwakeChange, colors = SwitchDefaults.colors(checkedTrackColor = colors.purple))
                 }
             }
 
@@ -273,10 +273,10 @@ fun SettingsMenu(
                                 else -> "Disabled"
                             },
                             color = if (isPipEnabled && !overlayGranted) colors.red else colors.textSecondary,
-                            fontSize = 11.sp
+                            fontSize = 12.sp
                         )
                     }
-                    Switch(checked = isPipEnabled, onCheckedChange = onPipEnabledChange, colors = SwitchDefaults.colors(checkedTrackColor = colors.blue))
+                    Switch(checked = isPipEnabled, onCheckedChange = onPipEnabledChange, colors = SwitchDefaults.colors(checkedTrackColor = colors.purple))
                 }
             }
         }
@@ -303,7 +303,7 @@ fun RequestDriverDialog(
                 Icon(
                     Icons.Filled.DirectionsCar,
                     null,
-                    tint = colors.blue,
+                    tint = colors.purple,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(Modifier.width(8.dp))
@@ -326,8 +326,8 @@ fun RequestDriverDialog(
                     enabled = !isLoading,
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = colors.blue,
-                        cursorColor = colors.blue
+                        focusedBorderColor = colors.purple,
+                        cursorColor = colors.purple
                     )
                 )
                 if (error != null) {
@@ -340,7 +340,7 @@ fun RequestDriverDialog(
             Button(
                 onClick = { onSubmit(companyCode.trim()) },
                 enabled = companyCode.isNotBlank() && !isLoading,
-                colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                 shape = RoundedCornerShape(10.dp)
             ) {
                 if (isLoading) {
@@ -380,13 +380,13 @@ fun ThemeChoice(
         onClick = { onSelect(mode) },
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        color = if (selected) colors.green else colors.surfaceAlt,
+        color = if (selected) colors.purple else colors.surfaceAlt,
         border = if (!selected) BorderStroke(1.dp, colors.divider) else null
     ) {
         Text(
             label,
             color = if (selected) MaterialTheme.colorScheme.onPrimary else colors.textPrimary,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             textAlign = TextAlign.Center
@@ -410,14 +410,14 @@ fun DriverPageOption(
         onClick = { onSelect?.invoke(value) },
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        color = if (selected) colors.blue else colors.surfaceAlt,
+        color = if (selected) colors.purple else colors.surfaceAlt,
         border = if (!selected) BorderStroke(1.dp, colors.divider) else null,
         enabled = onSelect != null
     ) {
         Text(
             label,
             color = if (selected) MaterialTheme.colorScheme.onPrimary else colors.textSecondary,
-            fontSize = 11.sp,
+            fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             textAlign = TextAlign.Center

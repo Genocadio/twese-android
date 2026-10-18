@@ -79,7 +79,7 @@ fun LoginScreen(
     }
 
     AuthSplitLayout(
-        accent = colors.blue,
+        accent = colors.purple,
         logo = Icons.Filled.LocalShipping,
         title = "Twese Driver",
         subtitle = "Sign in to view your active trip"
@@ -118,7 +118,7 @@ fun LoginScreen(
                     onClick = { onLogin(email.trim(), password) },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                     enabled = !isAuthLoading && email.isNotBlank() && password.isNotBlank()
                 ) {
                     if (isAuthLoading) {
@@ -146,7 +146,7 @@ fun LoginScreen(
                     onClick = onShowForgotPassword,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 ) {
-                    Text("Forgot Password?", color = colors.blue, fontSize = 13.sp)
+                    Text("Forgot Password?", color = colors.purple, fontSize = 13.sp)
                 }
             }
         }
@@ -263,13 +263,13 @@ fun ForgotPasswordDialog(
         confirmButton = {
             when (step) {
                 0 -> TextButton(onClick = onDismiss) {
-                    Text("OK", color = colors.blue, fontWeight = FontWeight.Bold)
+                    Text("OK", color = colors.purple, fontWeight = FontWeight.Bold)
                 }
                 1 -> Button(
                     onClick = { onResetPassword(code.trim(), newPassword) },
                     enabled = code.length == 6 && newPassword.length >= 6 && newPassword == confirmPassword && !isLoading,
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
@@ -278,7 +278,7 @@ fun ForgotPasswordDialog(
                     }
                 }
                 else -> TextButton(onClick = onDismiss) {
-                    Text("Done", color = colors.blue, fontWeight = FontWeight.Bold)
+                    Text("Done", color = colors.purple, fontWeight = FontWeight.Bold)
                 }
             }
         },
@@ -409,7 +409,7 @@ fun ProfileScreen(
                         CircularProgressIndicator(
                             modifier = Modifier.size(40.dp),
                             strokeWidth = 3.dp,
-                            color = colors.blue
+                            color = colors.purple
                         )
                     }
                 } else if (state.selectedProfileImage != null) {
@@ -435,7 +435,7 @@ fun ProfileScreen(
                             .align(Alignment.BottomEnd)
                             .size(28.dp)
                             .clip(CircleShape)
-                            .background(colors.blue),
+                            .background(colors.purple),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(Icons.Filled.AddAPhoto, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary)
@@ -516,7 +516,7 @@ fun ProfileScreen(
                             },
                             modifier = Modifier.weight(1f).height(50.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                             enabled = !state.isUpdatingProfile && (
                                 name != initialName ||
                                 phone != initialPhone ||
@@ -537,7 +537,7 @@ fun ProfileScreen(
                         onClick = { isEditing = true },
                         modifier = Modifier.fillMaxWidth().height(50.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                     ) {
                         Icon(Icons.Filled.Create, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
@@ -636,7 +636,7 @@ fun ProfileScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDiscardDialog = false }) {
-                    Text("Keep Editing", color = colors.blue, fontWeight = FontWeight.Bold)
+                    Text("Keep Editing", color = colors.purple, fontWeight = FontWeight.Bold)
                 }
             }
         )
@@ -704,10 +704,10 @@ fun VehicleScreen(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)
-                            .background(colors.blue.copy(alpha = 0.14f)),
+                            .background(colors.purple.copy(alpha = 0.14f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Filled.DirectionsCar, null, tint = colors.blue)
+                        Icon(Icons.Filled.DirectionsCar, null, tint = colors.purple)
                     }
                     Spacer(Modifier.width(14.dp))
                     Column {
@@ -741,7 +741,7 @@ private fun VehicleInfoRow(
         Icon(icon, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(10.dp))
         Column {
-            Text(label, color = colors.textSecondary, fontSize = 11.sp)
+            Text(label, color = colors.textSecondary, fontSize = 12.sp)
             Text(value, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
     }
@@ -756,7 +756,7 @@ fun HomeHeader(profile: DriverProfile, onProfileClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text("Welcome back", color = colors.textSecondary, fontSize = 11.sp)
+            Text("Welcome back", color = colors.textSecondary, fontSize = 12.sp)
             Text(profile.name, color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.weight(1f))
@@ -767,7 +767,7 @@ fun HomeHeader(profile: DriverProfile, onProfileClick: () -> Unit) {
                 .clip(CircleShape)
                 .background(colors.surfaceAlt)
         ) {
-            Icon(Icons.Filled.Person, null, tint = colors.blue)
+            Icon(Icons.Filled.Person, null, tint = colors.purple)
         }
     }
 }

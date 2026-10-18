@@ -109,7 +109,7 @@ fun ModernPackageCard(
         targetValue = if (isHighlighted) (1.5.dp + 1.5.dp * borderProgress) else 1.dp,
         label = "borderWidth"
     )
-    val borderColor = if (isHighlighted) colors.blue.copy(alpha = 0.4f + borderProgress * 0.4f) else colors.divider
+    val borderColor = if (isHighlighted) colors.purple.copy(alpha = 0.5f + borderProgress * 0.4f) else colors.divider
 
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -134,13 +134,13 @@ fun ModernPackageCard(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(colors.blue.copy(alpha = 0.12f)),
+                        .background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Filled.LocalShipping,
                         contentDescription = null,
-                        tint = colors.blue,
+                        tint = colors.purple,
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -162,7 +162,7 @@ fun ModernPackageCard(
                             )
                             Box(
                                 modifier = Modifier
-                                    .size(7.dp)
+                                    .size(8.dp)
                                     .clip(CircleShape)
                                     .background(colors.red.copy(alpha = dotAlpha))
                             )
@@ -172,7 +172,7 @@ fun ModernPackageCard(
                             text = pkg.id,
                             color = colors.textPrimary,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            fontSize = 15.sp
                         )
                     }
 
@@ -181,7 +181,7 @@ fun ModernPackageCard(
                         Text(
                             text = pkg.description,
                             color = colors.textSecondary,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -210,13 +210,13 @@ fun ModernPackageCard(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(colors.green)
+                                .background(colors.purple)
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
                             text = pkg.fromAddress.ifBlank { "Pickup Station" },
                             color = colors.textPrimary,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -238,13 +238,13 @@ fun ModernPackageCard(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(colors.red)
+                                .background(colors.textSecondary)
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
                             text = pkg.toAddress.ifBlank { "Destination Station" },
                             color = colors.textPrimary,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -295,25 +295,25 @@ fun ModernPackageCard(
                 if (pkg.photoCount > 0) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = colors.blue.copy(alpha = 0.08f),
-                        border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.25f)),
+                        color = colors.purple.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.25f)),
                         modifier = Modifier.clickable { showMediaDialog = true }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                         ) {
                             Icon(
                                 Icons.Filled.Photo,
                                 contentDescription = null,
-                                tint = colors.blue,
-                                modifier = Modifier.size(13.dp)
+                                tint = colors.purple,
+                                modifier = Modifier.size(14.dp)
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = "${pkg.photoCount}",
-                                color = colors.blue,
-                                fontSize = 11.sp,
+                                color = colors.purple,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -326,20 +326,20 @@ fun ModernPackageCard(
                 TextButton(
                     onClick = onDetail,
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.heightIn(min = 28.dp)
+                    modifier = Modifier.heightIn(min = 30.dp)
                 ) {
                     Text(
                         text = "Details",
-                        color = colors.blue,
-                        fontSize = 12.sp,
+                        color = colors.purple,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(2.dp))
                     Icon(
                         Icons.Filled.ChevronRight,
                         contentDescription = null,
-                        tint = colors.blue,
-                        modifier = Modifier.size(14.dp)
+                        tint = colors.purple,
+                        modifier = Modifier.size(15.dp)
                     )
                 }
             }
@@ -381,19 +381,19 @@ private fun MetaChip(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
         ) {
             Icon(
                 icon,
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(13.dp)
+                modifier = Modifier.size(14.dp)
             )
             Spacer(Modifier.width(4.dp))
             Text(
                 text = text,
                 color = contentColor,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -425,10 +425,10 @@ fun DriverCurrentPackageCard(
 
     val statusColor = when (pkg.status) {
         PackageStatus.PICKED_UP -> colors.amber
-        PackageStatus.IN_TRANSIT -> colors.blue
-        PackageStatus.ARRIVED_AT_OFFICE -> colors.blue
+        PackageStatus.IN_TRANSIT -> colors.purple
+        PackageStatus.ARRIVED_AT_OFFICE -> colors.purple
         PackageStatus.PENDING_CONFIRMATION -> colors.amber
-        PackageStatus.OUT_FOR_DELIVERY, PackageStatus.DELIVERED -> colors.green
+        PackageStatus.OUT_FOR_DELIVERY, PackageStatus.DELIVERED -> colors.purple
         else -> colors.textSecondary
     }
 
@@ -446,20 +446,20 @@ fun DriverCurrentPackageCard(
                         border = BorderStroke(1.dp, colors.amber.copy(alpha = 0.3f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.CompareArrows,
                                 contentDescription = null,
-                                modifier = Modifier.size(11.dp),
+                                modifier = Modifier.size(12.dp),
                                 tint = colors.amber
                             )
-                            Spacer(Modifier.width(3.dp))
+                            Spacer(Modifier.width(4.dp))
                             Text(
                                 "Outgoing",
                                 color = colors.amber,
-                                fontSize = 10.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -475,7 +475,7 @@ fun DriverCurrentPackageCard(
                         pkg.status.name.replace("_", " "),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         color = statusColor,
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -495,9 +495,9 @@ fun DriverCurrentPackageCard(
                         Button(
                             onClick = { if (!isPickingUp) onPickup() },
                             enabled = !isPickingUp,
-                            modifier = Modifier.fillMaxWidth().height(42.dp),
+                            modifier = Modifier.fillMaxWidth().height(44.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.blue)
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                         ) {
                             if (isPickingUp) {
                                 CircularProgressIndicator(
@@ -506,11 +506,11 @@ fun DriverCurrentPackageCard(
                                     strokeWidth = 2.dp
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text("Picking up...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("Picking up...", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             } else {
                                 Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Pick Up Package", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("Pick Up Package", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -521,10 +521,10 @@ fun DriverCurrentPackageCard(
                                 onClick = onDeliver,
                                 modifier = Modifier
                                     .weight(1.3f)
-                                    .height(42.dp),
+                                    .height(44.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isPendingConfirmation) colors.blue else colors.green
+                                    containerColor = colors.purple
                                 )
                             ) {
                                 Icon(
@@ -535,7 +535,7 @@ fun DriverCurrentPackageCard(
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     if (isPendingConfirmation) "Enter Code" else "Deliver",
-                                    fontSize = 13.sp,
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1
                                 )
@@ -546,7 +546,7 @@ fun DriverCurrentPackageCard(
                                     onClick = onTransfer,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(42.dp),
+                                        .height(44.dp),
                                     shape = RoundedCornerShape(12.dp),
                                     border = BorderStroke(1.dp, colors.divider)
                                 ) {
@@ -554,12 +554,12 @@ fun DriverCurrentPackageCard(
                                         Icons.Filled.MoveToInbox,
                                         null,
                                         modifier = Modifier.size(16.dp),
-                                        tint = colors.amber
+                                        tint = colors.purple
                                     )
-                                    Spacer(Modifier.width(4.dp))
+                                    Spacer(Modifier.width(5.dp))
                                     Text(
                                         "Transfer",
-                                        fontSize = 12.sp,
+                                        fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = colors.textPrimary,
                                         maxLines = 1
@@ -572,20 +572,20 @@ fun DriverCurrentPackageCard(
                     isAtDestinationOffice -> {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = colors.blue.copy(alpha = 0.08f),
-                            border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.2f)),
+                            color = colors.purple.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.2f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Filled.HourglassTop, null, tint = colors.blue, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.HourglassTop, null, tint = colors.purple, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     "Delivered to office — awaiting collection",
-                                    color = colors.blue,
-                                    fontSize = 11.sp,
+                                    color = colors.purple,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium
                                 )
                             }
@@ -596,19 +596,19 @@ fun DriverCurrentPackageCard(
                 Spacer(Modifier.height(10.dp))
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = colors.blue.copy(alpha = 0.06f),
-                    border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.2f)),
+                    color = colors.purple.copy(alpha = 0.06f),
+                    border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.2f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.HourglassTop, null, tint = colors.blue, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Filled.HourglassTop, null, tint = colors.purple, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 if (isTransferRequested) "Awaiting owner confirmation"
                                 else "Transfer active — waiting for counterparty pickup",
-                                color = colors.blue,
-                                fontSize = 11.sp,
+                                color = colors.purple,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -618,18 +618,18 @@ fun DriverCurrentPackageCard(
                             OutlinedButton(
                                 onClick = { onCancelTransfer(pkg.id, pkg.transferId) },
                                 enabled = !isCancellingTransfer,
-                                modifier = Modifier.fillMaxWidth().height(36.dp),
+                                modifier = Modifier.fillMaxWidth().height(38.dp),
                                 shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(1.dp, colors.red.copy(alpha = 0.5f))
                             ) {
                                 if (isCancellingTransfer) {
                                     CircularProgressIndicator(modifier = Modifier.size(14.dp), color = colors.red, strokeWidth = 2.dp)
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Cancelling...", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.red)
+                                    Text("Cancelling...", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.red)
                                 } else {
                                     Icon(Icons.Filled.Close, null, modifier = Modifier.size(14.dp), tint = colors.red)
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Cancel Transfer (Recall)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.red)
+                                    Text("Cancel Transfer (Recall)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.red)
                                 }
                             }
                         }
@@ -657,11 +657,11 @@ fun DriverIncomingPackageCard(
     val colors = LocalDriversColors.current
     val pkg = item.pkg
 
-    // Distinguish source tag
+    // Distinguish source tag (modern, clean, unified purple branding)
     val (sourceLabel, sourceColor, sourceIcon) = when (item) {
-        is IncomingPackageItem.Assigned -> Triple("ASSIGNED", colors.amber, Icons.Filled.AssignmentInd)
-        is IncomingPackageItem.Transfer -> Triple("TRANSFER", colors.blue, Icons.AutoMirrored.Filled.CompareArrows)
-        is IncomingPackageItem.Offer -> Triple("OFFER", Color(0xFF10B981), Icons.Filled.NewReleases) // emerald
+        is IncomingPackageItem.Assigned -> Triple("ASSIGNED", colors.purple, Icons.Filled.AssignmentInd)
+        is IncomingPackageItem.Transfer -> Triple("TRANSFER", colors.purple, Icons.AutoMirrored.Filled.CompareArrows)
+        is IncomingPackageItem.Offer -> Triple("OFFER", colors.purple, Icons.Filled.NewReleases)
     }
 
     // Determine button label and icon based on transfer rule
@@ -691,23 +691,23 @@ fun DriverIncomingPackageCard(
                 if (ruleType == "SECURE") {
                     Box(
                         modifier = Modifier
-                            .size(22.dp)
+                            .size(24.dp)
                             .clip(CircleShape)
-                            .background(colors.blue.copy(alpha = 0.12f)),
+                            .background(colors.purple.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Filled.Lock, null, tint = colors.blue, modifier = Modifier.size(12.dp))
+                        Icon(Icons.Filled.Lock, null, tint = colors.purple, modifier = Modifier.size(13.dp))
                     }
                     Spacer(Modifier.width(4.dp))
                 } else if (ruleType == "CONFIRM") {
                     Box(
                         modifier = Modifier
-                            .size(22.dp)
+                            .size(24.dp)
                             .clip(CircleShape)
                             .background(colors.amber.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Filled.HourglassTop, null, tint = colors.amber, modifier = Modifier.size(12.dp))
+                        Icon(Icons.Filled.HourglassTop, null, tint = colors.amber, modifier = Modifier.size(13.dp))
                     }
                     Spacer(Modifier.width(4.dp))
                 }
@@ -722,12 +722,12 @@ fun DriverIncomingPackageCard(
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(sourceIcon, null, tint = sourceColor, modifier = Modifier.size(11.dp))
+                        Icon(sourceIcon, null, tint = sourceColor, modifier = Modifier.size(12.dp))
                         Spacer(Modifier.width(4.dp))
                         Text(
                             sourceLabel,
                             color = sourceColor,
-                            fontSize = 10.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -741,10 +741,10 @@ fun DriverIncomingPackageCard(
                 enabled = isEnabled,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(42.dp),
+                    .height(44.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.blue,
+                    containerColor = colors.purple,
                     disabledContainerColor = colors.divider
                 )
             ) {
@@ -755,11 +755,11 @@ fun DriverIncomingPackageCard(
                         strokeWidth = 2.dp
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Accepting...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("Accepting...", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 } else {
                     Icon(actionIcon, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(actionLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(actionLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
         },
@@ -781,13 +781,13 @@ fun SelectableCurrentPackageCard(
     onDetail: () -> Unit
 ) {
     val colors = LocalDriversColors.current
-    val borderColor = if (isSelected) colors.blue else colors.divider
-    val bgColor = if (isSelected) colors.blue.copy(alpha = 0.05f) else colors.surface
+    val borderColor = if (isSelected) colors.purple else colors.divider
+    val bgColor = if (isSelected) colors.purple.copy(alpha = 0.06f) else colors.surface
 
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = bgColor,
-        border = if (isSelected) BorderStroke(2.dp, colors.blue) else BorderStroke(1.dp, borderColor),
+        border = if (isSelected) BorderStroke(2.dp, colors.purple) else BorderStroke(1.dp, borderColor),
         shadowElevation = if (isSelected) 4.dp else 2.dp,
         modifier = Modifier
             .fillMaxWidth()
@@ -804,7 +804,7 @@ fun SelectableCurrentPackageCard(
                         checked = isSelected,
                         onCheckedChange = { onToggle() },
                         colors = CheckboxDefaults.colors(
-                            checkedColor = colors.blue,
+                            checkedColor = colors.purple,
                             uncheckedColor = colors.textSecondary
                         ),
                         modifier = Modifier.size(22.dp)
@@ -816,27 +816,27 @@ fun SelectableCurrentPackageCard(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(colors.blue.copy(alpha = 0.12f)),
+                        .background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.LocalShipping, null, tint = colors.blue, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.LocalShipping, null, tint = colors.purple, modifier = Modifier.size(18.dp))
                 }
 
                 Spacer(Modifier.width(10.dp))
 
                 Column(Modifier.weight(1f)) {
-                    Text(pkg.id, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(pkg.id, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     if (pkg.description.isNotBlank()) {
-                        Text(pkg.description, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1)
+                        Text(pkg.description, color = colors.textSecondary, fontSize = 13.sp, maxLines = 1)
                     }
                 }
 
-                Surface(shape = RoundedCornerShape(8.dp), color = colors.blue.copy(alpha = 0.12f)) {
+                Surface(shape = RoundedCornerShape(8.dp), color = colors.purple.copy(alpha = 0.12f)) {
                     Text(
                         pkg.status.name.replace("_", " "),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = colors.blue,
-                        fontSize = 10.sp,
+                        color = colors.purple,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -844,15 +844,15 @@ fun SelectableCurrentPackageCard(
 
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.MyLocation, null, tint = colors.green, modifier = Modifier.size(13.dp))
+                Icon(Icons.Filled.MyLocation, null, tint = colors.purple, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(pkg.fromAddress, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1)
+                Text(pkg.fromAddress, color = colors.textSecondary, fontSize = 13.sp, maxLines = 1)
             }
-            Spacer(Modifier.height(3.dp))
+            Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.LocationOn, null, tint = colors.red, modifier = Modifier.size(13.dp))
+                Icon(Icons.Filled.LocationOn, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(pkg.toAddress, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1)
+                Text(pkg.toAddress, color = colors.textSecondary, fontSize = 13.sp, maxLines = 1)
             }
         }
     }

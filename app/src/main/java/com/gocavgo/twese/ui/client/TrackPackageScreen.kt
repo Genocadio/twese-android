@@ -414,12 +414,12 @@ private fun ActivePackageTracking(
             Surface(shape = RoundedCornerShape(14.dp), color = colors.surface, border = BorderStroke(1.dp, colors.divider)) {
                 Row(Modifier.padding(14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
-                        Text("From", color = colors.textSecondary, fontSize = 10.sp)
+                        Text("From", color = colors.textSecondary, fontSize = 12.sp)
                         Text(pkg.fromAddress, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = colors.textSecondary, modifier = Modifier.padding(horizontal = 8.dp).size(16.dp))
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Text("To", color = colors.textSecondary, fontSize = 10.sp)
+                        Text("To", color = colors.textSecondary, fontSize = 12.sp)
                         Text(pkg.toAddress, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
                     }
                 }
@@ -448,13 +448,13 @@ private fun ActivePackageTracking(
                         pkg.statusHistory.asReversed().forEachIndexed { i, log ->
                             Row(verticalAlignment = Alignment.Top) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Box(Modifier.size(8.dp).clip(CircleShape).background(if (i == 0) colors.blue else colors.divider))
+                                    Box(Modifier.size(8.dp).clip(CircleShape).background(if (i == 0) colors.purple else colors.divider))
                                     if (i < pkg.statusHistory.size - 1) Box(Modifier.width(1.dp).height(24.dp).background(colors.divider))
                                 }
                                 Spacer(Modifier.width(12.dp))
                                 Column {
                                     Text(log.message, color = colors.textPrimary, fontSize = 13.sp)
-                                    SmartTimeText(log.timestamp, color = colors.textSecondary, fontSize = 11.sp)
+                                    SmartTimeText(log.timestamp, color = colors.textSecondary, fontSize = 12.sp)
                                 }
                             }
                             if (i < pkg.statusHistory.size - 1) Spacer(Modifier.height(8.dp))
@@ -492,11 +492,11 @@ private fun ActivePackageTracking(
                                     onClick = { onCreateTransfer(pkg.id) },
                                     modifier = Modifier.weight(1f).height(40.dp),
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.4f))
+                                    border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.4f))
                                 ) {
-                                    Icon(Icons.Filled.CompareArrows, null, modifier = Modifier.size(16.dp), tint = colors.blue)
+                                    Icon(Icons.Filled.CompareArrows, null, modifier = Modifier.size(16.dp), tint = colors.purple)
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Create Transfer", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.blue)
+                                    Text("Create Transfer", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.purple)
                                 }
                             }
                             if (canConfirmTransfer) {
@@ -504,11 +504,11 @@ private fun ActivePackageTracking(
                                     onClick = { pkg.transferId?.let { onConfirmTransfer(pkg.id, it) } },
                                     modifier = Modifier.weight(1f).height(40.dp),
                                     shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = colors.green)
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                                 ) {
                                     Icon(Icons.Filled.Verified, null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Confirm", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Confirm", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(
                                     onClick = { pkg.transferId?.let { onRejectTransfer(pkg.id, it) } },
@@ -524,11 +524,11 @@ private fun ActivePackageTracking(
                                     onClick = { onConfirmDelivery(pkg.packageUuid, pendingDeliveryCode) },
                                     modifier = Modifier.weight(1f).height(40.dp),
                                     shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = colors.green)
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                                 ) {
                                     Icon(Icons.Filled.CheckCircle, null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Confirm Delivery", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Confirm Delivery", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -538,11 +538,11 @@ private fun ActivePackageTracking(
                                 onClick = { onGeneratePickupCode(pkg.packageUuid) },
                                 modifier = Modifier.fillMaxWidth().height(40.dp),
                                 shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.4f))
+                                border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.4f))
                             ) {
-                                Icon(Icons.Filled.Lock, null, modifier = Modifier.size(16.dp), tint = colors.blue)
+                                Icon(Icons.Filled.Lock, null, modifier = Modifier.size(16.dp), tint = colors.purple)
                                 Spacer(Modifier.width(6.dp))
-                                Text("Generate Pickup Code", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.blue)
+                                Text("Generate Pickup Code", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.purple)
                             }
                         }
                     }
@@ -568,18 +568,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.CustodiansSection(
                 pkg.custodians.forEachIndexed { i, c ->
                     var showCustodianInfo by remember { mutableStateOf(false) }
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.Person, null, tint = colors.blue, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.Person, null, tint = colors.purple, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(c.name.ifBlank { c.userId }, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text(c.role, color = colors.textSecondary, fontSize = 11.sp)
+                            Text(c.role, color = colors.textSecondary, fontSize = 12.sp)
                         }
                         if (c.phone.isNotBlank()) {
                             IconButton(
                                 onClick = { showCustodianInfo = true },
                                 modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(Icons.Filled.Info, null, tint = colors.blue, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.Info, null, tint = colors.purple, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -592,7 +592,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.CustodiansSection(
                             containerColor = colors.surface,
                             title = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Filled.Person, null, tint = colors.blue, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Filled.Person, null, tint = colors.purple, modifier = Modifier.size(20.dp))
                                     Spacer(Modifier.width(8.dp))
                                     Text(c.name.ifBlank { c.userId }, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                                 }
@@ -618,7 +618,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.CustodiansSection(
                                                     Icon(Icons.Filled.Phone, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
                                                     Spacer(Modifier.width(8.dp))
                                                     Text("Phone: ", color = colors.textSecondary, fontSize = 13.sp)
-                                                    Text(com.gocavgo.twese.util.PhoneValidation.toDisplayFormat(c.phone), color = colors.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                                    Text(com.gocavgo.twese.util.PhoneValidation.toDisplayFormat(c.phone), color = colors.purple, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                                                 }
                                             }
                                         }
@@ -627,7 +627,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.CustodiansSection(
                             },
                             confirmButton = {
                                 TextButton(onClick = { showCustodianInfo = false }) {
-                                    Text("Close", color = colors.blue)
+                                    Text("Close", color = colors.purple)
                                 }
                             }
                         )
@@ -689,24 +689,24 @@ private fun DriverInfoCard(driverName: String, driverPhone: String, driverCompan
     val colors = LocalDriversColors.current
     Surface(shape = RoundedCornerShape(14.dp), color = colors.surface, border = BorderStroke(1.dp, colors.divider)) {
         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
                 Icon(
                     when (vehicleType) { "bike" -> Icons.Filled.TwoWheeler; "car" -> Icons.Filled.DirectionsCar; else -> Icons.Filled.Person },
-                    null, tint = colors.blue, modifier = Modifier.size(22.dp)
+                    null, tint = colors.purple, modifier = Modifier.size(22.dp)
                 )
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(driverName, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                if (driverCompany.isNotEmpty()) Text(driverCompany, color = colors.blue, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                if (driverCompany.isNotEmpty()) Text(driverCompany, color = colors.purple, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 if (driverPhone.isNotEmpty()) Text(PhoneValidation.toDisplayFormat(driverPhone), color = colors.textSecondary, fontSize = 12.sp)
             }
             if (vehicleType.isNotEmpty()) {
-                Surface(shape = RoundedCornerShape(20.dp), color = colors.blue.copy(alpha = 0.08f)) {
+                Surface(shape = RoundedCornerShape(20.dp), color = colors.purple.copy(alpha = 0.08f)) {
                     Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (vehicleType == "bike") Icons.Filled.TwoWheeler else Icons.Filled.DirectionsCar, null, tint = colors.blue, modifier = Modifier.size(12.dp))
+                        Icon(if (vehicleType == "bike") Icons.Filled.TwoWheeler else Icons.Filled.DirectionsCar, null, tint = colors.purple, modifier = Modifier.size(12.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text(vehicleType.replaceFirstChar { it.uppercase() }, color = colors.blue, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        Text(vehicleType.replaceFirstChar { it.uppercase() }, color = colors.purple, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

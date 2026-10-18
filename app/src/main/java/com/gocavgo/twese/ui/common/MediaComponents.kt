@@ -151,7 +151,7 @@ fun MediaCarousel(mediaUrls: List<String>, modifier: Modifier = Modifier, onMaxi
                                 loading = {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator(
-                                            color = colors.blue,
+                                            color = colors.purple,
                                             modifier = Modifier.size(32.dp),
                                             strokeWidth = 2.dp
                                         )
@@ -178,7 +178,7 @@ fun MediaCarousel(mediaUrls: List<String>, modifier: Modifier = Modifier, onMaxi
                                         }
                                         .padding(16.dp)
                                 ) {
-                                    Icon(Icons.Filled.Refresh, contentDescription = "Retry", tint = colors.blue, modifier = Modifier.size(28.dp))
+                                    Icon(Icons.Filled.Refresh, contentDescription = "Retry", tint = colors.purple, modifier = Modifier.size(28.dp))
                                     Spacer(Modifier.height(6.dp))
                                     Text("Tap to reload image", color = colors.textPrimary, fontSize = 12.sp)
                                 }
@@ -195,7 +195,7 @@ fun MediaCarousel(mediaUrls: List<String>, modifier: Modifier = Modifier, onMaxi
                         Box(
                             modifier = Modifier.padding(horizontal = 3.dp)
                                 .size(if (pagerState.currentPage == i) 8.dp else 6.dp).clip(CircleShape)
-                                .background(if (pagerState.currentPage == i) colors.blue else colors.divider)
+                                .background(if (pagerState.currentPage == i) colors.purple else colors.divider)
                         )
                     }
                 }

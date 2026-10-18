@@ -63,7 +63,7 @@ fun UpcomingPackagesSection(
                     Text(
                         "+${combined.size - MAX_ROWS} more",
                         color = colors.textSecondary,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         modifier = Modifier.padding(start = 14.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
                     )
                 }
@@ -93,44 +93,44 @@ private fun UpcomingPackageRow(
             modifier = Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .background(if (isPickup) colors.blue.copy(alpha = 0.12f) else colors.amber.copy(alpha = 0.14f)),
+                .background(if (isPickup) colors.purple.copy(alpha = 0.12f) else colors.amber.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 if (isPickup) Icons.Filled.Download else Icons.Filled.Upload,
                 null,
-                tint = if (isPickup) colors.blue else colors.amber,
+                tint = if (isPickup) colors.purple else colors.amber,
                 modifier = Modifier.size(18.dp)
             )
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(pkg.label, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(pkg.label, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (isPickup) Icons.Filled.Person else Icons.Filled.PersonPin, null, tint = colors.textSecondary, modifier = Modifier.size(11.dp))
+                Icon(if (isPickup) Icons.Filled.Person else Icons.Filled.PersonPin, null, tint = colors.textSecondary, modifier = Modifier.size(13.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(
                     if (isPickup) "Pick from ${detail?.senderName?.takeIf { it.isNotBlank() } ?: pkg.recipient}"
                     else "Hand to ${detail?.driverName?.takeIf { it.isNotBlank() } ?: pkg.recipient}",
-                    color = colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
             if (pkg.weight.isNotBlank() && pkg.weight != "Standard") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Straighten, null, tint = colors.textSecondary, modifier = Modifier.size(11.dp))
+                    Icon(Icons.Filled.Straighten, null, tint = colors.textSecondary, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(pkg.weight, color = colors.textSecondary, fontSize = 11.sp)
+                    Text(pkg.weight, color = colors.textSecondary, fontSize = 12.sp)
                 }
             }
         }
         Spacer(Modifier.width(8.dp))
-        Surface(shape = RoundedCornerShape(8.dp), color = (if (isPickup) colors.blue else colors.amber).copy(alpha = 0.1f)) {
+        Surface(shape = RoundedCornerShape(8.dp), color = (if (isPickup) colors.purple else colors.amber).copy(alpha = 0.1f)) {
             Text(
                 if (isPickup) "Pick up" else "Drop off",
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                color = if (isPickup) colors.blue else colors.amber,
-                fontSize = 10.sp, fontWeight = FontWeight.Bold
+                color = if (isPickup) colors.purple else colors.amber,
+                fontSize = 12.sp, fontWeight = FontWeight.Bold
             )
         }
     }

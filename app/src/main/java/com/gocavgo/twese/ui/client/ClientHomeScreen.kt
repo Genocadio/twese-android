@@ -334,8 +334,8 @@ fun ClientHomeScreen(
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 unfocusedBorderColor = Color.Transparent,
-                                focusedBorderColor = colors.blue,
-                                cursorColor = colors.blue
+                                focusedBorderColor = colors.purple,
+                                cursorColor = colors.purple
                             )
                         )
                     }
@@ -373,7 +373,7 @@ fun ClientHomeScreen(
                     ) {
                         Surface(
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(16.dp),
                             color = colors.surface,
                             shadowElevation = 6.dp,
                             border = BorderStroke(1.dp, colors.divider)
@@ -385,7 +385,7 @@ fun ClientHomeScreen(
                             ) {
                                 Box(
                                     modifier = Modifier.size(38.dp).clip(CircleShape)
-                                        .background(if (isClientProfileMenuOpen) colors.blue.copy(alpha = 0.12f) else colors.surfaceAlt)
+                                        .background(if (isClientProfileMenuOpen) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt)
                                         .clickable { onProfileMenuClick() },
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -395,26 +395,28 @@ fun ClientHomeScreen(
                                     } else {
                                         Text(
                                             client.name.ifBlank { "U" }.first().uppercase(),
-                                            color = if (isClientProfileMenuOpen) colors.blue else colors.textSecondary,
+                                            color = if (isClientProfileMenuOpen) colors.purple else colors.textSecondary,
                                             fontWeight = FontWeight.Bold, fontSize = 15.sp
                                         )
                                     }
                                 }
-                                listOf(0 to ("Active" to Icons.Filled.LocalShipping), 1 to ("Completed" to Icons.Filled.CheckCircle)).forEach { (idx, pair) ->
-                                    val (label, icon) = pair
+                                listOf(0 to Icons.Filled.LocalShipping, 1 to Icons.Filled.CheckCircle).forEach { (idx, icon) ->
+                                    val selected = selectedTab == idx
                                     Box(
-                                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp).height(40.dp).clip(RoundedCornerShape(12.dp))
-                                            .background(animateColorAsState(if (selectedTab == idx) colors.blue else Color.Transparent, tween(300), label = "clientTab${idx}Bg").value)
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(horizontal = 4.dp)
+                                            .height(44.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(if (selected) colors.purple.copy(alpha = 0.12f) else Color.Transparent)
                                             .clickable { selectedTab = idx },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(icon, null, modifier = Modifier.size(15.dp),
-                                                tint = animateColorAsState(if (selectedTab == idx) Color.White else colors.textSecondary, tween(300), label = "clientTab${idx}Icon").value)
-                                            Spacer(Modifier.width(5.dp))
-                                            Text(label, color = animateColorAsState(if (selectedTab == idx) Color.White else colors.textSecondary, tween(300), label = "clientTab${idx}Text").value,
-                                                fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                        }
+                                        Icon(
+                                            icon, null,
+                                            modifier = Modifier.size(24.dp),
+                                            tint = if (selected) colors.purple else colors.textSecondary
+                                        )
                                     }
                                 }
                             }
@@ -430,7 +432,7 @@ fun ClientHomeScreen(
                             }) {
                                 FloatingActionButton(
                                     onClick = onCreatePackage,
-                                    containerColor = colors.green,
+                                    containerColor = colors.purple,
                                     contentColor = MaterialTheme.colorScheme.onPrimary,
                                     shape = CircleShape,
                                     elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 5.dp)
@@ -439,7 +441,7 @@ fun ClientHomeScreen(
                         } else {
                             FloatingActionButton(
                                 onClick = onCreatePackage,
-                                containerColor = colors.green,
+                                containerColor = colors.purple,
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
                                 shape = CircleShape,
                                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 5.dp)
@@ -470,7 +472,7 @@ fun ClientHomeScreen(
                     onSettingsClick = onSettingsClick,
                     onLogoutClick = onLogout,
                     onProfileClick = onProfileClick,
-                    accentColorOverride = colors.green,
+                    accentColorOverride = colors.purple,
                     onRequestDriver = onRequestDriver,
                     driverRequestStatus = driverRequestStatus,
                     driverRequestCompanyCode = driverRequestCompanyCode,
@@ -515,7 +517,7 @@ fun ClientHomeScreen(
                             // Profile avatar
                             Box(
                                 modifier = Modifier.size(42.dp).clip(CircleShape)
-                                    .background(if (isClientProfileMenuOpen) colors.blue.copy(alpha = 0.12f) else colors.surfaceAlt)
+                                    .background(if (isClientProfileMenuOpen) colors.purple.copy(alpha = 0.12f) else colors.surfaceAlt)
                                     .clickable { onProfileMenuClick() },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -524,32 +526,30 @@ fun ClientHomeScreen(
                                     CachedAvatarImage(remoteUrl = avatarUrl, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                 } else {
                                     Text(client.name.ifBlank { "U" }.first().uppercase(),
-                                        color = if (isClientProfileMenuOpen) colors.blue else colors.textSecondary,
+                                        color = if (isClientProfileMenuOpen) colors.purple else colors.textSecondary,
                                         fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 }
                             }
                             Spacer(Modifier.height(24.dp))
 
                             // Tab buttons (vertical)
-                            listOf(0 to (Icons.Filled.LocalShipping to "Active"), 1 to (Icons.Filled.CheckCircle to "Done")).forEach { (idx, pair) ->
-                                val (icon, label) = pair
+                            listOf(0 to Icons.Filled.LocalShipping, 1 to Icons.Filled.CheckCircle).forEach { (idx, icon) ->
                                 val selected = selectedTab == idx
                                 Surface(
                                     modifier = Modifier.width(56.dp).padding(vertical = 4.dp),
                                     shape = RoundedCornerShape(14.dp),
-                                    color = if (selected) colors.blue else colors.surfaceAlt,
+                                    color = if (selected) colors.purple.copy(alpha = 0.12f) else Color.Transparent,
                                     onClick = { selectedTab = idx }
                                 ) {
-                                    Column(
-                                        modifier = Modifier.padding(vertical = 8.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    Box(
+                                        modifier = Modifier.padding(vertical = 12.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(icon, null, tint = if (selected) Color.White else colors.textSecondary,
-                                            modifier = Modifier.size(20.dp))
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(label,
-                                            color = if (selected) Color.White else colors.textSecondary,
-                                            fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                                        Icon(
+                                            icon, null,
+                                            tint = if (selected) colors.purple else colors.textSecondary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
                                     }
                                 }
                             }
@@ -567,7 +567,7 @@ fun ClientHomeScreen(
                                 FloatingActionButton(
                                     onClick = onCreatePackage,
                                     modifier = Modifier.size(48.dp),
-                                    containerColor = colors.green,
+                                    containerColor = colors.purple,
                                     contentColor = Color.White,
                                     shape = RoundedCornerShape(14.dp)
                                 ) { Icon(Icons.Filled.Add, null, modifier = Modifier.size(22.dp)) }
@@ -576,7 +576,7 @@ fun ClientHomeScreen(
                             FloatingActionButton(
                                 onClick = onCreatePackage,
                                 modifier = Modifier.size(48.dp),
-                                containerColor = colors.green,
+                                containerColor = colors.purple,
                                 contentColor = Color.White,
                                 shape = RoundedCornerShape(14.dp)
                             ) { Icon(Icons.Filled.Add, null, modifier = Modifier.size(22.dp)) }
@@ -609,7 +609,7 @@ fun ClientHomeScreen(
             BadgedBox(badge = {
                 if (noticeCount > 0) {
                     Badge(containerColor = colors.red, contentColor = Color.White) {
-                        Text("$noticeCount", fontSize = 9.sp)
+                        Text("$noticeCount", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }) {
@@ -691,11 +691,11 @@ private fun PackageCard(
 
     val statusColor = when (pkg.status) {
         PackageStatus.PENDING -> if (isStale) colors.amber.copy(alpha = 0.5f) else colors.amber
-        PackageStatus.PICKED_UP, PackageStatus.IN_TRANSIT -> colors.blue
-        PackageStatus.ARRIVED_AT_OFFICE -> colors.blue
-        PackageStatus.PENDING_CONFIRMATION -> colors.green
-        PackageStatus.OUT_FOR_DELIVERY -> colors.green
-        PackageStatus.DELIVERED -> colors.blue
+        PackageStatus.PICKED_UP, PackageStatus.IN_TRANSIT -> colors.purple
+        PackageStatus.ARRIVED_AT_OFFICE -> colors.purple
+        PackageStatus.PENDING_CONFIRMATION -> colors.purple
+        PackageStatus.OUT_FOR_DELIVERY -> colors.purple
+        PackageStatus.DELIVERED -> colors.purple
         PackageStatus.CANCELLED -> colors.red
     }
     val statusIcon = when (pkg.status) {
@@ -713,7 +713,7 @@ private fun PackageCard(
         modifier = modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         color = colors.surface,
-        border = BorderStroke(1.dp, if (pkg.status == PackageStatus.PENDING_CONFIRMATION) colors.green.copy(alpha = 0.5f) else colors.divider)
+        border = BorderStroke(1.dp, if (pkg.status == PackageStatus.PENDING_CONFIRMATION) colors.purple.copy(alpha = 0.5f) else colors.divider)
     ) {
         Column(Modifier.padding(12.dp)) {
             // ── High-visibility pending confirmation banner ──
@@ -731,8 +731,8 @@ private fun PackageCard(
                         .padding(bottom = 10.dp)
                         .clickable { onConfirmDeliveryDirect(pkg) },
                     shape = RoundedCornerShape(10.dp),
-                    color = colors.green.copy(alpha = 0.12f),
-                    border = BorderStroke(1.2.dp, colors.green.copy(alpha = 0.4f))
+                    color = colors.purpleLight,
+                    border = BorderStroke(1.2.dp, colors.purple.copy(alpha = 0.4f))
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -742,13 +742,13 @@ private fun PackageCard(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(colors.green)
+                                .background(colors.purple)
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = "Driver has arrived!",
-                            color = colors.green,
-                            fontSize = 12.sp,
+                            color = colors.purple,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
                         if (formattedCode.isNotBlank()) {
@@ -756,12 +756,12 @@ private fun PackageCard(
                             Text(
                                 text = "Code: ",
                                 color = colors.textSecondary,
-                                fontSize = 11.sp
+                                fontSize = 12.sp
                             )
                             Text(
                                 text = formattedCode,
-                                color = colors.green,
-                                fontSize = 12.sp,
+                                color = colors.purple,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 letterSpacing = 1.sp
                             )
@@ -769,13 +769,13 @@ private fun PackageCard(
                         Spacer(Modifier.weight(1f))
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = colors.green,
+                            color = colors.purple,
                             modifier = Modifier.clickable { onConfirmDeliveryDirect(pkg) }
                         ) {
                             Text(
                                 text = "Tap to Confirm",
                                 color = androidx.compose.ui.graphics.Color.White,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
@@ -801,7 +801,7 @@ private fun PackageCard(
                     )
                     Spacer(Modifier.width(5.dp))
                 }
-                Text(pkg.id, color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                Text(pkg.id, color = colors.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 if (canGeneratePickupCode) {
                     IconButton(
                         onClick = { onGeneratePickupCode(pkg.packageUuid) },
@@ -810,7 +810,7 @@ private fun PackageCard(
                         Icon(
                             Icons.Filled.Lock,
                             contentDescription = "Generate pickup code",
-                            tint = colors.blue,
+                            tint = colors.purple,
                             modifier = Modifier.size(14.dp)
                         )
                     }
@@ -818,29 +818,29 @@ private fun PackageCard(
                 Spacer(Modifier.weight(1f))
                 Text(
                     if (isDelivered && pkg.receivedAt.isNotBlank()) formatTime(pkg.receivedAt) else formatTime(pkg.createdAt),
-                    color = colors.textSecondary, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp)
+                    color = colors.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp)
                 )
                 Icon(statusIcon, null, tint = statusColor, modifier = Modifier.size(16.dp))
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Sender", color = colors.textSecondary, fontSize = 10.sp)
-                    Text(if (pkg.senderId == clientId) "You" else pkg.senderName, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (senderDisplayPhone.isNotBlank()) Text(senderDisplayPhone, color = colors.textSecondary, fontSize = 10.sp)
+                    Text("Sender", color = colors.textSecondary, fontSize = 12.sp)
+                    Text(if (pkg.senderId == clientId) "You" else pkg.senderName, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (senderDisplayPhone.isNotBlank()) Text(senderDisplayPhone, color = colors.textSecondary, fontSize = 12.sp)
                 }
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
                 Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                    Text("Recipient", color = colors.textSecondary, fontSize = 10.sp)
-                    Text(if (pkg.recipientId == clientId) "You" else pkg.recipientName, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (recipientDisplayPhone.isNotBlank()) Text(recipientDisplayPhone, color = colors.textSecondary, fontSize = 10.sp)
+                    Text("Recipient", color = colors.textSecondary, fontSize = 12.sp)
+                    Text(if (pkg.recipientId == clientId) "You" else pkg.recipientName, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (recipientDisplayPhone.isNotBlank()) Text(recipientDisplayPhone, color = colors.textSecondary, fontSize = 12.sp)
                 }
             }
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(pkg.fromAddress, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(pkg.fromAddress, color = colors.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Icon(Icons.Filled.ArrowForward, null, tint = colors.textSecondary, modifier = Modifier.size(12.dp))
-                Text(pkg.toAddress, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                Text(pkg.toAddress, color = colors.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
             }
 
             // Transfer action buttons
@@ -850,29 +850,29 @@ private fun PackageCard(
                     if (canCreateTransfer) {
                         OutlinedButton(
                             onClick = { onCreateTransfer(pkg.id) },
-                            modifier = Modifier.weight(1f).height(36.dp),
+                            modifier = Modifier.weight(1f).height(38.dp),
                             shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.4f))
+                            border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.4f))
                         ) {
-                            Icon(Icons.Filled.CompareArrows, null, modifier = Modifier.size(14.dp), tint = colors.blue)
+                            Icon(Icons.Filled.CompareArrows, null, modifier = Modifier.size(14.dp), tint = colors.purple)
                             Spacer(Modifier.width(5.dp))
-                            Text("Create Transfer", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.blue)
+                            Text("Create Transfer", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.purple)
                         }
                     }
                     if (canConfirmTransfer) {
                         Button(
                             onClick = { pkg.transferId?.let { onConfirmTransfer(it) } },
-                            modifier = Modifier.weight(1f).height(36.dp),
+                            modifier = Modifier.weight(1f).height(38.dp),
                             shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.green)
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                         ) {
                             Icon(Icons.Filled.Verified, null, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(5.dp))
-                            Text("Confirm", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("Confirm", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(
                             onClick = { pkg.transferId?.let { onRejectTransfer(it) } },
-                            modifier = Modifier.height(36.dp),
+                            modifier = Modifier.height(38.dp),
                             shape = RoundedCornerShape(10.dp),
                             border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.4f))
                         ) {

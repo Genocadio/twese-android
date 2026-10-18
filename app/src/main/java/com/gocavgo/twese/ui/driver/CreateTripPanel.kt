@@ -160,7 +160,7 @@ fun CreateTripPanel(
                                 Text(
                                     "Search origin & destination, pick a route",
                                     color = colors.textSecondary,
-                                    fontSize = 11.sp
+                                    fontSize = 12.sp
                                 )
                             }
                         }
@@ -274,7 +274,7 @@ fun CreateTripPanel(
                                             .padding(horizontal = 14.dp, vertical = 10.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(Icons.Filled.Refresh, null, tint = colors.blue, modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Filled.Refresh, null, tint = colors.purple, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.width(10.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text("Reverse the route", color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -283,7 +283,7 @@ fun CreateTripPanel(
                                                     "${selectedRoute.destinationName ?: "Destination"} → ${selectedRoute.originName ?: "Origin"}"
                                                 else "Travel the route in the opposite direction",
                                                 color = colors.textSecondary,
-                                                fontSize = 11.sp
+                                                fontSize = 12.sp
                                             )
                                         }
                                         Switch(
@@ -291,7 +291,7 @@ fun CreateTripPanel(
                                             onCheckedChange = onReversedChange,
                                             colors = SwitchDefaults.colors(
                                                 checkedThumbColor = Color.White,
-                                                checkedTrackColor = colors.green,
+                                                checkedTrackColor = colors.purple,
                                                 uncheckedThumbColor = Color.White,
                                                 uncheckedTrackColor = colors.surfaceAlt,
                                                 uncheckedBorderColor = colors.divider
@@ -339,7 +339,7 @@ fun CreateTripPanel(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(14.dp),
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = colors.green,
+                                        containerColor = colors.purple,
                                         contentColor = Color.White,
                                         disabledContainerColor = colors.surfaceAlt,
                                         disabledContentColor = colors.textSecondary
@@ -385,7 +385,7 @@ fun CreateTripPanel(
                         onDepartureTimeChange(cal.timeInMillis / 1000)
                     }
                     showDatePicker = false
-                }) { Text("OK", color = colors.blue, fontWeight = FontWeight.Bold) }
+                }) { Text("OK", color = colors.purple, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("Cancel", color = colors.textSecondary) }
@@ -427,7 +427,7 @@ fun CreateTripPanel(
                     c.set(Calendar.MILLISECOND, 0)
                     onDepartureTimeChange(c.timeInMillis / 1000)
                     showTimePicker = false
-                }) { Text("OK", color = colors.blue, fontWeight = FontWeight.Bold) }
+                }) { Text("OK", color = colors.purple, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
                 TextButton(onClick = { showTimePicker = false }) { Text("Cancel", color = colors.textSecondary) }
@@ -517,13 +517,13 @@ private fun TripLocationField(
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Filled.Place, null, tint = colors.green, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.Place, null, tint = colors.purple, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(loc.displayName(), color = colors.textPrimary, fontSize = 14.sp)
                                     val sub = loc.subtitle()
                                     if (sub.isNotBlank()) {
-                                        Text(sub, color = colors.textSecondary, fontSize = 11.sp)
+                                        Text(sub, color = colors.textSecondary, fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -550,23 +550,23 @@ private fun SelectedRouteCard(
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = colors.green.copy(alpha = 0.12f),
-        border = BorderStroke(1.dp, colors.green.copy(alpha = 0.5f)),
+        color = colors.purpleLight,
+        border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Filled.Timeline, null, tint = colors.green, modifier = Modifier.size(18.dp))
+            Icon(Icons.Filled.Timeline, null, tint = colors.purple, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(route.displayLabel(), color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text(routeDetail(route), color = colors.textSecondary, fontSize = 11.sp)
+                Text(routeDetail(route), color = colors.textSecondary, fontSize = 12.sp)
             }
             Text(
                 "✓ Selected",
-                color = colors.green,
+                color = colors.purple,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -583,8 +583,8 @@ private fun RouteOptionCard(
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = if (selected) colors.blue.copy(alpha = 0.1f) else colors.surface,
-        border = BorderStroke(1.dp, if (selected) colors.blue else colors.divider),
+        color = if (selected) colors.purpleLight else colors.surface,
+        border = BorderStroke(1.dp, if (selected) colors.purple else colors.divider),
         onClick = onClick,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -592,11 +592,11 @@ private fun RouteOptionCard(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Filled.Timeline, null, tint = colors.blue, modifier = Modifier.size(16.dp))
+            Icon(Icons.Filled.Timeline, null, tint = if (selected) colors.purple else colors.textSecondary, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(route.displayLabel(), color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Text(routeDetail(route), color = colors.textSecondary, fontSize = 11.sp)
+                Text(routeDetail(route), color = colors.textSecondary, fontSize = 12.sp)
             }
             Icon(Icons.Filled.Edit, null, tint = colors.textSecondary, modifier = Modifier.size(14.dp))
         }
@@ -622,7 +622,7 @@ private fun TimeChip(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, null, tint = colors.blue, modifier = Modifier.size(16.dp))
+            Icon(icon, null, tint = colors.purple, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text(text, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }

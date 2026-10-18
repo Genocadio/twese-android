@@ -45,30 +45,31 @@ fun DeliverConfirmationDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.green.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Filled.Verified, null, tint = colors.green, modifier = Modifier.size(20.dp)) }
+                ) { Icon(Icons.Filled.Verified, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
-                Text("Confirm Delivery", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Confirm Delivery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         },
         text = {
             Column {
-                Text("Package: $packageId", color = colors.textSecondary, fontSize = 12.sp)
+                Text("Package: $packageId", color = colors.textSecondary, fontSize = 13.sp)
                 Spacer(Modifier.height(12.dp))
-                Text("Delivery was initiated — the recipient was sent a confirmation code.", color = colors.textPrimary, fontSize = 13.sp)
-                Spacer(Modifier.height(4.dp))
-                Text("Enter the code if the recipient shared it with you, otherwise wait for them to confirm in their app:", color = colors.textSecondary, fontSize = 12.sp)
+                Text("Delivery was initiated — the recipient was sent a confirmation code.", color = colors.textPrimary, fontSize = 14.sp)
+                Spacer(Modifier.height(6.dp))
+                Text("Enter the code if the recipient shared it with you, otherwise wait for them to confirm in their app:", color = colors.textSecondary, fontSize = 13.sp)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = codeInput,
                     onValueChange = onCodeChange,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Enter delivery code") },
+                    placeholder = { Text("Enter delivery code", fontSize = 14.sp) },
                     singleLine = true,
                     isError = codeError.isNotBlank(),
-                    supportingText = { if (codeError.isNotBlank()) Text(codeError, color = colors.red, fontSize = 11.sp) },
-                    shape = RoundedCornerShape(12.dp)
+                    supportingText = { if (codeError.isNotBlank()) Text(codeError, color = colors.red, fontSize = 12.sp) },
+                    shape = RoundedCornerShape(12.dp),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
                 )
             }
         },
@@ -76,19 +77,19 @@ fun DeliverConfirmationDialog(
             Button(
                 onClick = onConfirm,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.green),
-                modifier = Modifier.height(40.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                modifier = Modifier.height(44.dp),
                 enabled = !isConfirming
             ) {
                 if (isConfirming) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                 } else {
-                    Text("Confirm", fontWeight = FontWeight.Bold)
+                    Text("Confirm", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isConfirming) { Text("Cancel", color = colors.textSecondary) }
+            TextButton(onClick = onDismiss, enabled = !isConfirming) { Text("Cancel", color = colors.textSecondary, fontSize = 13.sp) }
         }
     )
 }
@@ -110,48 +111,48 @@ fun TransferToOfficeDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.amber.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Filled.MoveToInbox, null, tint = colors.amber, modifier = Modifier.size(20.dp)) }
+                ) { Icon(Icons.Filled.MoveToInbox, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
-                Text("Transfer to Office", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Transfer to Office", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         },
         text = {
             Column {
-                Text("Package: $packageId", color = colors.textSecondary, fontSize = 12.sp)
+                Text("Package: $packageId", color = colors.textSecondary, fontSize = 13.sp)
                 Spacer(Modifier.height(12.dp))
                 Surface(shape = RoundedCornerShape(12.dp), color = colors.surfaceAlt, border = BorderStroke(1.dp, colors.divider)) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Store, null, tint = colors.amber, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Filled.Store, null, tint = colors.purple, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(10.dp))
                         Column {
-                            Text("Initiate transfer", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text("Opens the package for the office at the current stop to pick up.", color = colors.textSecondary, fontSize = 11.sp)
+                            Text("Initiate transfer", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Opens the package for the office at the current stop to pick up.", color = colors.textSecondary, fontSize = 12.sp)
                         }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Are you sure you want to initiate this transfer?", color = colors.textSecondary, fontSize = 12.sp)
+                Text("Are you sure you want to initiate this transfer?", color = colors.textSecondary, fontSize = 13.sp)
             }
         },
         confirmButton = {
             Button(
                 onClick = onConfirm,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.amber),
-                modifier = Modifier.height(40.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                modifier = Modifier.height(44.dp),
                 enabled = !isCreating
             ) {
                 if (isCreating) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.Black, strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                 } else {
-                    Text("Transfer", fontWeight = FontWeight.Bold, color = Color.Black)
+                    Text("Transfer", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
                 }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isCreating) { Text("Cancel", color = colors.textSecondary) }
+            TextButton(onClick = onDismiss, enabled = !isCreating) { Text("Cancel", color = colors.textSecondary, fontSize = 13.sp) }
         }
     )
 }
@@ -184,16 +185,16 @@ fun TransferCreationDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Filled.CompareArrows, null, tint = colors.blue, modifier = Modifier.size(20.dp)) }
+                ) { Icon(Icons.Filled.CompareArrows, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
-                Text("Create Transfer", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Create Transfer", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Choose transfer type:", color = colors.textPrimary, fontSize = 12.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Choose transfer type:", color = colors.textPrimary, fontSize = 13.sp)
 
                 listOf(
                     "AUTO" to "No code required, anyone can accept",
@@ -203,25 +204,25 @@ fun TransferCreationDialog(
                     val isSelected = selectedRuleType == value
                     Surface(
                         modifier = Modifier.fillMaxWidth().clickable { onRuleTypeChange(value) },
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isSelected) colors.blue.copy(alpha = 0.08f) else colors.surfaceAlt,
-                        border = if (isSelected) BorderStroke(1.dp, colors.blue) else BorderStroke(1.dp, colors.divider)
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isSelected) colors.purple.copy(alpha = 0.08f) else colors.surfaceAlt,
+                        border = if (isSelected) BorderStroke(1.dp, colors.purple) else BorderStroke(1.dp, colors.divider)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(
                                 selected = isSelected,
                                 onClick = { onRuleTypeChange(value) },
-                                colors = RadioButtonDefaults.colors(selectedColor = colors.blue),
+                                colors = RadioButtonDefaults.colors(selectedColor = colors.purple),
                                 modifier = Modifier.size(20.dp)
                             )
-                            Spacer(Modifier.width(4.dp))
+                            Spacer(Modifier.width(8.dp))
                             Column {
                                 Text(value, color = colors.textPrimary,
-                                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                Text(desc, color = colors.textSecondary, fontSize = 9.sp)
+                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text(desc, color = colors.textSecondary, fontSize = 12.sp)
                             }
                         }
                     }
@@ -242,11 +243,11 @@ fun TransferCreationDialog(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Assign to driver @username", fontSize = 11.sp) },
-                        leadingIcon = { Icon(Icons.Filled.PersonSearch, null, tint = colors.blue) },
+                        label = { Text("Assign to driver @username", fontSize = 13.sp) },
+                        leadingIcon = { Icon(Icons.Filled.PersonSearch, null, tint = colors.purple) },
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp),
-                        textStyle = MaterialTheme.typography.bodySmall
+                        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
                     )
 
                     if (showDriverSearchResults && userSearchResults.isNotEmpty()) {
@@ -268,7 +269,7 @@ fun TransferCreationDialog(
                                             }
                                             .padding(horizontal = 12.dp, vertical = 8.dp),
                                         color = colors.textPrimary,
-                                        fontSize = 12.sp
+                                        fontSize = 13.sp
                                     )
                                 }
                             }
@@ -278,22 +279,22 @@ fun TransferCreationDialog(
                     if (transferMatchUserId != null) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = colors.green.copy(alpha = 0.1f),
+                            color = colors.purple.copy(alpha = 0.1f),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Filled.Person, null, tint = colors.green,
+                                Icon(Icons.Filled.Person, null, tint = colors.purple,
                                     modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(transferMatchUserName ?: "Driver",
-                                        color = colors.green, fontSize = 12.sp,
+                                        color = colors.purple, fontSize = 13.sp,
                                         fontWeight = FontWeight.Medium)
                                     Text("Will need to accept this transfer",
-                                        color = colors.textSecondary, fontSize = 10.sp)
+                                        color = colors.textSecondary, fontSize = 12.sp)
                                 }
                                 IconButton(onClick = {
                                     onClearMatchUser()
@@ -314,14 +315,14 @@ fun TransferCreationDialog(
             Button(
                 onClick = onConfirm,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
-                modifier = Modifier.height(40.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                modifier = Modifier.height(44.dp),
                 enabled = selectedRuleType != null && !isCreating
             ) {
                 if (isCreating) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                 } else {
-                    Text("Create", fontWeight = FontWeight.Bold)
+                    Text("Create", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         },
@@ -331,7 +332,7 @@ fun TransferCreationDialog(
                 onClearUserSearch()
                 onDismiss()
             }, enabled = !isCreating) {
-                Text("Cancel", color = colors.textSecondary)
+                Text("Cancel", color = colors.textSecondary, fontSize = 13.sp)
             }
         }
     )
@@ -354,26 +355,26 @@ fun ConfirmTransferDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.green.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Filled.Verified, null, tint = colors.green, modifier = Modifier.size(20.dp)) }
+                ) { Icon(Icons.Filled.Verified, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
-                Text("Confirm Transfer", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Confirm Transfer", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         },
         text = {
             Column {
-                Text("A driver has requested to join this transfer.", color = colors.textPrimary, fontSize = 13.sp)
+                Text("A driver has requested to join this transfer.", color = colors.textPrimary, fontSize = 14.sp)
                 Spacer(Modifier.height(8.dp))
-                Text("By confirming, you accept the driver's request and the package will be assigned to them.", color = colors.textSecondary, fontSize = 12.sp)
+                Text("By confirming, you accept the driver's request and the package will be assigned to them.", color = colors.textSecondary, fontSize = 13.sp)
             }
         },
         confirmButton = {
             Button(
                 onClick = onConfirm,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.green),
-                modifier = Modifier.height(40.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                modifier = Modifier.height(44.dp),
                 enabled = !isConfirming
             ) {
                 if (isConfirming) {
@@ -381,13 +382,13 @@ fun ConfirmTransferDialog(
                 } else {
                     Icon(Icons.Filled.Check, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text("Confirm", fontWeight = FontWeight.Bold)
+                    Text("Confirm", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isConfirming) {
-                Text("Cancel", color = colors.textSecondary)
+                Text("Cancel", color = colors.textSecondary, fontSize = 13.sp)
             }
         }
     )
@@ -414,14 +415,14 @@ fun RejectTransferDialog(
                     contentAlignment = Alignment.Center
                 ) { Icon(Icons.Filled.Cancel, null, tint = Color.Red, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
-                Text("Reject Transfer", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Reject Transfer", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         },
         text = {
             Column {
-                Text("Are you sure you want to reject this transfer request?", color = colors.textPrimary, fontSize = 13.sp)
+                Text("Are you sure you want to reject this transfer request?", color = colors.textPrimary, fontSize = 14.sp)
                 Spacer(Modifier.height(8.dp))
-                Text("The requesting party will be notified and the transfer will be cancelled.", color = colors.textSecondary, fontSize = 12.sp)
+                Text("The requesting party will be notified and the transfer will be cancelled.", color = colors.textSecondary, fontSize = 13.sp)
             }
         },
         confirmButton = {
@@ -429,7 +430,7 @@ fun RejectTransferDialog(
                 onClick = onReject,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
-                modifier = Modifier.height(40.dp),
+                modifier = Modifier.height(44.dp),
                 enabled = !isRejecting
             ) {
                 if (isRejecting) {
@@ -437,13 +438,13 @@ fun RejectTransferDialog(
                 } else {
                     Icon(Icons.Filled.Close, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text("Reject", fontWeight = FontWeight.Bold)
+                    Text("Reject", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isRejecting) {
-                Text("Cancel", color = colors.textSecondary)
+                Text("Cancel", color = colors.textSecondary, fontSize = 13.sp)
             }
         }
     )
@@ -466,16 +467,16 @@ fun SecureTransferCodeRevealDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Filled.Key, null, tint = colors.blue, modifier = Modifier.size(20.dp)) }
+                ) { Icon(Icons.Filled.Key, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
-                Text("Secure Transfer Code", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Secure Transfer Code", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Text("Share this code with the driver to accept the transfer:", color = colors.textSecondary, fontSize = 12.sp, textAlign = TextAlign.Center)
+                Text("Share this code with the driver to accept the transfer:", color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(12.dp))
                 Surface(
                     shape = RoundedCornerShape(12.dp),
@@ -491,7 +492,7 @@ fun SecureTransferCodeRevealDialog(
                         textAlign = TextAlign.Center
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = {
                         val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -499,11 +500,11 @@ fun SecureTransferCodeRevealDialog(
                         clipboard.setPrimaryClip(clip)
                     },
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, colors.blue.copy(alpha = 0.4f))
+                    border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.4f))
                 ) {
-                    Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.size(14.dp), tint = colors.blue)
-                    Spacer(Modifier.width(5.dp))
-                    Text("Copy Code", fontSize = 12.sp, color = colors.blue)
+                    Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.size(15.dp), tint = colors.purple)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy Code", fontSize = 13.sp, color = colors.purple, fontWeight = FontWeight.SemiBold)
                 }
             }
         },
@@ -511,10 +512,10 @@ fun SecureTransferCodeRevealDialog(
             Button(
                 onClick = onDismiss,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
-                modifier = Modifier.height(40.dp)
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                modifier = Modifier.height(44.dp)
             ) {
-                Text("Done", fontWeight = FontWeight.Bold)
+                Text("Done", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
         }
     )
@@ -537,28 +538,28 @@ fun RequestTransferDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Filled.Send, null, tint = colors.blue, modifier = Modifier.size(20.dp)) }
+                ) { Icon(Icons.Filled.Send, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
-                Text("Request Transfer", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Request Transfer", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         },
         text = {
             Column {
-                Text("This package uses a CONFIRM transfer type.", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("This package uses a CONFIRM transfer type.", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                Text("You need to request to join this transfer. The package owner will be notified and can confirm your request.", color = colors.textSecondary, fontSize = 12.sp)
+                Text("You need to request to join this transfer. The package owner will be notified and can confirm your request.", color = colors.textSecondary, fontSize = 13.sp)
                 Spacer(Modifier.height(8.dp))
-                Text("Once the owner confirms, the package will be assigned to you.", color = colors.textSecondary, fontSize = 12.sp)
+                Text("Once the owner confirms, the package will be assigned to you.", color = colors.textSecondary, fontSize = 13.sp)
             }
         },
         confirmButton = {
             Button(
                 onClick = onConfirm,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
-                modifier = Modifier.height(40.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                modifier = Modifier.height(44.dp),
                 enabled = !isRequesting
             ) {
                 if (isRequesting) {
@@ -566,13 +567,13 @@ fun RequestTransferDialog(
                 } else {
                     Icon(Icons.Filled.Send, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text("Send Request", fontWeight = FontWeight.Bold)
+                    Text("Send Request", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isRequesting) {
-                Text("Cancel", color = colors.textSecondary)
+                Text("Cancel", color = colors.textSecondary, fontSize = 13.sp)
             }
         }
     )
@@ -598,19 +599,19 @@ fun BatchTransferDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Filled.CompareArrows, null, tint = colors.blue, modifier = Modifier.size(20.dp)) }
+                ) { Icon(Icons.Filled.CompareArrows, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
                 Column {
-                    Text("Create Transfer", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                    Text("$packageCount package(s) selected", color = colors.textSecondary, fontSize = 12.sp)
+                    Text("Create Transfer", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("$packageCount package(s) selected", color = colors.textSecondary, fontSize = 13.sp)
                 }
             }
         },
         text = {
             Column {
-                Text("Choose the type of transfer for the selected packages:", color = colors.textPrimary, fontSize = 13.sp)
+                Text("Choose the type of transfer for the selected packages:", color = colors.textPrimary, fontSize = 14.sp)
                 Spacer(Modifier.height(14.dp))
 
                 listOf(
@@ -622,8 +623,8 @@ fun BatchTransferDialog(
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { onRuleTypeChange(value) },
                         shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) colors.blue.copy(alpha = 0.08f) else colors.surfaceAlt,
-                        border = if (isSelected) BorderStroke(1.dp, colors.blue) else BorderStroke(1.dp, colors.divider)
+                        color = if (isSelected) colors.purple.copy(alpha = 0.08f) else colors.surfaceAlt,
+                        border = if (isSelected) BorderStroke(1.dp, colors.purple) else BorderStroke(1.dp, colors.divider)
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -632,39 +633,39 @@ fun BatchTransferDialog(
                             RadioButton(
                                 selected = isSelected,
                                 onClick = { onRuleTypeChange(value) },
-                                colors = RadioButtonDefaults.colors(selectedColor = colors.blue)
+                                colors = RadioButtonDefaults.colors(selectedColor = colors.purple)
                             )
                             Spacer(Modifier.width(8.dp))
                             Column {
-                                Text(value, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                Text(desc, color = colors.textSecondary, fontSize = 10.sp)
+                                Text(value, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text(desc, color = colors.textSecondary, fontSize = 12.sp)
                             }
                         }
                     }
                 }
 
                 Spacer(Modifier.height(8.dp))
-                Text("All $packageCount packages will be grouped under a single transfer for coordinated handover.", color = colors.textSecondary, fontSize = 11.sp)
+                Text("All $packageCount packages will be grouped under a single transfer for coordinated handover.", color = colors.textSecondary, fontSize = 12.sp)
             }
         },
         confirmButton = {
             Button(
                 onClick = onConfirm,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
-                modifier = Modifier.height(40.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                modifier = Modifier.height(44.dp),
                 enabled = selectedRuleType != null && !isCreating
             ) {
                 if (isCreating) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                 } else {
-                    Text("Create Transfer", fontWeight = FontWeight.Bold)
+                    Text("Create Transfer", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isCreating) {
-                Text("Cancel", color = colors.textSecondary)
+                Text("Cancel", color = colors.textSecondary, fontSize = 13.sp)
             }
         }
     )
@@ -691,33 +692,34 @@ fun AcceptTransferCodeDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.blue.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Filled.AddTask, null, tint = colors.blue, modifier = Modifier.size(20.dp)) }
+                ) { Icon(Icons.Filled.AddTask, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
-                Text("Accept via Transfer", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Accept via Transfer", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         },
         text = {
             Column {
-                Text("This package is part of a transfer.", color = colors.textPrimary, fontSize = 13.sp)
+                Text("This package is part of a transfer.", color = colors.textPrimary, fontSize = 14.sp)
                 if (requiresCode) {
                     Spacer(Modifier.height(8.dp))
-                    Text("Enter the transfer code to accept:", color = colors.textPrimary, fontSize = 13.sp)
+                    Text("Enter the transfer code to accept:", color = colors.textPrimary, fontSize = 14.sp)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = codeInput,
                         onValueChange = onCodeChange,
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Enter transfer code") },
+                        placeholder = { Text("Enter transfer code", fontSize = 14.sp) },
                         singleLine = true,
                         isError = codeError.isNotBlank(),
-                        supportingText = { if (codeError.isNotBlank()) Text(codeError, color = colors.red, fontSize = 11.sp) },
-                        shape = RoundedCornerShape(12.dp)
+                        supportingText = { if (codeError.isNotBlank()) Text(codeError, color = colors.red, fontSize = 12.sp) },
+                        shape = RoundedCornerShape(12.dp),
+                        textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
                     )
                 } else {
                     Spacer(Modifier.height(8.dp))
-                    Text("You can accept this package without a transfer code.", color = colors.textSecondary, fontSize = 12.sp)
+                    Text("You can accept this package without a transfer code.", color = colors.textSecondary, fontSize = 13.sp)
                 }
             }
         },
@@ -725,8 +727,8 @@ fun AcceptTransferCodeDialog(
             Button(
                 onClick = onConfirm,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.blue),
-                modifier = Modifier.height(40.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                modifier = Modifier.height(44.dp),
                 enabled = !isAccepting && (!requiresCode || codeInput.isNotBlank())
             ) {
                 if (isAccepting) {
@@ -734,13 +736,13 @@ fun AcceptTransferCodeDialog(
                 } else {
                     Icon(Icons.Filled.AddTask, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text("Accept", fontWeight = FontWeight.Bold)
+                    Text("Accept", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isAccepting) {
-                Text("Cancel", color = colors.textSecondary)
+                Text("Cancel", color = colors.textSecondary, fontSize = 13.sp)
             }
         }
     )
