@@ -1,22 +1,18 @@
 package com.gocavgo.twese.ui.driver
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,38 +24,45 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
-import com.gocavgo.twese.ui.common.CachedAvatarImage
-import com.gocavgo.twese.ui.common.FluidShapes
-import com.gocavgo.twese.ui.common.FrostedFloatingIconButton
-import com.gocavgo.twese.ui.common.ProfileQuickMenu
-import com.gocavgo.twese.ui.common.SettingsMenu
-import com.gocavgo.twese.ui.common.contentMaxWidth
-import com.gocavgo.twese.ui.common.fluidBounceClick
-import com.gocavgo.twese.ui.common.isWideScreen
-import com.gocavgo.twese.ui.theme.LocalDriversColors
+import com.gocavgo.twese.data.Notice
+import com.gocavgo.twese.network.BackendStorage
 import com.gocavgo.twese.viewmodel.AppThemeMode
 import com.gocavgo.twese.viewmodel.CompletedTrip
 import com.gocavgo.twese.viewmodel.DriverProfile
 import com.gocavgo.twese.viewmodel.DriverVehicle
+import com.gocavgo.twese.ui.common.*
+import com.gocavgo.twese.ui.theme.CavgoGreen
+import com.gocavgo.twese.ui.theme.LocalDriversColors
 import com.gocavgo.twese.viewmodel.TripViewModel
+import kotlinx.coroutines.delay
+import java.util.Locale
+import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+enum class DockWindowTab {
+    PROFILE,
+    SEARCH,
+    NEW_PACKAGES,
+    TRIP,
+    NOTIFICATIONS
+}
+
 @Composable
 fun DriverHomeScreen(
     viewModel: TripViewModel,
     profile: DriverProfile,
-    vehicle: DriverVehicle,
+    vehicle: DriverVehicle?,
     driverHomeTab: Int = 0,
-    isDriverProfileMenuOpen: Boolean,
-    isDriverSettingsOpen: Boolean,
-    themeMode: AppThemeMode,
+    isDriverProfileMenuOpen: Boolean = false,
+    isDriverSettingsOpen: Boolean = false,
+    themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     isPipEnabled: Boolean = false,
     completedTrips: List<CompletedTrip> = emptyList(),
     isVehicleMenuOpen: Boolean = false,
@@ -67,17 +70,19 @@ fun DriverHomeScreen(
     isSettingsOpen: Boolean = false,
     defaultPage: String = "trips",
     keepScreenAwake: Boolean = false,
-    onCreatePackage: () -> Unit,
+    onCreatePackage: () -> Unit = {},
+    onTrackPackage: () -> Unit = {},
+    onLogout: () -> Unit = {},
     onTabChange: (Int) -> Unit = {},
-    onProfileMenuClick: () -> Unit,
-    onSettingsClick: () -> Unit,
-    onThemeModeChange: (AppThemeMode) -> Unit,
-    onCloseSettings: () -> Unit,
-    onLogout: () -> Unit,
-    onDismissMenus: () -> Unit,
-    onProfileClick: () -> Unit,
+    onProfileMenuClick: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
     onVehicleClick: () -> Unit = {},
+    onThemeModeChange: (AppThemeMode) -> Unit = {},
+    onCloseSettings: () -> Unit = {},
+    onDismissMenus: () -> Unit = {},
     onEditProfileClick: () -> Unit = {},
+    onCompletedTripsClick: () -> Unit = {},
     onPipEnabledChange: (Boolean) -> Unit = {},
     onDefaultPageChange: (String) -> Unit = {},
     onKeepScreenAwakeChange: (Boolean) -> Unit = {},
@@ -89,9 +94,64 @@ fun DriverHomeScreen(
     val wide = isWideScreen()
     val maxW = contentMaxWidth()
 
+    var activeDockTab by remember { mutableStateOf<DockWindowTab?>(null) }
+    var showAddChoiceDialog by remember { mutableStateOf(false) }
+
+    val activeTrip = state.activeDriverTrip
+    val hasActiveTrip = state.hasActiveTrip || activeTrip != null
+
+    // ── Incoming Items Computation for NEW_PACKAGES ─────────────────────────
+    val NOT_PICKED_UP_BACKEND_STATUSES = remember { setOf("ORIGIN_OFFICE", "ASSIGNED_DRIVER") }
+    val assignedToDriverPackages = state.driverCurrentPackages.filter {
+        it.backendStatus in NOT_PICKED_UP_BACKEND_STATUSES
+    }
+    val incomingPackageUuids = remember(state.driverIncomingTransfers) {
+        state.driverIncomingTransfers.flatMap { it.packages.map { pkg -> pkg.packageUuid } }.toSet()
+    }
+    val driverUserId = state.authUser?.id
+    val visibleOffers = state.driverAvailableOffers.filter { pkg ->
+        val alreadyCustodian = driverUserId != null && pkg.custodians.any { it.userId == driverUserId }
+        pkg.transferId != null && !alreadyCustodian && pkg.transferStatus != "REQUESTED"
+    }
+    val incomingItems: List<IncomingPackageItem> = remember(
+        assignedToDriverPackages,
+        state.driverIncomingTransfers,
+        visibleOffers,
+        incomingPackageUuids
+    ) {
+        val list = mutableListOf<IncomingPackageItem>()
+        assignedToDriverPackages.forEach { list.add(IncomingPackageItem.Assigned(it)) }
+        state.driverIncomingTransfers.forEach { matched ->
+            matched.packages.forEach { pkg ->
+                list.add(IncomingPackageItem.Transfer(pkg, matched.transferId, matched.ruleType))
+            }
+        }
+        visibleOffers.filter { it.packageUuid !in incomingPackageUuids }.forEach { pkg ->
+            list.add(IncomingPackageItem.Offer(pkg, pkg.transferId ?: "", pkg.transferRuleType ?: "AUTO"))
+        }
+        list
+    }
+
+    val unreadNoticeCount = remember(state.notices) {
+        state.notices.count { it.viewerReadAt == null }
+    }
+
+    // React to external triggers
+    LaunchedEffect(isDriverProfileMenuOpen, isDriverSettingsOpen) {
+        if (isDriverProfileMenuOpen || isDriverSettingsOpen) {
+            activeDockTab = DockWindowTab.PROFILE
+        }
+    }
+    LaunchedEffect(state.driverPackageSubTab) {
+        if (state.driverPackageSubTab == 1) {
+            activeDockTab = DockWindowTab.NEW_PACKAGES
+            viewModel.setDriverPackageSubTab(0)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
 
-        // ── Primary View: DriverPackagesTab (Full screen real estate) ──────
+        // ── 1. Primary Feed: DriverPackagesTab (Full screen active packages with infinite scroll) ──
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopCenter
@@ -102,115 +162,274 @@ fun DriverHomeScreen(
                 Modifier.fillMaxSize()
             }
             Box(modifier = contentMod) {
-                DriverPackagesTab(
-                    viewModel = viewModel,
-                    onNoticesClick = onNoticesClick,
-                    noticeCount = noticeCount,
-                    onCreatePackage = onCreatePackage
-                )
+                DriverPackagesTab(viewModel = viewModel)
             }
         }
 
-        // ── Bottom-Start: Driver Profile Avatar Button (Frosted floating) ────
-        FrostedFloatingIconButton(
-            onClick = onProfileMenuClick,
-            shape = FluidShapes.pill,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(start = 16.dp, bottom = 16.dp)
-                .size(52.dp)
+        // ── 2. Reused Floating Window Backdrop Scrim ────────────────────────
+        AnimatedVisibility(
+            visible = activeDockTab != null,
+            enter = fadeIn(tween(180)),
+            exit = fadeOut(tween(180))
         ) {
-            val avatarUrl = profile.avatarUrl
-            if (!avatarUrl.isNullOrBlank()) {
-                CachedAvatarImage(
-                    remoteUrl = avatarUrl,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Text(
-                    profile.name.firstOrNull()?.uppercase() ?: "D",
-                    color = colors.purple,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
-            }
-        }
-
-        // ── Bottom-End Thumb Zone: Floating Minimisable Trip HUD ──────────────
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = 16.dp, bottom = 16.dp)
-        ) {
-            FloatingTripOverlay(
-                viewModel = viewModel,
-                onOpenCreateTrip = { viewModel.openDriverCreateTrip() }
-            )
-        }
-
-        // ── Shared: overlays, menus, dialogs ──────────────────────────────
-
-        // Overlay scrim
-        if (isDriverProfileMenuOpen || isDriverSettingsOpen) {
             Box(
                 modifier = Modifier
-                    .matchParentSize()
-                    .background(Color.Black.copy(alpha = 0.35f))
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.42f))
                     .clickable(
                         indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                        onClick = onDismissMenus
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
+                        activeDockTab = null
+                        onDismissMenus()
+                    }
+            )
+        }
+
+        // ── 3. The Reused Floating Window (Slides up from dock, not edge-to-edge) ──
+        AnimatedVisibility(
+            visible = activeDockTab != null,
+            enter = slideInVertically(
+                animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMedium)
+            ) { it } + fadeIn(tween(180)),
+            exit = slideOutVertically(
+                animationSpec = tween(200, easing = FastOutSlowInEasing)
+            ) { it } + fadeOut(tween(180)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(start = 16.dp, end = 16.dp, bottom = 80.dp)
+        ) {
+            AcrylicGlassSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 540.dp)
+                    .fillMaxHeight(0.72f),
+                shape = FluidShapes.dock,
+                backgroundColor = colors.surface.copy(alpha = 0.96f),
+                border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.8f)),
+                shadowElevation = 14.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    // Drag handle pill
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .size(width = 36.dp, height = 4.dp)
+                            .clip(CircleShape)
+                            .background(colors.divider)
                     )
-            )
+
+                    Spacer(Modifier.height(10.dp))
+
+                    // Window Header: Section Title + Quick Tabs + Close
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val headerIcon = when (activeDockTab) {
+                                DockWindowTab.NEW_PACKAGES -> Icons.Filled.MoveToInbox
+                                DockWindowTab.TRIP -> Icons.Filled.DirectionsCar
+                                DockWindowTab.NOTIFICATIONS -> Icons.Filled.Notifications
+                                DockWindowTab.PROFILE -> Icons.Filled.Person
+                                DockWindowTab.SEARCH -> Icons.Filled.Search
+                                null -> Icons.Filled.Info
+                            }
+                            val headerTitle = when (activeDockTab) {
+                                DockWindowTab.NEW_PACKAGES -> "New Packages"
+                                DockWindowTab.TRIP -> "Trip Data"
+                                DockWindowTab.NOTIFICATIONS -> "Notifications"
+                                DockWindowTab.PROFILE -> "Driver Profile"
+                                DockWindowTab.SEARCH -> "Search Packages"
+                                null -> ""
+                            }
+                            Icon(
+                                headerIcon,
+                                contentDescription = null,
+                                tint = colors.purple,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                headerTitle,
+                                color = colors.textPrimary,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (activeDockTab == DockWindowTab.NEW_PACKAGES && incomingItems.isNotEmpty()) {
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(colors.purple)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "${incomingItems.size}",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            if (activeDockTab == DockWindowTab.NOTIFICATIONS && unreadNoticeCount > 0) {
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(colors.purple)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "$unreadNoticeCount",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        // Close Button
+                        FrostedFloatingIconButton(
+                            onClick = {
+                                activeDockTab = null
+                                onDismissMenus()
+                            },
+                            shape = FluidShapes.pill,
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = colors.textSecondary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    // ── Dynamic Window Content ──────────────────────────────
+                    Box(modifier = Modifier.weight(1f)) {
+                        when (activeDockTab) {
+                            DockWindowTab.NEW_PACKAGES -> {
+                                NewPackagesSheetContent(
+                                    incomingItems = incomingItems,
+                                    hasVehicle = state.driverHasVehicle,
+                                    hasActiveTrip = state.hasActiveTrip,
+                                    isLoading = state.isDriverInitialLoading,
+                                    isAcceptingTransfer = state.isAcceptingTransfer,
+                                    acceptTransferPackageId = state.acceptTransferPackageId,
+                                    pickingUpPackageId = state.pickingUpPackageId,
+                                    newSubscriptionPkgId = state.newPackageFromSubscription?.id,
+                                    viewModel = viewModel
+                                )
+                            }
+                            DockWindowTab.TRIP -> {
+                                TripSheetContent(
+                                    activeTrip = activeTrip,
+                                    hasActiveTrip = hasActiveTrip,
+                                    vehicle = vehicle,
+                                    viewModel = viewModel
+                                )
+                            }
+                            DockWindowTab.NOTIFICATIONS -> {
+                                NotificationsSheetContent(
+                                    notices = state.notices,
+                                    onNoticeClick = { notice ->
+                                        notice.resourceId?.let { pkgId ->
+                                            viewModel.openPackageDetail(pkgId)
+                                        }
+                                    }
+                                )
+                            }
+                            DockWindowTab.PROFILE -> {
+                                ProfileSheetContent(
+                                    profile = profile,
+                                    vehicle = vehicle,
+                                    themeMode = themeMode,
+                                    isPipEnabled = isPipEnabled,
+                                    keepScreenAwake = keepScreenAwake,
+                                    onThemeModeChange = onThemeModeChange,
+                                    onPipEnabledChange = onPipEnabledChange,
+                                    onKeepScreenAwakeChange = onKeepScreenAwakeChange,
+                                    onVehicleClick = onVehicleClick,
+                                    onLogout = onLogout
+                                )
+                            }
+                            DockWindowTab.SEARCH -> {
+                                SearchSheetContent(
+                                    viewModel = viewModel,
+                                    searchQuery = state.driverPackageSearchQuery
+                                )
+                            }
+                            null -> {}
+                        }
+                    }
+                }
+            }
         }
 
-        // Profile quick menu dropdown (expands upwards from bottom-start avatar)
-        AnimatedVisibility(
-            visible = isDriverProfileMenuOpen,
+        // ── 4. Floating Grassy Dock Bar (Bottom Center) ──────────────────────
+        GrassyDock(
+            activeTab = activeDockTab,
+            onTabClick = { tab ->
+                activeDockTab = if (activeDockTab == tab) null else tab
+            },
+            onAddClick = {
+                if (hasActiveTrip) {
+                    onCreatePackage()
+                } else {
+                    showAddChoiceDialog = true
+                }
+            },
+            profile = profile,
+            incomingCount = incomingItems.size,
+            unreadNoticesCount = unreadNoticeCount,
+            hasActiveTrip = hasActiveTrip,
             modifier = Modifier
-                .align(Alignment.BottomStart)
+                .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(start = 16.dp, bottom = 78.dp),
-            enter = expandVertically(tween(250, easing = FastOutSlowInEasing)) + fadeIn(tween(250)),
-            exit = shrinkVertically(tween(200)) + fadeOut(tween(200))
-        ) {
-            ProfileQuickMenu(
-                profile = profile,
-                vehicle = vehicle,
-                onVehicleClick = onVehicleClick,
-                onSettingsClick = { onDismissMenus(); onSettingsClick() },
-                onLogoutClick = onLogout,
-                onProfileClick = { onDismissMenus(); onProfileClick() }
+                .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+        )
+
+        // ── 5. Add Choice Dialog (Package vs Trip when no active trip) ────────
+        if (showAddChoiceDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddChoiceDialog = false },
+                title = { Text("Create", fontWeight = FontWeight.Bold, color = colors.textPrimary) },
+                text = { Text("What would you like to create?", color = colors.textSecondary) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showAddChoiceDialog = false
+                            onCreatePackage()
+                        }
+                    ) {
+                        Text("New Package", fontWeight = FontWeight.Bold, color = colors.purple)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showAddChoiceDialog = false
+                            viewModel.openDriverCreateTrip()
+                        }
+                    ) {
+                        Text("Start Trip", fontWeight = FontWeight.Bold, color = colors.purple)
+                    }
+                },
+                shape = FluidShapes.card,
+                containerColor = colors.surface
             )
         }
 
-        // Settings dropdown (expands upwards from bottom-start avatar)
-        AnimatedVisibility(
-            visible = isDriverSettingsOpen,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(start = 16.dp, bottom = 78.dp),
-            enter = expandVertically(tween(250, easing = FastOutSlowInEasing)) + fadeIn(tween(250)),
-            exit = shrinkVertically(tween(200)) + fadeOut(tween(200))
-        ) {
-            SettingsMenu(
-                themeMode = themeMode,
-                onThemeModeChange = onThemeModeChange,
-                onClose = onCloseSettings,
-                isPipEnabled = isPipEnabled,
-                onPipEnabledChange = onPipEnabledChange,
-                defaultPage = defaultPage,
-                onDefaultPageChange = onDefaultPageChange,
-                keepScreenAwake = keepScreenAwake,
-                onKeepScreenAwakeChange = onKeepScreenAwakeChange
-            )
-        }
-
-        // ── Floating new-package toast (shown at top, swipeable to dismiss) ──
+        // ── 6. Floating New-Package Toast (Swipeable) ────────────────────────
         AnimatedVisibility(
             visible = state.showNewPackageToast,
             modifier = Modifier
@@ -245,12 +464,15 @@ fun DriverHomeScreen(
                     Surface(
                         modifier = Modifier
                             .widthIn(max = 380.dp)
-                            .clickable { viewModel.onNewPackageToastClicked() },
+                            .clickable {
+                                viewModel.onNewPackageToastClicked()
+                                activeDockTab = DockWindowTab.NEW_PACKAGES
+                            },
                         shape = RoundedCornerShape(16.dp),
                         color = colors.surface,
                         tonalElevation = 8.dp,
                         shadowElevation = 12.dp,
-                        border = BorderStroke(1.5.dp, colors.purple.copy(alpha = 0.5f))
+                        border = BorderStroke(1.5.dp, colors.blue.copy(alpha = 0.5f))
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -260,16 +482,16 @@ fun DriverHomeScreen(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(colors.purple.copy(alpha = 0.12f)),
+                                    .background(colors.green.copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Filled.LocalShipping, null, tint = colors.purple, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.LocalShipping, null, tint = colors.green, modifier = Modifier.size(18.dp))
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("New package available!", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text(newPkg.id, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                                Text("${newPkg.fromAddress} → ${newPkg.toAddress}", color = colors.textSecondary, fontSize = 10.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                Text(newPkg.id, color = colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${newPkg.fromAddress} → ${newPkg.toAddress}", color = colors.textSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Spacer(Modifier.width(8.dp))
                             Icon(Icons.Filled.ChevronRight, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
@@ -278,13 +500,13 @@ fun DriverHomeScreen(
                 }
 
                 LaunchedEffect(newPkg.id) {
-                    kotlinx.coroutines.delay(8_000)
+                    delay(8_000)
                     viewModel.dismissNewPackageToast()
                 }
             }
         }
 
-        // ── Package Dialogs & Bottom Sheets ──────────────────────────────────
+        // ── 7. Shared Package Dialogs ────────────────────────────────────────
         val selectedPkg = viewModel.getSelectedDriverPackage()
 
         if (state.isDeliverDialogOpen && selectedPkg != null) {
@@ -324,12 +546,8 @@ fun DriverHomeScreen(
                     viewModel.closePackageDetail()
                     viewModel.openTransferDialog(id)
                 },
-                onPickup = {
-                    viewModel.pickupPackage(selectedPkg.id)
-                },
-                onCancelTransfer = { pkgId, tId ->
-                    viewModel.cancelTransferOffer(pkgId, tId)
-                },
+                onPickup = { viewModel.pickupPackage(selectedPkg.id) },
+                onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
                 isCancellingTransfer = state.isCancellingTransfer,
                 isPickingUp = state.pickingUpPackageId == selectedPkg.id
             )
@@ -344,6 +562,663 @@ fun DriverHomeScreen(
                 onDismiss = { viewModel.closeBatchTransferDialog() },
                 isCreating = state.isCreatingTransfer
             )
+        }
+    }
+}
+
+// ── Grassy Floating Dock Component ──────────────────────────────────────────
+
+@Composable
+fun GrassyDock(
+    activeTab: DockWindowTab?,
+    onTabClick: (DockWindowTab) -> Unit,
+    onAddClick: () -> Unit,
+    profile: DriverProfile,
+    incomingCount: Int,
+    unreadNoticesCount: Int,
+    hasActiveTrip: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalDriversColors.current
+
+    AcrylicGlassSurface(
+        shape = FluidShapes.dock,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(58.dp),
+        backgroundColor = colors.surface.copy(alpha = 0.88f),
+        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f)),
+        shadowElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // 1. Profile Avatar
+            val isProfileActive = activeTab == DockWindowTab.PROFILE
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(if (isProfileActive) colors.purple.copy(alpha = 0.18f) else colors.surfaceAlt)
+                    .border(
+                        if (isProfileActive) BorderStroke(2.dp, colors.purple)
+                        else BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f)),
+                        shape = CircleShape
+                    )
+                    .fluidBounceClick(scaleDown = 0.90f) { onTabClick(DockWindowTab.PROFILE) },
+                contentAlignment = Alignment.Center
+            ) {
+                val avatarUrl = profile.avatarUrl
+                if (!avatarUrl.isNullOrBlank()) {
+                    CachedAvatarImage(remoteUrl = avatarUrl, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                } else {
+                    Text(
+                        profile.name.firstOrNull()?.uppercase() ?: "D",
+                        color = if (isProfileActive) colors.purple else colors.textPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+
+            // 2. Search Icon Button
+            DockIconButton(
+                icon = Icons.Filled.Search,
+                contentDescription = "Search",
+                isActive = activeTab == DockWindowTab.SEARCH,
+                onClick = { onTabClick(DockWindowTab.SEARCH) }
+            )
+
+            // 3. New Packages Icon Button (with badge)
+            DockIconButton(
+                icon = Icons.Filled.MoveToInbox,
+                contentDescription = "New Packages",
+                isActive = activeTab == DockWindowTab.NEW_PACKAGES,
+                badgeCount = incomingCount,
+                onClick = { onTabClick(DockWindowTab.NEW_PACKAGES) }
+            )
+
+            // 4. Primary [+] Add Package / Trip Button
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(FluidShapes.pill)
+                    .background(colors.purple)
+                    .fluidBounceClick(scaleDown = 0.90f, onClick = onAddClick),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = "Add Package or Trip",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            // 5. Trips Icon Button (with live dot)
+            DockIconButton(
+                icon = Icons.Filled.DirectionsCar,
+                contentDescription = "Trips",
+                isActive = activeTab == DockWindowTab.TRIP,
+                hasLiveDot = hasActiveTrip,
+                onClick = { onTabClick(DockWindowTab.TRIP) }
+            )
+
+            // 6. Notifications Icon Button (with badge)
+            DockIconButton(
+                icon = Icons.Filled.Notifications,
+                contentDescription = "Notifications",
+                isActive = activeTab == DockWindowTab.NOTIFICATIONS,
+                badgeCount = unreadNoticesCount,
+                onClick = { onTabClick(DockWindowTab.NOTIFICATIONS) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun DockIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    isActive: Boolean,
+    badgeCount: Int = 0,
+    hasLiveDot: Boolean = false,
+    onClick: () -> Unit
+) {
+    val colors = LocalDriversColors.current
+    val tint by animateColorAsState(
+        if (isActive) colors.purple else colors.textSecondary,
+        tween(200),
+        label = "dockIconTint"
+    )
+    val bgPill by animateColorAsState(
+        if (isActive) colors.purple.copy(alpha = 0.12f) else Color.Transparent,
+        tween(200),
+        label = "dockIconBg"
+    )
+
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(FluidShapes.pill)
+            .background(bgPill)
+            .fluidBounceClick(scaleDown = 0.90f, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        BadgedBox(
+            badge = {
+                if (badgeCount > 0) {
+                    Badge(containerColor = colors.purple, contentColor = Color.White) {
+                        Text("$badgeCount", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else if (hasLiveDot) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(CavgoGreen)
+                    )
+                }
+            }
+        ) {
+            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+// ── Unified Sheet Contents ──────────────────────────────────────────────────
+
+@Composable
+private fun NewPackagesSheetContent(
+    incomingItems: List<IncomingPackageItem>,
+    hasVehicle: Boolean,
+    hasActiveTrip: Boolean,
+    isLoading: Boolean,
+    isAcceptingTransfer: Boolean,
+    acceptTransferPackageId: String?,
+    pickingUpPackageId: String?,
+    newSubscriptionPkgId: String?,
+    viewModel: TripViewModel
+) {
+    if (!hasVehicle) {
+        EmptyPackagesState(
+            title = "Vehicle Required",
+            subtitle = "You must have an assigned vehicle to access incoming packages"
+        )
+    } else if (isLoading && incomingItems.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = LocalDriversColors.current.purple)
+        }
+    } else if (incomingItems.isEmpty()) {
+        EmptyPackagesState(
+            title = "No new packages",
+            subtitle = "Incoming offers, transfers, and office assignments will appear here"
+        )
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (!hasActiveTrip) {
+                item {
+                    val colors = LocalDriversColors.current
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = colors.amber.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, colors.amber.copy(alpha = 0.4f))
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Warning, null, tint = colors.amber, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("No active trip — start a trip to claim open offers", fontSize = 12.sp, color = colors.textPrimary)
+                        }
+                    }
+                }
+            }
+            items(incomingItems, key = {
+                when (it) {
+                    is IncomingPackageItem.Assigned -> "assigned-${it.pkg.id}"
+                    is IncomingPackageItem.Transfer -> "transfer-${it.transferId}-${it.pkg.id}"
+                    is IncomingPackageItem.Offer -> "offer-${it.transferId}-${it.pkg.id}"
+                }
+            }) { item ->
+                val pkg = item.pkg
+                val acceptAction: () -> Unit = when (item) {
+                    is IncomingPackageItem.Assigned -> { { viewModel.pickupPackage(pkg.id) } }
+                    is IncomingPackageItem.Transfer -> {
+                        when (item.ruleType) {
+                            "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
+                            "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
+                            else -> { { viewModel.acceptIncomingTransfer(item.transferId, pkg.id) } }
+                        }
+                    }
+                    is IncomingPackageItem.Offer -> {
+                        when (item.ruleType) {
+                            "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
+                            "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
+                            else -> { { viewModel.acceptAUTOTransfer(pkg.id, item.transferId) } }
+                        }
+                    }
+                }
+                val isThisAccepting = (isAcceptingTransfer && (acceptTransferPackageId == pkg.id || acceptTransferPackageId == null)) ||
+                        (pickingUpPackageId == pkg.id)
+
+                DriverIncomingPackageCard(
+                    item = item,
+                    onAccept = acceptAction,
+                    onDetail = { viewModel.openPackageDetail(pkg.id) },
+                    isAccepting = isThisAccepting,
+                    hasActiveTrip = hasActiveTrip,
+                    isNew = pkg.id == newSubscriptionPkgId
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TripSheetContent(
+    activeTrip: BackendStorage.DriverTrip?,
+    hasActiveTrip: Boolean,
+    vehicle: DriverVehicle?,
+    viewModel: TripViewModel
+) {
+    val colors = LocalDriversColors.current
+
+    if (hasActiveTrip && activeTrip != null) {
+        val routeLabel = activeTrip.routeName
+            ?: (if (activeTrip.origin != null && activeTrip.destination != null) "${activeTrip.origin} → ${activeTrip.destination}" else "Active Trip")
+        val nextWp = activeTrip.waypoints.firstOrNull { it.isNext } ?: activeTrip.waypoints.firstOrNull { !it.isPassed }
+        val remainingDist = nextWp?.remainingDistance?.takeIf { it > 0.0 }
+            ?: activeTrip.remainingDistanceToDestination?.takeIf { it > 0.0 }
+        val distText = remainingDist?.let { d ->
+            if (d < 1000) "${d.toInt()} m" else "${String.format(Locale.US, "%.1f", d / 1000.0)} km"
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                AcrylicGlassSurface(
+                    shape = FluidShapes.card,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(CavgoGreen))
+                            Spacer(Modifier.width(8.dp))
+                            Text("LIVE TRIP IN PROGRESS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CavgoGreen)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(routeLabel, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                        if (distText != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Next Stop: ${nextWp?.locationName ?: "Upcoming"} ($distText)", fontSize = 13.sp, color = colors.purple)
+                        }
+                    }
+                }
+            }
+
+            if (activeTrip.waypoints.isNotEmpty()) {
+                item {
+                    Text("ROUTE STOPS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.textSecondary)
+                }
+
+                items(activeTrip.waypoints) { wp ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = FluidShapes.card,
+                        color = colors.surfaceAlt,
+                        border = BorderStroke(1.dp, if (wp.isNext) colors.purple.copy(alpha = 0.5f) else colors.divider.copy(alpha = 0.4f))
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier.size(24.dp).clip(CircleShape).background(
+                                    if (wp.isPassed) colors.textSecondary.copy(alpha = 0.2f)
+                                    else if (wp.isNext) colors.purple.copy(alpha = 0.2f)
+                                    else colors.surface
+                                ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    if (wp.isPassed) Icons.Filled.Check else Icons.Filled.Place,
+                                    null,
+                                    tint = if (wp.isPassed) colors.textSecondary else if (wp.isNext) colors.purple else colors.textPrimary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    wp.locationName ?: "Stop",
+                                    fontWeight = if (wp.isNext) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 14.sp,
+                                    color = if (wp.isPassed) colors.textSecondary else colors.textPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // No active trip
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(Icons.Filled.DirectionsCar, null, tint = colors.textSecondary, modifier = Modifier.size(48.dp))
+            Spacer(Modifier.height(10.dp))
+            Text("No active trip", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+            Spacer(Modifier.height(4.dp))
+            Text("Start a trip to begin accepting and delivering packages", fontSize = 13.sp, color = colors.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Spacer(Modifier.height(18.dp))
+            Button(
+                onClick = { viewModel.openDriverCreateTrip() },
+                shape = FluidShapes.pill,
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                modifier = Modifier.height(44.dp).padding(horizontal = 16.dp)
+            ) {
+                Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Start New Trip", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationsSheetContent(
+    notices: List<Notice>,
+    onNoticeClick: (Notice) -> Unit
+) {
+    val colors = LocalDriversColors.current
+
+    if (notices.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Filled.NotificationsNone, null, tint = colors.textSecondary, modifier = Modifier.size(44.dp))
+                Spacer(Modifier.height(10.dp))
+                Text("No notifications", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                Spacer(Modifier.height(4.dp))
+                Text("You're all caught up!", fontSize = 13.sp, color = colors.textSecondary)
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(notices, key = { it.id }) { notice ->
+                val isUnread = notice.viewerReadAt == null
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNoticeClick(notice) },
+                    shape = FluidShapes.card,
+                    color = if (isUnread) colors.purple.copy(alpha = 0.08f) else colors.surface,
+                    border = BorderStroke(1.dp, if (isUnread) colors.purple.copy(alpha = 0.3f) else colors.divider.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isUnread) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(colors.purple))
+                            Spacer(Modifier.width(10.dp))
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(notice.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                            Spacer(Modifier.height(2.dp))
+                            Text(notice.message, fontSize = 12.sp, color = colors.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileSheetContent(
+    profile: DriverProfile,
+    vehicle: DriverVehicle?,
+    themeMode: AppThemeMode,
+    isPipEnabled: Boolean,
+    keepScreenAwake: Boolean,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    onPipEnabledChange: (Boolean) -> Unit,
+    onKeepScreenAwakeChange: (Boolean) -> Unit,
+    onVehicleClick: () -> Unit,
+    onLogout: () -> Unit
+) {
+    val colors = LocalDriversColors.current
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Driver Profile Card
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = FluidShapes.card,
+                color = colors.surfaceAlt,
+                border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+            ) {
+                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val avatarUrl = profile.avatarUrl
+                    Box(
+                        modifier = Modifier.size(48.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.14f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!avatarUrl.isNullOrBlank()) {
+                            CachedAvatarImage(remoteUrl = avatarUrl, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        } else {
+                            Text(profile.name.firstOrNull()?.uppercase() ?: "D", color = colors.purple, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(profile.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textPrimary)
+                        Text(profile.phone.ifBlank { profile.email }, fontSize = 13.sp, color = colors.textSecondary)
+                    }
+                }
+            }
+        }
+
+        // Vehicle info card
+        item {
+            if (vehicle != null) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onVehicleClick),
+                    shape = FluidShapes.card,
+                    color = colors.surfaceAlt,
+                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+                ) {
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.DirectionsCar, null, tint = colors.purple, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(vehicle.plateNumber, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = colors.textPrimary)
+                            Text("${vehicle.model} • ${vehicle.seats} seats", fontSize = 12.sp, color = colors.textSecondary)
+                        }
+                        Icon(Icons.Filled.ChevronRight, null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
+
+        // App Preferences
+        item {
+            Text("PREFERENCES", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.textSecondary)
+        }
+
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = FluidShapes.card,
+                color = colors.surfaceAlt,
+                border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+            ) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Theme Switcher
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Theme", fontSize = 14.sp, color = colors.textPrimary)
+                        TextButton(
+                            onClick = {
+                                val nextTheme = when (themeMode) {
+                                    AppThemeMode.SYSTEM -> AppThemeMode.DARK
+                                    AppThemeMode.DARK -> AppThemeMode.LIGHT
+                                    AppThemeMode.LIGHT -> AppThemeMode.SYSTEM
+                                }
+                                onThemeModeChange(nextTheme)
+                            }
+                        ) {
+                            Text(themeMode.name, color = colors.purple, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+
+                    HorizontalDivider(color = colors.divider.copy(alpha = 0.5f))
+
+                    // Keep Screen Awake
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Keep Screen Awake", fontSize = 14.sp, color = colors.textPrimary)
+                        Switch(
+                            checked = keepScreenAwake,
+                            onCheckedChange = onKeepScreenAwakeChange,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = colors.purple)
+                        )
+                    }
+
+                    HorizontalDivider(color = colors.divider.copy(alpha = 0.5f))
+
+                    // PIP
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Picture-in-Picture", fontSize = 14.sp, color = colors.textPrimary)
+                        Switch(
+                            checked = isPipEnabled,
+                            onCheckedChange = onPipEnabledChange,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = colors.purple)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Logout
+        item {
+            Button(
+                onClick = onLogout,
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+                shape = FluidShapes.pill,
+                colors = ButtonDefaults.buttonColors(containerColor = colors.red.copy(alpha = 0.12f))
+            ) {
+                Icon(Icons.Filled.Logout, null, tint = colors.red, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Log Out", color = colors.red, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchSheetContent(
+    viewModel: TripViewModel,
+    searchQuery: String
+) {
+    val colors = LocalDriversColors.current
+    val state by viewModel.state.collectAsState()
+
+    val filteredList = remember(searchQuery, state.driverCurrentPackages) {
+        if (searchQuery.isBlank()) {
+            state.driverCurrentPackages
+        } else {
+            state.driverCurrentPackages.filter {
+                it.id.contains(searchQuery, true) ||
+                it.description.contains(searchQuery, true) ||
+                it.toAddress.contains(searchQuery, true) ||
+                it.fromAddress.contains(searchQuery, true)
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { viewModel.updateDriverPackageSearch(it) },
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            placeholder = { Text("Search by code, destination...", fontSize = 13.sp) },
+            leadingIcon = { Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp)) },
+            trailingIcon = {
+                if (searchQuery.isNotBlank()) {
+                    IconButton(onClick = { viewModel.updateDriverPackageSearch("") }, modifier = Modifier.size(20.dp)) {
+                        Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
+                    }
+                }
+            },
+            shape = FluidShapes.pill,
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = colors.surfaceAlt,
+                focusedContainerColor = colors.surface,
+                unfocusedBorderColor = colors.divider,
+                focusedBorderColor = colors.purple,
+                cursorColor = colors.purple
+            ),
+            textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        if (filteredList.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No packages match \"$searchQuery\"", fontSize = 13.sp, color = colors.textSecondary)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filteredList, key = { it.id }) { pkg ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.openPackageDetail(pkg.id) },
+                        shape = FluidShapes.card,
+                        color = colors.surfaceAlt,
+                        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(pkg.id, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = colors.textPrimary)
+                                Text("${pkg.fromAddress} → ${pkg.toAddress}", fontSize = 11.sp, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Icon(Icons.Filled.ChevronRight, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -64,16 +64,12 @@ import com.gocavgo.twese.viewmodel.TripViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DriverPackagesTab(
-    viewModel: TripViewModel,
-    onNoticesClick: () -> Unit = {},
-    noticeCount: Int = 0,
-    onCreatePackage: () -> Unit = {}
+    viewModel: TripViewModel
 ) {
     val state by viewModel.state.collectAsState()
     val colors = LocalDriversColors.current
     LaunchedEffect(Unit) { viewModel.loadDriverPackages() }
 
-    val subTab = state.driverPackageSubTab.coerceIn(0, 1)
     val searchQuery = state.driverPackageSearchQuery
     val isRefreshing = state.isRefreshingPackages
     val isDriverInitLoading = state.isDriverInitialLoading
@@ -84,11 +80,6 @@ fun DriverPackagesTab(
         state.driverIncomingTransfers.flatMap { it.packages.map { pkg -> pkg.packageUuid } }.toSet()
     }
     val NOT_PICKED_UP_BACKEND_STATUSES = remember { setOf("ORIGIN_OFFICE", "ASSIGNED_DRIVER") }
-
-    // Packages assigned by office but driver hasn't picked up yet
-    val assignedToDriverPackages = state.driverCurrentPackages.filter {
-        it.backendStatus in NOT_PICKED_UP_BACKEND_STATUSES
-    }
 
     // Packages currently on board the vehicle
     val filteredCurrent = state.driverCurrentPackages.filter {
@@ -101,53 +92,6 @@ fun DriverPackagesTab(
         val pendingAction = list.filter { it.status == PackageStatus.PENDING_CONFIRMATION || it.hasOpenTransfer }
         val done = list.filter { it.status == PackageStatus.DELIVERED || it.status == PackageStatus.CANCELLED }
         inProgress.sortedByUnreadNotices(state.notices) + pendingAction + done
-    }
-
-    val driverUserId = state.authUser?.id
-    val visibleOffers = state.driverAvailableOffers.filter { pkg ->
-        val alreadyCustodian = driverUserId != null && pkg.custodians.any { it.userId == driverUserId }
-        pkg.transferId != null && !alreadyCustodian && pkg.transferStatus != "REQUESTED"
-    }
-
-    val filteredTransfers = state.driverIncomingTransfers
-
-    // ── Unified Incoming Items (Assigned + Transfers + Offers) ─────────────
-    val incomingItems: List<IncomingPackageItem> = remember(
-        assignedToDriverPackages,
-        filteredTransfers,
-        visibleOffers,
-        incomingPackageUuids,
-        searchQuery
-    ) {
-        val list = mutableListOf<IncomingPackageItem>()
-
-        // 1. Direct Office Assignments (highest priority to pick up)
-        assignedToDriverPackages.forEach { pkg ->
-            list.add(IncomingPackageItem.Assigned(pkg))
-        }
-
-        // 2. Incoming Worker/Driver Transfers
-        filteredTransfers.forEach { matched ->
-            matched.packages.forEach { pkg ->
-                list.add(IncomingPackageItem.Transfer(pkg, matched.transferId, matched.ruleType))
-            }
-        }
-
-        // 3. Open Broadcast Offers
-        visibleOffers.filter { it.packageUuid !in incomingPackageUuids }.forEach { pkg ->
-            list.add(IncomingPackageItem.Offer(pkg, pkg.transferId ?: "", pkg.transferRuleType ?: "AUTO"))
-        }
-
-        if (searchQuery.isBlank()) {
-            list
-        } else {
-            list.filter { item ->
-                item.pkg.id.contains(searchQuery, true) ||
-                item.pkg.description.contains(searchQuery, true) ||
-                item.pkg.toAddress.contains(searchQuery, true) ||
-                item.pkg.fromAddress.contains(searchQuery, true)
-            }
-        }
     }
 
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
@@ -164,18 +108,6 @@ fun DriverPackagesTab(
         animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing), RepeatMode.Reverse),
         label = "shimmerAlpha"
     )
-
-    var isSearchExpanded by remember { mutableStateOf(false) }
-    var isNewPackagesWindowOpen by remember { mutableStateOf(false) }
-    val haptic = LocalHapticFeedback.current
-
-    // Automatically open new packages window if subTab is set to 1 (e.g. from notification/toast)
-    LaunchedEffect(state.driverPackageSubTab) {
-        if (state.driverPackageSubTab == 1) {
-            isNewPackagesWindowOpen = true
-            viewModel.setDriverPackageSubTab(0)
-        }
-    }
 
     var isPullRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(isRefreshing) {
@@ -197,12 +129,12 @@ fun DriverPackagesTab(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
 
-            // ── 1. The Scrollable Package List (Infinite scroll to top & bottom) ─
+            // ── The Scrollable Package List (Infinite scroll edge-to-edge) ──
             if (isDriverInitLoading && filteredCurrent.isEmpty() && !isSelection) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = statusBarTop + 60.dp, bottom = navBarBottom + 84.dp)
+                        .padding(top = statusBarTop + 16.dp, bottom = navBarBottom + 88.dp)
                 ) {
                     ShimmerList(shimmerAlpha)
                 }
@@ -210,7 +142,7 @@ fun DriverPackagesTab(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = statusBarTop + 60.dp, bottom = navBarBottom + 84.dp),
+                        .padding(top = statusBarTop + 16.dp, bottom = navBarBottom + 88.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     EmptyPackagesState(
@@ -225,8 +157,8 @@ fun DriverPackagesTab(
                     contentPadding = PaddingValues(
                         start = adaptiveHorizontalPadding(),
                         end = adaptiveHorizontalPadding(),
-                        top = statusBarTop + 60.dp,
-                        bottom = if (isSelection) navBarBottom + 160.dp else navBarBottom + 84.dp
+                        top = statusBarTop + 16.dp,
+                        bottom = if (isSelection) navBarBottom + 160.dp else navBarBottom + 88.dp
                     ),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -272,8 +204,8 @@ fun DriverPackagesTab(
                     contentPadding = PaddingValues(
                         start = 16.dp,
                         end = 16.dp,
-                        top = statusBarTop + 60.dp,
-                        bottom = if (isSelection) navBarBottom + 160.dp else navBarBottom + 84.dp
+                        top = statusBarTop + 16.dp,
+                        bottom = if (isSelection) navBarBottom + 160.dp else navBarBottom + 88.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -312,101 +244,13 @@ fun DriverPackagesTab(
                 }
             }
 
-            // ── 2. Floating Top Bar: Search (Left) & Notification Bell (Right) ─
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .animateContentSize(tween(220)),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                if (isSearchExpanded) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { viewModel.updateDriverPackageSearch(it) },
-                        modifier = Modifier.weight(1f).height(44.dp),
-                        placeholder = { Text("Search packages...", fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                        },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    viewModel.updateDriverPackageSearch("")
-                                    isSearchExpanded = false
-                                },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
-                            }
-                        },
-                        shape = FluidShapes.pill,
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = colors.surface.copy(alpha = 0.88f),
-                            focusedContainerColor = colors.surface.copy(alpha = 0.95f),
-                            unfocusedBorderColor = colors.divider.copy(alpha = 0.7f),
-                            focusedBorderColor = colors.purple,
-                            cursorColor = colors.purple,
-                            unfocusedLeadingIconColor = colors.textSecondary,
-                            focusedLeadingIconColor = colors.purple
-                        ),
-                        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    FrostedFloatingIconButton(
-                        onClick = onNoticesClick,
-                        shape = FluidShapes.pill,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        BadgedBox(badge = {
-                            if (noticeCount > 0) {
-                                Badge(containerColor = colors.purple, contentColor = Color.White) {
-                                    Text("$noticeCount", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }) {
-                            Icon(Icons.Filled.Notifications, contentDescription = "Notifications", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                } else {
-                    // Floating Search Button (Top Left)
-                    FrostedFloatingIconButton(
-                        onClick = { isSearchExpanded = true },
-                        shape = FluidShapes.pill,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(Icons.Filled.Search, contentDescription = "Search", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                    }
-
-                    // Floating Notification Bell Button (Top Right)
-                    FrostedFloatingIconButton(
-                        onClick = onNoticesClick,
-                        shape = FluidShapes.pill,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        BadgedBox(badge = {
-                            if (noticeCount > 0) {
-                                Badge(containerColor = colors.purple, contentColor = Color.White) {
-                                    Text("$noticeCount", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }) {
-                            Icon(Icons.Filled.Notifications, contentDescription = "Notifications", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                }
-            }
-
-            // ── 3. Selection Mode Compact Bar (Floating below top bar) ───────
+            // ── Selection Mode Compact Chip Bar (Floating at top) ───────────
             if (isSelection) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(top = 54.dp)
+                        .padding(top = 10.dp)
                 ) {
                     SelectionChipRow(
                         selectedCount = selectedIds.size,
@@ -415,297 +259,17 @@ fun DriverPackagesTab(
                 }
             }
 
-            // ── 4. Centered Bottom Pill: New Packages ─────────────────────────
-            AnimatedVisibility(
-                visible = !isSelection,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 16.dp),
-                enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 2 },
-                exit = fadeOut(tween(150)) + slideOutVertically(tween(150)) { it / 2 }
-            ) {
-                AcrylicGlassSurface(
-                    modifier = Modifier
-                        .height(46.dp)
-                        .fluidBounceClick(scaleDown = 0.94f) {
-                            isNewPackagesWindowOpen = true
-                        },
-                    shape = FluidShapes.pill,
-                    backgroundColor = colors.surface.copy(alpha = 0.88f),
-                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f)),
-                    shadowElevation = 6.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.MoveToInbox,
-                            contentDescription = "New Packages",
-                            tint = if (incomingItems.isNotEmpty()) colors.purple else colors.textSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "New Packages",
-                            color = colors.textPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        if (incomingItems.isNotEmpty()) {
-                            Spacer(Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(colors.purple)
-                                    .padding(horizontal = 7.dp, vertical = 2.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "${incomingItems.size}",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── 5. Floating Bottom Window: New Packages (Not edge-to-edge, keyboard-like) ──
-            // Scrim
-            AnimatedVisibility(
-                visible = isNewPackagesWindowOpen,
-                enter = fadeIn(tween(200)),
-                exit = fadeOut(tween(200))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.45f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { isNewPackagesWindowOpen = false }
-                )
-            }
-
-            // Floating Window Card
-            AnimatedVisibility(
-                visible = isNewPackagesWindowOpen,
-                enter = slideInVertically(
-                    animationSpec = spring(
-                        dampingRatio = 0.82f,
-                        stiffness = Spring.StiffnessMedium
-                    )
-                ) { it } + fadeIn(tween(180)),
-                exit = slideOutVertically(
-                    animationSpec = tween(200, easing = FastOutSlowInEasing)
-                ) { it } + fadeOut(tween(180)),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .imePadding()
-                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
-            ) {
-                AcrylicGlassSurface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 540.dp)
-                        .fillMaxHeight(0.70f),
-                    shape = FluidShapes.dock,
-                    backgroundColor = colors.surface.copy(alpha = 0.96f),
-                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.8f)),
-                    shadowElevation = 14.dp
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        // Drag handle pill
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterHorizontally)
-                                .size(width = 36.dp, height = 4.dp)
-                                .clip(CircleShape)
-                                .background(colors.divider)
-                        )
-
-                        Spacer(Modifier.height(10.dp))
-
-                        // Header
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Filled.MoveToInbox,
-                                    contentDescription = null,
-                                    tint = colors.purple,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    "New Packages",
-                                    color = colors.textPrimary,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (incomingItems.isNotEmpty()) {
-                                    Spacer(Modifier.width(8.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(CircleShape)
-                                            .background(colors.purple)
-                                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            "${incomingItems.size}",
-                                            color = Color.White,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Create Package Action
-                                FrostedFloatingIconButton(
-                                    onClick = {
-                                        isNewPackagesWindowOpen = false
-                                        onCreatePackage()
-                                    },
-                                    shape = FluidShapes.pill,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Add,
-                                        contentDescription = "Create Package",
-                                        tint = colors.purple,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                Spacer(Modifier.width(8.dp))
-
-                                // Close Action
-                                FrostedFloatingIconButton(
-                                    onClick = { isNewPackagesWindowOpen = false },
-                                    shape = FluidShapes.pill,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Close,
-                                        contentDescription = "Close",
-                                        tint = colors.textSecondary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.height(12.dp))
-
-                        // Body
-                        if (!state.driverHasVehicle) {
-                            EmptyPackagesState(
-                                title = "Vehicle Required",
-                                subtitle = "You must have an assigned vehicle to access incoming packages"
-                            )
-                        } else if (isDriverInitLoading && incomingItems.isEmpty()) {
-                            ShimmerList(shimmerAlpha)
-                        } else if (incomingItems.isEmpty()) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.Center,
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                if (!state.hasActiveTrip) {
-                                    NoActiveTripWarningBanner()
-                                    Spacer(Modifier.height(12.dp))
-                                }
-                                EmptyPackagesState(
-                                    title = "No new packages",
-                                    subtitle = "Incoming offers, transfers, and office assignments will appear here"
-                                )
-                            }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                if (!state.hasActiveTrip) {
-                                    item { NoActiveTripWarningBanner() }
-                                }
-                                items(incomingItems, key = {
-                                    when (it) {
-                                        is IncomingPackageItem.Assigned -> "assigned-${it.pkg.id}"
-                                        is IncomingPackageItem.Transfer -> "transfer-${it.transferId}-${it.pkg.id}"
-                                        is IncomingPackageItem.Offer -> "offer-${it.transferId}-${it.pkg.id}"
-                                    }
-                                }) { item ->
-                                    val pkg = item.pkg
-                                    val acceptAction: () -> Unit = when (item) {
-                                        is IncomingPackageItem.Assigned -> {
-                                            { viewModel.pickupPackage(pkg.id) }
-                                        }
-                                        is IncomingPackageItem.Transfer -> {
-                                            when (item.ruleType) {
-                                                "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
-                                                "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
-                                                else -> { { viewModel.acceptIncomingTransfer(item.transferId, pkg.id) } }
-                                            }
-                                        }
-                                        is IncomingPackageItem.Offer -> {
-                                            when (item.ruleType) {
-                                                "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
-                                                "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
-                                                else -> { { viewModel.acceptAUTOTransfer(pkg.id, item.transferId) } }
-                                            }
-                                        }
-                                    }
-
-                                    val isThisAccepting = (state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)) ||
-                                            (state.pickingUpPackageId == pkg.id)
-
-                                    DriverIncomingPackageCard(
-                                        item = item,
-                                        onAccept = acceptAction,
-                                        onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                        isAccepting = isThisAccepting,
-                                        hasActiveTrip = state.hasActiveTrip,
-                                        isNew = pkg.id == state.newPackageFromSubscription?.id
-                                    )
-                                }
-
-                                if (state.driverOffersHasMore && !state.isLoadingMorePackages && !isRefreshing) {
-                                    item { LaunchedEffect(Unit) { viewModel.loadMoreDriverOffers() } }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── Floating Create Transfer button (selection mode) ─────────────
+            // ── Floating Create Transfer Button (Selection Mode) ────────────
             val allDriverPackages = state.driverCurrentPackages + state.driverAvailableOffers
             val eligibleSelectedCount = selectedIds.count { id ->
                 allDriverPackages.find { it.id == id }?.hasOpenTransfer != true
             }
             AnimatedVisibility(
                 visible = isSelection && selectedIds.isNotEmpty(),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 100.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 20.dp, bottom = 90.dp),
                 enter = slideInVertically(tween(300)) { it / 2 } + scaleIn(tween(300)),
                 exit = slideOutVertically(tween(200)) { it / 2 } + scaleOut(tween(200))
             ) {
