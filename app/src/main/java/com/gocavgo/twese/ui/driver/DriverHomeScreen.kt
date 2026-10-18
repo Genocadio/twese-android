@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -227,28 +228,25 @@ fun DriverHomeScreen(
 
                     Spacer(Modifier.height(10.dp))
 
-                    // Window Header: Section Title + Quick Tabs + Close
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Window Header: Section Title (No close button; hidden for Driver Profile)
+                    if (activeDockTab != DockWindowTab.PROFILE) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             val headerIcon = when (activeDockTab) {
                                 DockWindowTab.NEW_PACKAGES -> Icons.Filled.MoveToInbox
                                 DockWindowTab.TRIP -> Icons.Filled.DirectionsCar
                                 DockWindowTab.NOTIFICATIONS -> Icons.Filled.Notifications
-                                DockWindowTab.PROFILE -> Icons.Filled.Person
                                 DockWindowTab.SEARCH -> Icons.Filled.Search
-                                null -> Icons.Filled.Info
+                                else -> Icons.Filled.Info
                             }
                             val headerTitle = when (activeDockTab) {
                                 DockWindowTab.NEW_PACKAGES -> "New Packages"
                                 DockWindowTab.TRIP -> "Trip Data"
                                 DockWindowTab.NOTIFICATIONS -> "Notifications"
-                                DockWindowTab.PROFILE -> "Driver Profile"
                                 DockWindowTab.SEARCH -> "Search Packages"
-                                null -> ""
+                                else -> ""
                             }
                             Icon(
                                 headerIcon,
@@ -299,20 +297,8 @@ fun DriverHomeScreen(
                             }
                         }
 
-                        // Close Button
-                        FrostedFloatingIconButton(
-                            onClick = {
-                                activeDockTab = null
-                                onDismissMenus()
-                            },
-                            shape = FluidShapes.pill,
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = colors.textSecondary, modifier = Modifier.size(18.dp))
-                        }
+                        Spacer(Modifier.height(12.dp))
                     }
-
-                    Spacer(Modifier.height(12.dp))
 
                     // ── Dynamic Window Content ──────────────────────────────
                     Box(modifier = Modifier.weight(1f)) {
@@ -354,9 +340,11 @@ fun DriverHomeScreen(
                                     themeMode = themeMode,
                                     isPipEnabled = isPipEnabled,
                                     keepScreenAwake = keepScreenAwake,
+                                    completedTrips = completedTrips,
                                     onThemeModeChange = onThemeModeChange,
                                     onPipEnabledChange = onPipEnabledChange,
                                     onKeepScreenAwakeChange = onKeepScreenAwakeChange,
+                                    onCompletedTripsClick = onCompletedTripsClick,
                                     onLogout = onLogout
                                 )
                             }
@@ -1125,126 +1113,341 @@ private fun ProfileSheetContent(
     themeMode: AppThemeMode,
     isPipEnabled: Boolean,
     keepScreenAwake: Boolean,
+    completedTrips: List<CompletedTrip> = emptyList(),
     onThemeModeChange: (AppThemeMode) -> Unit,
     onPipEnabledChange: (Boolean) -> Unit,
     onKeepScreenAwakeChange: (Boolean) -> Unit,
+    onCompletedTripsClick: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     val colors = LocalDriversColors.current
 
-    LazyColumn(
+    Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Driver Profile Card
-        item {
+        // ── 1. Settings Grid (2 Columned) on Top ─────────────────────────────
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Card 1: Theme Switcher
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(82.dp)
+                    .fluidBounceClick(scaleDown = 0.93f) {
+                        val nextTheme = when (themeMode) {
+                            AppThemeMode.SYSTEM -> AppThemeMode.DARK
+                            AppThemeMode.DARK -> AppThemeMode.LIGHT
+                            AppThemeMode.LIGHT -> AppThemeMode.SYSTEM
+                        }
+                        onThemeModeChange(nextTheme)
+                    },
                 shape = FluidShapes.card,
                 color = colors.surfaceAlt,
                 border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
             ) {
-                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(colors.purple.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Filled.Settings, null, tint = colors.purple, modifier = Modifier.size(16.dp))
+                        }
+                        Text(
+                            when (themeMode) {
+                                AppThemeMode.SYSTEM -> "System"
+                                AppThemeMode.DARK -> "Dark"
+                                AppThemeMode.LIGHT -> "Light"
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.purple
+                        )
+                    }
+                    Text("Theme", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                }
+            }
+
+            // Card 2: Keep Screen Awake
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(82.dp)
+                    .fluidBounceClick(scaleDown = 0.93f) {
+                        onKeepScreenAwakeChange(!keepScreenAwake)
+                    },
+                shape = FluidShapes.card,
+                color = colors.surfaceAlt,
+                border = BorderStroke(
+                    1.dp,
+                    if (keepScreenAwake) colors.purple.copy(alpha = 0.4f) else colors.divider.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (keepScreenAwake) colors.purple.copy(alpha = 0.18f)
+                                    else colors.textSecondary.copy(alpha = 0.12f)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Filled.ScreenLockLandscape,
+                                null,
+                                tint = if (keepScreenAwake) colors.purple else colors.textSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(if (keepScreenAwake) CavgoGreen else colors.textSecondary.copy(alpha = 0.3f))
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Keep Awake", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                        Text(if (keepScreenAwake) "On" else "Off", fontSize = 11.sp, color = if (keepScreenAwake) colors.purple else colors.textSecondary)
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Card 3: Picture-in-Picture
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(82.dp)
+                    .fluidBounceClick(scaleDown = 0.93f) {
+                        onPipEnabledChange(!isPipEnabled)
+                    },
+                shape = FluidShapes.card,
+                color = colors.surfaceAlt,
+                border = BorderStroke(
+                    1.dp,
+                    if (isPipEnabled) colors.purple.copy(alpha = 0.4f) else colors.divider.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isPipEnabled) colors.purple.copy(alpha = 0.18f)
+                                    else colors.textSecondary.copy(alpha = 0.12f)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Filled.PictureInPicture,
+                                null,
+                                tint = if (isPipEnabled) colors.purple else colors.textSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(if (isPipEnabled) CavgoGreen else colors.textSecondary.copy(alpha = 0.3f))
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("PiP Window", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                        Text(if (isPipEnabled) "On" else "Off", fontSize = 11.sp, color = if (isPipEnabled) colors.purple else colors.textSecondary)
+                    }
+                }
+            }
+
+            // Card 4: Trip History
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(82.dp)
+                    .fluidBounceClick(scaleDown = 0.93f) {
+                        onCompletedTripsClick()
+                    },
+                shape = FluidShapes.card,
+                color = colors.surfaceAlt,
+                border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(colors.purple.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Filled.History, null, tint = colors.purple, modifier = Modifier.size(16.dp))
+                        }
+                        Icon(Icons.Filled.ChevronRight, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Trip History", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                        Text(
+                            if (completedTrips.isNotEmpty()) "${completedTrips.size}" else "0",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.purple
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.weight(1f, fill = false))
+
+        // ── 2. Last Row: Driver Profile & Logout Button ───────────────────────
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Driver Profile info
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = FluidShapes.card,
+                color = colors.surfaceAlt,
+                border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     val avatarUrl = profile.avatarUrl
                     Box(
-                        modifier = Modifier.size(48.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.14f)),
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(colors.purple.copy(alpha = 0.14f)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (!avatarUrl.isNullOrBlank()) {
                             CachedAvatarImage(remoteUrl = avatarUrl, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         } else {
-                            Text(profile.name.firstOrNull()?.uppercase() ?: "D", color = colors.purple, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Text(
+                                profile.name.firstOrNull()?.uppercase() ?: "D",
+                                color = colors.purple,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
                         }
                     }
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(profile.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textPrimary)
-                        Text(profile.phone.ifBlank { profile.email }, fontSize = 13.sp, color = colors.textSecondary)
+                        Text(
+                            profile.name,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            profile.phone.ifBlank { profile.email },
+                            fontSize = 12.sp,
+                            color = colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
-        }
 
-        // App Preferences
-        item {
-            Text("PREFERENCES", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.textSecondary)
-        }
-
-        item {
+            // Logout Button
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .height(58.dp)
+                    .fluidBounceClick(scaleDown = 0.90f, onClick = onLogout),
                 shape = FluidShapes.card,
-                color = colors.surfaceAlt,
-                border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+                color = colors.red.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, colors.red.copy(alpha = 0.35f))
             ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Theme Switcher
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Theme", fontSize = 14.sp, color = colors.textPrimary)
-                        TextButton(
-                            onClick = {
-                                val nextTheme = when (themeMode) {
-                                    AppThemeMode.SYSTEM -> AppThemeMode.DARK
-                                    AppThemeMode.DARK -> AppThemeMode.LIGHT
-                                    AppThemeMode.LIGHT -> AppThemeMode.SYSTEM
-                                }
-                                onThemeModeChange(nextTheme)
-                            }
-                        ) {
-                            Text(themeMode.name, color = colors.purple, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                    }
-
-                    HorizontalDivider(color = colors.divider.copy(alpha = 0.5f))
-
-                    // Keep Screen Awake
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Keep Screen Awake", fontSize = 14.sp, color = colors.textPrimary)
-                        Switch(
-                            checked = keepScreenAwake,
-                            onCheckedChange = onKeepScreenAwakeChange,
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = colors.purple)
-                        )
-                    }
-
-                    HorizontalDivider(color = colors.divider.copy(alpha = 0.5f))
-
-                    // PIP
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Picture-in-Picture", fontSize = 14.sp, color = colors.textPrimary)
-                        Switch(
-                            checked = isPipEnabled,
-                            onCheckedChange = onPipEnabledChange,
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = colors.purple)
-                        )
-                    }
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Logout,
+                        contentDescription = "Log Out",
+                        tint = colors.red,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "Logout",
+                        color = colors.red,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
                 }
-            }
-        }
-
-        // Logout
-        item {
-            Button(
-                onClick = onLogout,
-                modifier = Modifier.fillMaxWidth().height(46.dp),
-                shape = FluidShapes.pill,
-                colors = ButtonDefaults.buttonColors(containerColor = colors.red.copy(alpha = 0.12f))
-            ) {
-                Icon(Icons.Filled.Logout, null, tint = colors.red, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Log Out", color = colors.red, fontWeight = FontWeight.Bold)
             }
         }
     }
