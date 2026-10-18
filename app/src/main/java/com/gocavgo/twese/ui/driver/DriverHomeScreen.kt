@@ -351,14 +351,12 @@ fun DriverHomeScreen(
                             DockWindowTab.PROFILE -> {
                                 ProfileSheetContent(
                                     profile = profile,
-                                    vehicle = vehicle,
                                     themeMode = themeMode,
                                     isPipEnabled = isPipEnabled,
                                     keepScreenAwake = keepScreenAwake,
                                     onThemeModeChange = onThemeModeChange,
                                     onPipEnabledChange = onPipEnabledChange,
                                     onKeepScreenAwakeChange = onKeepScreenAwakeChange,
-                                    onVehicleClick = onVehicleClick,
                                     onLogout = onLogout
                                 )
                             }
@@ -375,28 +373,63 @@ fun DriverHomeScreen(
             }
         }
 
-        // ── 4. Floating Grassy Dock Bar (Bottom Center) ──────────────────────
-        GrassyDock(
-            activeTab = activeDockTab,
-            onTabClick = { tab ->
-                activeDockTab = if (activeDockTab == tab) null else tab
-            },
-            onAddClick = {
-                if (hasActiveTrip) {
-                    onCreatePackage()
-                } else {
-                    showAddChoiceDialog = true
-                }
-            },
-            profile = profile,
-            incomingCount = incomingItems.size,
-            unreadNoticesCount = unreadNoticeCount,
-            hasActiveTrip = hasActiveTrip,
+        // ── 4. Floating Action and Bottom Grassy Dock Bar ────────────────────
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
-        )
+                .padding(bottom = 12.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.End
+        ) {
+            // 4a. Floating Add Button above dock on the right side
+            AnimatedVisibility(
+                visible = activeDockTab == null,
+                enter = fadeIn(spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.75f)) +
+                        scaleIn(spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.75f)),
+                exit = fadeOut(tween(150)) + scaleOut(tween(150))
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .padding(end = 20.dp, bottom = 10.dp)
+                        .size(52.dp)
+                        .fluidBounceClick(scaleDown = 0.90f) {
+                            if (hasActiveTrip) {
+                                onCreatePackage()
+                            } else {
+                                showAddChoiceDialog = true
+                            }
+                        },
+                    shape = CircleShape,
+                    color = colors.purple,
+                    shadowElevation = 8.dp
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = "Add Package or Trip",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            }
+
+            // 4b. Floating Grassy Dock Bar
+            GrassyDock(
+                activeTab = activeDockTab,
+                onTabClick = { tab ->
+                    activeDockTab = if (activeDockTab == tab) null else tab
+                },
+                profile = profile,
+                incomingCount = incomingItems.size,
+                unreadNoticesCount = unreadNoticeCount,
+                hasActiveTrip = hasActiveTrip,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            )
+        }
 
         // ── 5. Add Choice Dialog (Package vs Trip when no active trip) ────────
         if (showAddChoiceDialog) {
@@ -572,7 +605,6 @@ fun DriverHomeScreen(
 fun GrassyDock(
     activeTab: DockWindowTab?,
     onTabClick: (DockWindowTab) -> Unit,
-    onAddClick: () -> Unit,
     profile: DriverProfile,
     incomingCount: Int,
     unreadNoticesCount: Int,
@@ -593,7 +625,7 @@ fun GrassyDock(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -642,24 +674,7 @@ fun GrassyDock(
                 onClick = { onTabClick(DockWindowTab.NEW_PACKAGES) }
             )
 
-            // 4. Primary [+] Add Package / Trip Button
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(FluidShapes.pill)
-                    .background(colors.purple)
-                    .fluidBounceClick(scaleDown = 0.90f, onClick = onAddClick),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = "Add Package or Trip",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            // 5. Trips Icon Button (with live dot)
+            // 4. Trips Icon Button (with live dot)
             DockIconButton(
                 icon = Icons.Filled.DirectionsCar,
                 contentDescription = "Trips",
@@ -668,7 +683,7 @@ fun GrassyDock(
                 onClick = { onTabClick(DockWindowTab.TRIP) }
             )
 
-            // 6. Notifications Icon Button (with badge)
+            // 5. Notifications Icon Button (with badge)
             DockIconButton(
                 icon = Icons.Filled.Notifications,
                 contentDescription = "Notifications",
@@ -831,6 +846,11 @@ private fun TripSheetContent(
 ) {
     val colors = LocalDriversColors.current
 
+    val plateNumber = vehicle?.plateNumber?.takeIf { it.isNotBlank() } ?: activeTrip?.vehicleLicensePlate
+    val seatsCount = vehicle?.seats ?: activeTrip?.seats
+    val vehicleModel = vehicle?.model?.takeIf { it.isNotBlank() } ?: activeTrip?.vehicleModel
+    val vehicleInfoAvailable = !plateNumber.isNullOrBlank() || seatsCount != null
+
     if (hasActiveTrip && activeTrip != null) {
         val routeLabel = activeTrip.routeName
             ?: (if (activeTrip.origin != null && activeTrip.destination != null) "${activeTrip.origin} → ${activeTrip.destination}" else "Active Trip")
@@ -845,6 +865,58 @@ private fun TripSheetContent(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Vehicle plate and seats just above trip data
+            if (vehicleInfoAvailable) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = FluidShapes.card,
+                        color = colors.surfaceAlt,
+                        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.purple.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.DirectionsCar,
+                                    contentDescription = null,
+                                    tint = colors.purple,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    plateNumber ?: "Vehicle",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = colors.textPrimary
+                                )
+                                val subtitle = buildString {
+                                    if (!vehicleModel.isNullOrBlank()) append(vehicleModel)
+                                    if (seatsCount != null) {
+                                        if (isNotEmpty()) append(" • ")
+                                        append("$seatsCount seats")
+                                    }
+                                }
+                                if (subtitle.isNotEmpty()) {
+                                    Text(subtitle, fontSize = 12.sp, color = colors.textSecondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Live Trip Card
             item {
                 AcrylicGlassSurface(
                     shape = FluidShapes.card,
@@ -910,26 +982,86 @@ private fun TripSheetContent(
         }
     } else {
         // No active trip
-        Column(
+        LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Icon(Icons.Filled.DirectionsCar, null, tint = colors.textSecondary, modifier = Modifier.size(48.dp))
-            Spacer(Modifier.height(10.dp))
-            Text("No active trip", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-            Spacer(Modifier.height(4.dp))
-            Text("Start a trip to begin accepting and delivering packages", fontSize = 13.sp, color = colors.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Spacer(Modifier.height(18.dp))
-            Button(
-                onClick = { viewModel.openDriverCreateTrip() },
-                shape = FluidShapes.pill,
-                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
-                modifier = Modifier.height(44.dp).padding(horizontal = 16.dp)
-            ) {
-                Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Start New Trip", color = Color.White, fontWeight = FontWeight.Bold)
+            // Vehicle plate and seats just above trip data
+            if (vehicleInfoAvailable) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = FluidShapes.card,
+                        color = colors.surfaceAlt,
+                        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.purple.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.DirectionsCar,
+                                    contentDescription = null,
+                                    tint = colors.purple,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    plateNumber ?: "Vehicle",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = colors.textPrimary
+                                )
+                                val subtitle = buildString {
+                                    if (!vehicleModel.isNullOrBlank()) append(vehicleModel)
+                                    if (seatsCount != null) {
+                                        if (isNotEmpty()) append(" • ")
+                                        append("$seatsCount seats")
+                                    }
+                                }
+                                if (subtitle.isNotEmpty()) {
+                                    Text(subtitle, fontSize = 12.sp, color = colors.textSecondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Filled.DirectionsCar, null, tint = colors.textSecondary, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Text("No active trip", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Start a trip to begin accepting and delivering packages", fontSize = 13.sp, color = colors.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Spacer(Modifier.height(18.dp))
+                    Button(
+                        onClick = { viewModel.openDriverCreateTrip() },
+                        shape = FluidShapes.pill,
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                        modifier = Modifier.height(44.dp).padding(horizontal = 16.dp)
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Start New Trip", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
@@ -990,14 +1122,12 @@ private fun NotificationsSheetContent(
 @Composable
 private fun ProfileSheetContent(
     profile: DriverProfile,
-    vehicle: DriverVehicle?,
     themeMode: AppThemeMode,
     isPipEnabled: Boolean,
     keepScreenAwake: Boolean,
     onThemeModeChange: (AppThemeMode) -> Unit,
     onPipEnabledChange: (Boolean) -> Unit,
     onKeepScreenAwakeChange: (Boolean) -> Unit,
-    onVehicleClick: () -> Unit,
     onLogout: () -> Unit
 ) {
     val colors = LocalDriversColors.current
@@ -1030,28 +1160,6 @@ private fun ProfileSheetContent(
                     Column(Modifier.weight(1f)) {
                         Text(profile.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textPrimary)
                         Text(profile.phone.ifBlank { profile.email }, fontSize = 13.sp, color = colors.textSecondary)
-                    }
-                }
-            }
-        }
-
-        // Vehicle info card
-        item {
-            if (vehicle != null) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onVehicleClick),
-                    shape = FluidShapes.card,
-                    color = colors.surfaceAlt,
-                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
-                ) {
-                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.DirectionsCar, null, tint = colors.purple, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(vehicle.plateNumber, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = colors.textPrimary)
-                            Text("${vehicle.model} • ${vehicle.seats} seats", fontSize = 12.sp, color = colors.textSecondary)
-                        }
-                        Icon(Icons.Filled.ChevronRight, null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
                     }
                 }
             }
