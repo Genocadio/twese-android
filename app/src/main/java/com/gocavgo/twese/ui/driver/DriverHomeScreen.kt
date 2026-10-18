@@ -19,6 +19,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1474,16 +1480,29 @@ private fun SearchSheetContent(
 ) {
     val colors = LocalDriversColors.current
     val state by viewModel.state.collectAsState()
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
-    val filteredList = remember(searchQuery, state.driverCurrentPackages) {
-        if (searchQuery.isBlank()) {
-            state.driverCurrentPackages
+    // Automatically request focus and launch keyboard when search opens
+    LaunchedEffect(Unit) {
+        delay(120)
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+
+    val query = searchQuery.trim()
+    val suggestions = remember(query, state.driverCurrentPackages) {
+        if (query.isBlank()) {
+            emptyList()
         } else {
-            state.driverCurrentPackages.filter {
-                it.id.contains(searchQuery, true) ||
-                it.description.contains(searchQuery, true) ||
-                it.toAddress.contains(searchQuery, true) ||
-                it.fromAddress.contains(searchQuery, true)
+            state.driverCurrentPackages.filter { pkg ->
+                pkg.id.contains(query, ignoreCase = true) ||
+                pkg.trackingCode.contains(query, ignoreCase = true) ||
+                pkg.recipientName.contains(query, ignoreCase = true) ||
+                pkg.toAddress.contains(query, ignoreCase = true) ||
+                pkg.fromAddress.contains(query, ignoreCase = true) ||
+                pkg.description.contains(query, ignoreCase = true) ||
+                pkg.recipientPhone.contains(query, ignoreCase = true)
             }
         }
     }
@@ -1492,9 +1511,12 @@ private fun SearchSheetContent(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { viewModel.updateDriverPackageSearch(it) },
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            placeholder = { Text("Search by code, destination...", fontSize = 13.sp) },
-            leadingIcon = { Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp)
+                .focusRequester(focusRequester),
+            placeholder = { Text("Search package ID, recipient, stop...", fontSize = 13.sp) },
+            leadingIcon = { Icon(Icons.Filled.Search, null, tint = colors.purple, modifier = Modifier.size(20.dp)) },
             trailingIcon = {
                 if (searchQuery.isNotBlank()) {
                     IconButton(onClick = { viewModel.updateDriverPackageSearch("") }, modifier = Modifier.size(20.dp)) {
@@ -1502,42 +1524,155 @@ private fun SearchSheetContent(
                     }
                 }
             },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
             shape = FluidShapes.pill,
             singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedContainerColor = colors.surfaceAlt,
                 focusedContainerColor = colors.surface,
-                unfocusedBorderColor = colors.divider,
+                unfocusedBorderColor = colors.divider.copy(alpha = 0.6f),
                 focusedBorderColor = colors.purple,
                 cursorColor = colors.purple
             ),
             textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
         )
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
 
-        if (filteredList.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No packages match \"$searchQuery\"", fontSize = 13.sp, color = colors.textSecondary)
+        if (query.isBlank()) {
+            // Initial empty search state (no package list, just clean suggestions / hints)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(colors.purple.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Search,
+                        contentDescription = null,
+                        tint = colors.purple,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Search Packages",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textPrimary
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Type to find tracking code, recipient or stop",
+                    fontSize = 12.sp,
+                    color = colors.textSecondary
+                )
+
+                // Quick route stop chips if on an active trip
+                val stops = remember(state.activeDriverTrip) {
+                    state.activeDriverTrip?.waypoints?.mapNotNull { it.locationName?.takeIf { s -> s.isNotBlank() } }?.take(3) ?: emptyList()
+                }
+                if (stops.isNotEmpty()) {
+                    Spacer(Modifier.height(20.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        stops.forEach { stopName ->
+                            Surface(
+                                shape = FluidShapes.pill,
+                                color = colors.surfaceAlt,
+                                border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f)),
+                                modifier = Modifier.fluidBounceClick(scaleDown = 0.92f) {
+                                    viewModel.updateDriverPackageSearch(stopName)
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Filled.Place, null, tint = colors.purple, modifier = Modifier.size(12.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(stopName, fontSize = 11.sp, color = colors.textPrimary, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (suggestions.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 32.dp),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.SearchOff, null, tint = colors.textSecondary, modifier = Modifier.size(36.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("No packages match \"$query\"", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Check tracking code or recipient name", fontSize = 12.sp, color = colors.textSecondary)
+                }
             }
         } else {
+            // Live suggestions as the user types
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(filteredList, key = { it.id }) { pkg ->
+                items(suggestions, key = { it.id }) { pkg ->
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { viewModel.openPackageDetail(pkg.id) },
+                            .fluidBounceClick(scaleDown = 0.98f) {
+                                keyboardController?.hide()
+                                viewModel.openPackageDetail(pkg.id)
+                            },
                         shape = FluidShapes.card,
                         color = colors.surfaceAlt,
                         border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
                     ) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.purple.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.Inventory2,
+                                    contentDescription = null,
+                                    tint = colors.purple,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(pkg.id, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = colors.textPrimary)
-                                Text("${pkg.fromAddress} → ${pkg.toAddress}", fontSize = 11.sp, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    pkg.trackingCode.ifBlank { pkg.id },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = colors.textPrimary
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                val recipientText = pkg.recipientName.ifBlank { "Recipient" }
+                                Text(
+                                    "$recipientText • ${pkg.toAddress}",
+                                    fontSize = 11.sp,
+                                    color = colors.textSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                             Icon(Icons.Filled.ChevronRight, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
                         }
