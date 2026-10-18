@@ -108,7 +108,11 @@ class LocationService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForegroundWithType()
+        val foregroundSuccess = startForegroundWithType()
+        if (!foregroundSuccess) {
+            Log.e(TAG, "Could not enter foreground in onCreate — aborting service initialization")
+            return
+        }
         isRunning = true
 
         // Initialize MQTT publisher
@@ -126,24 +130,40 @@ class LocationService : Service() {
         Log.i(TAG, "LocationService started")
     }
 
-    private fun startForegroundWithType() {
-        val notification = buildNotification("Acquiring location…")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            if (hasFine || hasCoarse) {
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+    private fun startForegroundWithType(): Boolean {
+        val notification = buildNotification(buildNotifText())
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (hasFine || hasCoarse) {
+                    startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                    true
+                } else {
+                    Log.e(TAG, "Location permissions not granted — entering fallback foreground before stopping")
+                    try {
+                        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Manifest type fallback failed: ${e.message}")
+                        startForeground(NOTIFICATION_ID, notification)
+                    }
+                    stopSelf()
+                    false
+                }
             } else {
-                // A service started with startForegroundService() MUST call
-                // startForeground() within the system window, or Android kills the
-                // whole process (ForegroundServiceDidNotStartInTimeException).
-                // Enter foreground with the manifest-declared type, then stop.
-                Log.e(TAG, "Location permissions not granted — entering foreground with manifest type then stopping")
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST)
-                stopSelf()
+                startForeground(NOTIFICATION_ID, notification)
+                true
             }
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to call startForeground: ${e.message}", e)
+            try {
+                startForeground(NOTIFICATION_ID, notification)
+                true
+            } catch (fallbackEx: Exception) {
+                Log.e(TAG, "Fatal fallback startForeground failed: ${fallbackEx.message}")
+                stopSelf()
+                false
+            }
         }
     }
 
@@ -379,12 +399,20 @@ class LocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Android 8+ requirement: ALWAYS call startForeground() on every onStartCommand
+        // in case startForegroundService() was invoked when the service was already running or queued!
+        startForegroundWithType()
+
         if (intent?.action == ACTION_UPDATE_TRIP) {
             notifStopName = intent.getStringExtra(EXTRA_STOP_NAME) ?: notifStopName
             notifPickups = intent.getIntExtra(EXTRA_PICKUP_COUNT, notifPickups)
             notifDropoffs = intent.getIntExtra(EXTRA_DROPOFF_COUNT, notifDropoffs)
-            getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, buildNotification(buildNotifText()))
+            try {
+                getSystemService(NotificationManager::class.java)
+                    .notify(NOTIFICATION_ID, buildNotification(buildNotifText()))
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to update notification in onStartCommand: ${e.message}")
+            }
         }
         return START_STICKY
     }
@@ -394,7 +422,13 @@ class LocationService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
-        fusedLocationClient.removeLocationUpdates(locationCallback)
+        if (::fusedLocationClient.isInitialized && ::locationCallback.isInitialized) {
+            try {
+                fusedLocationClient.removeLocationUpdates(locationCallback)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to remove location updates on destroy: ${e.message}")
+            }
+        }
         if (::watchdogHandler.isInitialized) watchdogHandler.removeCallbacksAndMessages(null)
         if (::locationThread.isInitialized) locationThread.quitSafely()
         Log.i(TAG, "LocationService stopped")

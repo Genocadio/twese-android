@@ -81,6 +81,19 @@ class LocationKeepaliveWorker(
             return Result.success()
         }
 
+        // On Android 14+, starting a foreground service with TYPE_LOCATION while in background
+        // requires ACCESS_BACKGROUND_LOCATION, otherwise throws ForegroundServiceStartNotAllowedException.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val hasBackground = ContextCompat.checkSelfPermission(
+                applicationContext, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            val isForeground = isAppInForeground(applicationContext)
+            if (!hasBackground && !isForeground) {
+                Log.d(TAG, "App in background without ACCESS_BACKGROUND_LOCATION on Android 14+ — deferring LocationService restart")
+                return Result.success()
+            }
+        }
+
         Log.d(TAG, "Checking LocationService status")
 
         // Start the service — if it's already running, this is a no-op.
@@ -95,9 +108,20 @@ class LocationKeepaliveWorker(
             Log.d(TAG, "LocationService keepalive OK")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to restart LocationService: ${e.message}")
-            return Result.retry()
+            return Result.success()
         }
 
         return Result.success()
+    }
+
+    private fun isAppInForeground(context: Context): Boolean {
+        return try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager ?: return false
+            val appProcesses = am.runningAppProcesses ?: return false
+            val pkg = context.packageName
+            appProcesses.any { it.importance == android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND && it.processName == pkg }
+        } catch (e: Exception) {
+            false
+        }
     }
 }

@@ -53,6 +53,19 @@ class LocationBootReceiver : BroadcastReceiver() {
             Log.w(TAG, "Location permission missing — skipping LocationService restart")
             return
         }
+
+        // On Android 14+, starting a foreground service with TYPE_LOCATION while in background
+        // requires ACCESS_BACKGROUND_LOCATION, otherwise throws ForegroundServiceStartNotAllowedException.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val hasBackground = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!hasBackground) {
+                Log.w(TAG, "ACCESS_BACKGROUND_LOCATION missing on Android 14+ — skipping boot start")
+                return
+            }
+        }
+
         val serviceIntent = Intent(context, LocationService::class.java)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

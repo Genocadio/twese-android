@@ -195,23 +195,19 @@ class MainActivity : ComponentActivity() {
                 updatePipParams()
             }
 
-            // Request location access on launch for ALL logged-in users.
-            // Both drivers and clients publish their GPS to the MQTT broker.
-            LaunchedEffect(state.appRole) {
-                if (state.appRole == AppRole.NONE) return@LaunchedEffect
-                if (hasLocationPermissions()) {
-                    startLocationService()
-                    requestBackgroundLocationIfNeeded()
-                    LocationService.requestBatteryOptimisationExemption(this@MainActivity)
-                } else {
-                    pendingLocationStart = true
-                    requestPermissionsIfNeeded()
-                }
-            }
-
-            // Stop the location service on logout
-            LaunchedEffect(state.isLoggedIn) {
-                if (!state.isLoggedIn) {
+            // Manage continuous location tracking for logged-in users (both drivers + clients)
+            LaunchedEffect(state.isAuthInitialized, state.isLoggedIn, state.appRole) {
+                if (!state.isAuthInitialized) return@LaunchedEffect
+                if (state.isLoggedIn && state.appRole != AppRole.NONE) {
+                    if (hasLocationPermissions()) {
+                        startLocationService()
+                        requestBackgroundLocationIfNeeded()
+                        LocationService.requestBatteryOptimisationExemption(this@MainActivity)
+                    } else {
+                        pendingLocationStart = true
+                        requestPermissionsIfNeeded()
+                    }
+                } else if (!state.isLoggedIn) {
                     stopLocationService()
                 }
             }
@@ -333,13 +329,15 @@ class MainActivity : ComponentActivity() {
                 if (state.appRole == AppRole.DRIVER && state.isLoggedIn && state.hasActiveTrip) {
                     val stop = vm.nextStop ?: vm.currentStop
                     LaunchedEffect(stop.name, stop.pickups.size, stop.dropoffs.size) {
-                        val intent = Intent(this@MainActivity, LocationService::class.java).apply {
-                            action = LocationService.ACTION_UPDATE_TRIP
-                            putExtra(LocationService.EXTRA_STOP_NAME,     stop.name)
-                            putExtra(LocationService.EXTRA_PICKUP_COUNT,  stop.pickups.size)
-                            putExtra(LocationService.EXTRA_DROPOFF_COUNT, stop.dropoffs.size)
+                        if (LocationService.isRunning) {
+                            val intent = Intent(this@MainActivity, LocationService::class.java).apply {
+                                action = LocationService.ACTION_UPDATE_TRIP
+                                putExtra(LocationService.EXTRA_STOP_NAME,     stop.name)
+                                putExtra(LocationService.EXTRA_PICKUP_COUNT,  stop.pickups.size)
+                                putExtra(LocationService.EXTRA_DROPOFF_COUNT, stop.dropoffs.size)
+                            }
+                            startService(intent)
                         }
-                        startService(intent)
                     }
                 }
                 // ─────────────────────────────────────────────────────────────
@@ -896,6 +894,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopLocationService() {
+        if (!LocationService.isRunning) return
         val serviceIntent = Intent(this, LocationService::class.java)
         stopService(serviceIntent)
         Log.i(TAG, "Location service stop requested")
