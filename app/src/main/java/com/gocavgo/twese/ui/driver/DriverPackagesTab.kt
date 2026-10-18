@@ -13,6 +13,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -166,7 +167,10 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
     // Sync subTab → pager
     LaunchedEffect(subTab) {
         if (pagerState.currentPage != subTab) {
-            pagerState.animateScrollToPage(subTab)
+            pagerState.animateScrollToPage(
+                page = subTab,
+                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
+            )
         }
     }
 
@@ -262,11 +266,11 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                         Surface(
                             modifier = Modifier.weight(1f).height(44.dp),
                             shape = RoundedCornerShape(14.dp),
-                            color = colors.surfaceAlt,
+                            color = colors.surface,
                             border = BorderStroke(1.dp, colors.divider)
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxSize().padding(3.dp),
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 3.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 val tabs = listOf(
@@ -278,44 +282,58 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                     val isSelected = subTab == index
                                     val disabled = isSelection && index != 0
 
-                                    val bgColor by animateColorAsState(
-                                        if (isSelected) colors.surface else Color.Transparent,
-                                        tween(200),
-                                        label = "segmentBg"
+                                    val iconTint by animateColorAsState(
+                                        targetValue = if (isSelected) colors.purple else colors.textSecondary,
+                                        animationSpec = tween(250, easing = FastOutSlowInEasing),
+                                        label = "topTabIcon$index"
                                     )
-                                    val contentColor by animateColorAsState(
-                                        if (isSelected) colors.purple else colors.textSecondary,
-                                        tween(200),
-                                        label = "segmentText"
+                                    val bgPill by animateColorAsState(
+                                        targetValue = if (isSelected) colors.purple.copy(alpha = 0.12f) else Color.Transparent,
+                                        animationSpec = tween(250, easing = FastOutSlowInEasing),
+                                        label = "topTabBg$index"
+                                    )
+                                    val badgeBg by animateColorAsState(
+                                        targetValue = if (isSelected) colors.purple else colors.divider,
+                                        animationSpec = tween(250, easing = FastOutSlowInEasing),
+                                        label = "topTabBadgeBg$index"
+                                    )
+                                    val badgeText by animateColorAsState(
+                                        targetValue = if (isSelected) Color.White else colors.textSecondary,
+                                        animationSpec = tween(250, easing = FastOutSlowInEasing),
+                                        label = "topTabBadgeText$index"
                                     )
 
-                                    Surface(
-                                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                                        shape = RoundedCornerShape(11.dp),
-                                        color = bgColor,
-                                        border = if (isSelected) BorderStroke(1.dp, colors.divider.copy(alpha = 0.8f)) else null,
-                                        shadowElevation = if (isSelected) 2.dp else 0.dp,
-                                        onClick = {
-                                            if (!disabled) viewModel.setDriverPackageSubTab(index)
-                                        }
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .clip(RoundedCornerShape(11.dp))
+                                            .background(bgPill)
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                enabled = !disabled
+                                            ) {
+                                                if (subTab != index) {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    viewModel.setDriverPackageSubTab(index)
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Row(
-                                            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.Center
                                         ) {
                                             Icon(
                                                 imageVector = icon,
                                                 contentDescription = if (index == 0) "On Board" else "Incoming",
-                                                tint = contentColor,
+                                                tint = iconTint,
                                                 modifier = Modifier.size(20.dp)
                                             )
                                             Spacer(Modifier.width(6.dp))
 
                                             // Count badge
-                                            val badgeBg = if (isSelected) colors.purple else colors.divider
-                                            val badgeText = if (isSelected) Color.White else colors.textSecondary
-
                                             Box(
                                                 modifier = Modifier
                                                     .clip(CircleShape)
