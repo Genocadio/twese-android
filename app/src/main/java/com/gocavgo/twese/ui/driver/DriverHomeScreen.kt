@@ -105,7 +105,8 @@ fun DriverHomeScreen(
                 DriverPackagesTab(
                     viewModel = viewModel,
                     onNoticesClick = onNoticesClick,
-                    noticeCount = noticeCount
+                    noticeCount = noticeCount,
+                    onCreatePackage = onCreatePackage
                 )
             }
         }
@@ -137,38 +138,17 @@ fun DriverHomeScreen(
             }
         }
 
-        // ── Bottom-End Thumb Zone: Stacked Floating Trip HUD + New Package FAB ──
-        Column(
+        // ── Bottom-End Thumb Zone: Floating Minimisable Trip HUD ──────────────
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(end = 16.dp, bottom = 16.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(end = 16.dp, bottom = 16.dp)
         ) {
-            // Floating minimisable trip overlay (bubble directly above the [+] FAB)
             FloatingTripOverlay(
                 viewModel = viewModel,
                 onOpenCreateTrip = { viewModel.openDriverCreateTrip() }
             )
-
-            // New Package [+] FAB
-            FloatingActionButton(
-                onClick = onCreatePackage,
-                modifier = Modifier
-                    .size(56.dp)
-                    .fluidBounceClick(scaleDown = 0.92f),
-                containerColor = colors.purple,
-                contentColor = Color.White,
-                shape = FluidShapes.pill,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp)
-            ) {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = "Create Package",
-                    modifier = Modifier.size(28.dp)
-                )
-            }
         }
 
         // ── Shared: overlays, menus, dialogs ──────────────────────────────

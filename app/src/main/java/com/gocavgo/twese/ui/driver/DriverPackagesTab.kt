@@ -66,7 +66,8 @@ import com.gocavgo.twese.viewmodel.TripViewModel
 fun DriverPackagesTab(
     viewModel: TripViewModel,
     onNoticesClick: () -> Unit = {},
-    noticeCount: Int = 0
+    noticeCount: Int = 0,
+    onCreatePackage: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     val colors = LocalDriversColors.current
@@ -165,29 +166,15 @@ fun DriverPackagesTab(
     )
 
     var isSearchExpanded by remember { mutableStateOf(false) }
+    var isNewPackagesWindowOpen by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
-    val pagerState = rememberPagerState(pageCount = { 2 })
 
-    // Sync pager → subTab
-    LaunchedEffect(pagerState.currentPage) {
-        if (subTab != pagerState.currentPage) {
-            viewModel.setDriverPackageSubTab(pagerState.currentPage)
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    // Automatically open new packages window if subTab is set to 1 (e.g. from notification/toast)
+    LaunchedEffect(state.driverPackageSubTab) {
+        if (state.driverPackageSubTab == 1) {
+            isNewPackagesWindowOpen = true
+            viewModel.setDriverPackageSubTab(0)
         }
-    }
-    // Sync subTab → pager
-    LaunchedEffect(subTab) {
-        if (pagerState.currentPage != subTab) {
-            pagerState.animateScrollToPage(
-                page = subTab,
-                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
-            )
-        }
-    }
-
-    // Exit selection mode if switching away from On Board tab
-    LaunchedEffect(subTab) {
-        if (subTab != 0 && isSelection) viewModel.exitSelectionMode()
     }
 
     var isPullRefreshing by remember { mutableStateOf(false) }
@@ -197,6 +184,9 @@ fun DriverPackagesTab(
         }
     }
 
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
     PullToRefreshBox(
         isRefreshing = isPullRefreshing && !isSelection,
         onRefresh = {
@@ -205,485 +195,502 @@ fun DriverPackagesTab(
         },
         modifier = Modifier.fillMaxSize()
     ) {
-        Box(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-            Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize()) {
 
-                // ── Selection mode compact bar ──────────────────────────────
-                if (isSelection) {
+            // ── 1. The Scrollable Package List (Infinite scroll to top & bottom) ─
+            if (isDriverInitLoading && filteredCurrent.isEmpty() && !isSelection) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = statusBarTop + 60.dp, bottom = navBarBottom + 84.dp)
+                ) {
+                    ShimmerList(shimmerAlpha)
+                }
+            } else if (filteredCurrent.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = statusBarTop + 60.dp, bottom = navBarBottom + 84.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EmptyPackagesState(
+                        title = "No packages on board",
+                        subtitle = "Packages you pick up or load will appear here"
+                    )
+                }
+            } else if (isWide) {
+                LazyVerticalGrid(
+                    columns = gridCols,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = adaptiveHorizontalPadding(),
+                        end = adaptiveHorizontalPadding(),
+                        top = statusBarTop + 60.dp,
+                        bottom = if (isSelection) navBarBottom + 160.dp else navBarBottom + 84.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(filteredCurrent, key = { it.id }) { pkg ->
+                        if (isSelection) {
+                            val isReq = pkg.transferStatus == "REQUESTED"
+                            SelectableCurrentPackageCard(
+                                pkg = pkg,
+                                isSelected = pkg.id in selectedIds,
+                                canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq,
+                                onToggle = { viewModel.togglePackageSelection(pkg.id) },
+                                onDetail = { viewModel.openPackageDetail(pkg.id) }
+                            )
+                        } else {
+                            DriverCurrentPackageCard(
+                                pkg = pkg,
+                                onDeliver = { viewModel.openDeliverDialog(pkg.id) },
+                                onTransfer = { viewModel.openTransferDialog(pkg.id) },
+                                onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
+                                isCancellingTransfer = state.isCancellingTransfer,
+                                onDetail = { viewModel.openPackageDetail(pkg.id) },
+                                onLongPress = {
+                                    if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) {
+                                        viewModel.startSelectionMode(pkg.id)
+                                    }
+                                },
+                                onPickup = { viewModel.pickupPackage(pkg.id) },
+                                isPickingUp = state.pickingUpPackageId == pkg.id,
+                                notices = state.notices
+                            )
+                        }
+                    }
+                    if (state.driverCurrentHasMore && !state.isLoadingMorePackages && !isRefreshing) {
+                        item { LaunchedEffect(Unit) { viewModel.loadMoreDriverCurrent() } }
+                    }
+                }
+            } else {
+                val listState = remember { LazyListState() }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = statusBarTop + 60.dp,
+                        bottom = if (isSelection) navBarBottom + 160.dp else navBarBottom + 84.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(filteredCurrent, key = { it.id }) { pkg ->
+                        if (isSelection) {
+                            val isReq = pkg.transferStatus == "REQUESTED"
+                            SelectableCurrentPackageCard(
+                                pkg = pkg,
+                                isSelected = pkg.id in selectedIds,
+                                canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq,
+                                onToggle = { viewModel.togglePackageSelection(pkg.id) },
+                                onDetail = { viewModel.openPackageDetail(pkg.id) }
+                            )
+                        } else {
+                            DriverCurrentPackageCard(
+                                pkg = pkg,
+                                onDeliver = { viewModel.openDeliverDialog(pkg.id) },
+                                onTransfer = { viewModel.openTransferDialog(pkg.id) },
+                                onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
+                                isCancellingTransfer = state.isCancellingTransfer,
+                                onDetail = { viewModel.openPackageDetail(pkg.id) },
+                                onLongPress = {
+                                    if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) {
+                                        viewModel.startSelectionMode(pkg.id)
+                                    }
+                                },
+                                onPickup = { viewModel.pickupPackage(pkg.id) },
+                                isPickingUp = state.pickingUpPackageId == pkg.id,
+                                notices = state.notices
+                            )
+                        }
+                    }
+                    if (state.driverCurrentHasMore && !state.isLoadingMorePackages && !isRefreshing) {
+                        item { LaunchedEffect(Unit) { viewModel.loadMoreDriverCurrent() } }
+                    }
+                }
+            }
+
+            // ── 2. Floating Top Bar: Search (Left) & Notification Bell (Right) ─
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .animateContentSize(tween(220)),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                if (isSearchExpanded) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { viewModel.updateDriverPackageSearch(it) },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        placeholder = { Text("Search packages...", fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                        },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = {
+                                    viewModel.updateDriverPackageSearch("")
+                                    isSearchExpanded = false
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
+                            }
+                        },
+                        shape = FluidShapes.pill,
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = colors.surface.copy(alpha = 0.88f),
+                            focusedContainerColor = colors.surface.copy(alpha = 0.95f),
+                            unfocusedBorderColor = colors.divider.copy(alpha = 0.7f),
+                            focusedBorderColor = colors.purple,
+                            cursorColor = colors.purple,
+                            unfocusedLeadingIconColor = colors.textSecondary,
+                            focusedLeadingIconColor = colors.purple
+                        ),
+                        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    FrostedFloatingIconButton(
+                        onClick = onNoticesClick,
+                        shape = FluidShapes.pill,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        BadgedBox(badge = {
+                            if (noticeCount > 0) {
+                                Badge(containerColor = colors.purple, contentColor = Color.White) {
+                                    Text("$noticeCount", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }) {
+                            Icon(Icons.Filled.Notifications, contentDescription = "Notifications", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                } else {
+                    // Floating Search Button (Top Left)
+                    FrostedFloatingIconButton(
+                        onClick = { isSearchExpanded = true },
+                        shape = FluidShapes.pill,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(Icons.Filled.Search, contentDescription = "Search", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                    }
+
+                    // Floating Notification Bell Button (Top Right)
+                    FrostedFloatingIconButton(
+                        onClick = onNoticesClick,
+                        shape = FluidShapes.pill,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        BadgedBox(badge = {
+                            if (noticeCount > 0) {
+                                Badge(containerColor = colors.purple, contentColor = Color.White) {
+                                    Text("$noticeCount", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }) {
+                            Icon(Icons.Filled.Notifications, contentDescription = "Notifications", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+
+            // ── 3. Selection Mode Compact Bar (Floating below top bar) ───────
+            if (isSelection) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(top = 54.dp)
+                ) {
                     SelectionChipRow(
                         selectedCount = selectedIds.size,
                         onCancel = { viewModel.exitSelectionMode() }
                     )
                 }
+            }
 
-                // ── Header Control: Search + Frosted Glass 2-Segment Tabs + Notification Bell (Same line & 44dp height) ──
-                Row(
+            // ── 4. Centered Bottom Pill: New Packages ─────────────────────────
+            AnimatedVisibility(
+                visible = !isSelection,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp),
+                enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 2 },
+                exit = fadeOut(tween(150)) + slideOutVertically(tween(150)) { it / 2 }
+            ) {
+                AcrylicGlassSurface(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 6.dp)
-                        .animateContentSize(tween(220)),
-                    verticalAlignment = Alignment.CenterVertically
+                        .height(46.dp)
+                        .fluidBounceClick(scaleDown = 0.94f) {
+                            isNewPackagesWindowOpen = true
+                        },
+                    shape = FluidShapes.pill,
+                    backgroundColor = colors.surface.copy(alpha = 0.88f),
+                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.7f)),
+                    shadowElevation = 6.dp
                 ) {
-                    if (isSearchExpanded) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.updateDriverPackageSearch(it) },
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            placeholder = { Text("Search by code, destination...", fontSize = 13.sp) },
-                            leadingIcon = {
-                                Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                            },
-                            trailingIcon = {
-                                IconButton(
-                                    onClick = {
-                                        viewModel.updateDriverPackageSearch("")
-                                        isSearchExpanded = false
-                                    },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
-                                }
-                            },
-                            shape = FluidShapes.pill,
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                unfocusedContainerColor = colors.surface.copy(alpha = 0.65f),
-                                focusedContainerColor = colors.surface.copy(alpha = 0.85f),
-                                unfocusedBorderColor = colors.divider.copy(alpha = 0.7f),
-                                focusedBorderColor = colors.purple,
-                                cursorColor = colors.purple,
-                                unfocusedLeadingIconColor = colors.textSecondary,
-                                focusedLeadingIconColor = colors.purple
-                            ),
-                            textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MoveToInbox,
+                            contentDescription = "New Packages",
+                            tint = if (incomingItems.isNotEmpty()) colors.purple else colors.textSecondary,
+                            modifier = Modifier.size(20.dp)
                         )
                         Spacer(Modifier.width(8.dp))
-                        // Notification bell button (Circular pill matching avatar)
-                        FrostedFloatingIconButton(
-                            onClick = onNoticesClick,
-                            shape = FluidShapes.pill,
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            BadgedBox(badge = {
-                                if (noticeCount > 0) {
-                                    Badge(containerColor = colors.purple, contentColor = Color.White) {
-                                        Text("$noticeCount", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }) {
-                                Icon(Icons.Filled.Notifications, contentDescription = "Notifications", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                            }
-                        }
-                    } else {
-                        // Search icon button (Circular pill matching avatar)
-                        FrostedFloatingIconButton(
-                            onClick = { isSearchExpanded = true },
-                            shape = FluidShapes.pill,
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Icon(Icons.Filled.Search, contentDescription = "Search", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                        }
-
-                        Spacer(Modifier.width(8.dp))
-
-                        // ── Frosted Glass 2-Segment Control (Continuous Stadium Pill, No Pseudo White Bar) ─
-                        AcrylicGlassSurface(
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            shape = FluidShapes.pill,
-                            backgroundColor = colors.surface.copy(alpha = 0.60f),
-                            border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.6f)),
-                            shadowElevation = 2.dp
-                        ) {
-                            BoxWithConstraints(
+                        Text(
+                            text = "New Packages",
+                            color = colors.textPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (incomingItems.isNotEmpty()) {
+                            Spacer(Modifier.width(8.dp))
+                            Box(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(3.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.purple)
+                                    .padding(horizontal = 7.dp, vertical = 2.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                val totalWidth = maxWidth
-                                val tabWidth = totalWidth / 2
-
-                                // Smooth sliding spring indicator pill
-                                val indicatorOffset by animateDpAsState(
-                                    targetValue = tabWidth * subTab,
-                                    animationSpec = spring(
-                                        dampingRatio = 0.82f,
-                                        stiffness = Spring.StiffnessMedium
-                                    ),
-                                    label = "topTabIndicatorOffset"
+                                Text(
+                                    text = "${incomingItems.size}",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
-
-                                // Sliding active indicator pill
-                                Box(
-                                    modifier = Modifier
-                                        .offset(x = indicatorOffset)
-                                        .width(tabWidth)
-                                        .fillMaxHeight()
-                                        .clip(FluidShapes.pill)
-                                        .background(colors.purple.copy(alpha = 0.16f))
-                                        .border(
-                                            BorderStroke(1.dp, colors.purple.copy(alpha = 0.25f)),
-                                            shape = FluidShapes.pill
-                                        )
-                                )
-
-                                Row(
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    val tabs = listOf(
-                                        Triple(0, Icons.Filled.LocalShipping, filteredCurrent.size),
-                                        Triple(1, Icons.Filled.MoveToInbox, incomingItems.size)
-                                    )
-
-                                    tabs.forEach { (index, icon, count) ->
-                                        val isSelected = subTab == index
-                                        val disabled = isSelection && index != 0
-
-                                        val iconTint by animateColorAsState(
-                                            targetValue = if (isSelected) colors.purple else colors.textSecondary,
-                                            animationSpec = tween(220, easing = FastOutSlowInEasing),
-                                            label = "topTabIcon$index"
-                                        )
-                                        val badgeBg by animateColorAsState(
-                                            targetValue = if (isSelected) colors.purple else colors.divider.copy(alpha = 0.7f),
-                                            animationSpec = tween(220, easing = FastOutSlowInEasing),
-                                            label = "topTabBadgeBg$index"
-                                        )
-                                        val badgeText by animateColorAsState(
-                                            targetValue = if (isSelected) Color.White else colors.textSecondary,
-                                            animationSpec = tween(220, easing = FastOutSlowInEasing),
-                                            label = "topTabBadgeText$index"
-                                        )
-
-                                        val tabInteractionSource = remember { MutableInteractionSource() }
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .fillMaxHeight()
-                                                .clip(FluidShapes.pill)
-                                                .fluidBounceClick(
-                                                    scaleDown = 0.95f,
-                                                    interactionSource = tabInteractionSource
-                                                ) {
-                                                    if (subTab != index && !disabled) {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        viewModel.setDriverPackageSubTab(index)
-                                                    }
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = icon,
-                                                    contentDescription = if (index == 0) "On Board" else "Incoming",
-                                                    tint = iconTint,
-                                                    modifier = Modifier.size(19.dp)
-                                                )
-                                                Spacer(Modifier.width(6.dp))
-
-                                                // Count badge
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(CircleShape)
-                                                        .background(badgeBg)
-                                                        .padding(horizontal = 7.dp, vertical = 2.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text(
-                                                        text = "$count",
-                                                        color = badgeText,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.width(8.dp))
-
-                        // Notification bell button (Circular pill matching avatar)
-                        FrostedFloatingIconButton(
-                            onClick = onNoticesClick,
-                            shape = FluidShapes.pill,
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            BadgedBox(badge = {
-                                if (noticeCount > 0) {
-                                    Badge(containerColor = colors.purple, contentColor = Color.White) {
-                                        Text("$noticeCount", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }) {
-                                Icon(Icons.Filled.Notifications, contentDescription = "Notifications", tint = colors.textPrimary, modifier = Modifier.size(20.dp))
                             }
                         }
                     }
                 }
+            }
 
-                Spacer(Modifier.height(10.dp))
+            // ── 5. Floating Bottom Window: New Packages (Not edge-to-edge, keyboard-like) ──
+            // Scrim
+            AnimatedVisibility(
+                visible = isNewPackagesWindowOpen,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(200))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { isNewPackagesWindowOpen = false }
+                )
+            }
 
-                // ── Tab Content Pager (2 pages) ──────────────────────────────
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize()
-                ) { page ->
-                    val listState = remember { LazyListState() }
+            // Floating Window Card
+            AnimatedVisibility(
+                visible = isNewPackagesWindowOpen,
+                enter = slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = 0.82f,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                ) { it } + fadeIn(tween(180)),
+                exit = slideOutVertically(
+                    animationSpec = tween(200, easing = FastOutSlowInEasing)
+                ) { it } + fadeOut(tween(180)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+            ) {
+                AcrylicGlassSurface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 540.dp)
+                        .fillMaxHeight(0.70f),
+                    shape = FluidShapes.dock,
+                    backgroundColor = colors.surface.copy(alpha = 0.96f),
+                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.8f)),
+                    shadowElevation = 14.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        // Drag handle pill
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .size(width = 36.dp, height = 4.dp)
+                                .clip(CircleShape)
+                                .background(colors.divider)
+                        )
 
-                    when (page) {
-                        0 -> {
-                            // ── PAGE 0: ON BOARD (ACTIVE PACKAGES) ───────────
-                            if (isDriverInitLoading && filteredCurrent.isEmpty() && !isSelection) {
-                                ShimmerList(shimmerAlpha)
-                            } else if (filteredCurrent.isEmpty()) {
-                                EmptyPackagesState(
-                                    title = "No packages on board",
-                                    subtitle = "Packages you pick up or load will appear here"
+                        Spacer(Modifier.height(10.dp))
+
+                        // Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Filled.MoveToInbox,
+                                    contentDescription = null,
+                                    tint = colors.purple,
+                                    modifier = Modifier.size(22.dp)
                                 )
-                            } else if (isWide) {
-                                LazyVerticalGrid(
-                                    columns = gridCols,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(
-                                        start = adaptiveHorizontalPadding(),
-                                        end = adaptiveHorizontalPadding(),
-                                        top = 4.dp,
-                                        bottom = if (isSelection) 160.dp else 90.dp
-                                    ),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    items(filteredCurrent, key = { it.id }) { pkg ->
-                                        if (isSelection) {
-                                            val isReq = pkg.transferStatus == "REQUESTED"
-                                            SelectableCurrentPackageCard(
-                                                pkg = pkg,
-                                                isSelected = pkg.id in selectedIds,
-                                                canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq,
-                                                onToggle = { viewModel.togglePackageSelection(pkg.id) },
-                                                onDetail = { viewModel.openPackageDetail(pkg.id) }
-                                            )
-                                        } else {
-                                            DriverCurrentPackageCard(
-                                                pkg = pkg,
-                                                onDeliver = { viewModel.openDeliverDialog(pkg.id) },
-                                                onTransfer = { viewModel.openTransferDialog(pkg.id) },
-                                                onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
-                                                isCancellingTransfer = state.isCancellingTransfer,
-                                                onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                                onLongPress = {
-                                                    if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) {
-                                                        viewModel.startSelectionMode(pkg.id)
-                                                    }
-                                                },
-                                                onPickup = { viewModel.pickupPackage(pkg.id) },
-                                                isPickingUp = state.pickingUpPackageId == pkg.id,
-                                                notices = state.notices
-                                            )
-                                        }
-                                    }
-                                    if (state.driverCurrentHasMore && !state.isLoadingMorePackages && !isRefreshing) {
-                                        item { LaunchedEffect(Unit) { viewModel.loadMoreDriverCurrent() } }
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "New Packages",
+                                    color = colors.textPrimary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (incomingItems.isNotEmpty()) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(colors.purple)
+                                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "${incomingItems.size}",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
-                            } else {
-                                LazyColumn(
-                                    state = listState,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(
-                                        start = 16.dp,
-                                        end = 16.dp,
-                                        top = 4.dp,
-                                        bottom = if (isSelection) 160.dp else 90.dp
-                                    ),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Create Package Action
+                                FrostedFloatingIconButton(
+                                    onClick = {
+                                        isNewPackagesWindowOpen = false
+                                        onCreatePackage()
+                                    },
+                                    shape = FluidShapes.pill,
+                                    modifier = Modifier.size(36.dp)
                                 ) {
-                                    items(filteredCurrent, key = { it.id }) { pkg ->
-                                        if (isSelection) {
-                                            val isReq = pkg.transferStatus == "REQUESTED"
-                                            SelectableCurrentPackageCard(
-                                                pkg = pkg,
-                                                isSelected = pkg.id in selectedIds,
-                                                canSelect = pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !isReq,
-                                                onToggle = { viewModel.togglePackageSelection(pkg.id) },
-                                                onDetail = { viewModel.openPackageDetail(pkg.id) }
-                                            )
-                                        } else {
-                                            DriverCurrentPackageCard(
-                                                pkg = pkg,
-                                                onDeliver = { viewModel.openDeliverDialog(pkg.id) },
-                                                onTransfer = { viewModel.openTransferDialog(pkg.id) },
-                                                onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
-                                                isCancellingTransfer = state.isCancellingTransfer,
-                                                onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                                onLongPress = {
-                                                    if (pkg.status != PackageStatus.DELIVERED && pkg.status != PackageStatus.CANCELLED && !pkg.hasOpenTransfer) {
-                                                        viewModel.startSelectionMode(pkg.id)
-                                                    }
-                                                },
-                                                onPickup = { viewModel.pickupPackage(pkg.id) },
-                                                isPickingUp = state.pickingUpPackageId == pkg.id,
-                                                notices = state.notices
-                                            )
-                                        }
-                                    }
-                                    if (state.driverCurrentHasMore && !state.isLoadingMorePackages && !isRefreshing) {
-                                        item { LaunchedEffect(Unit) { viewModel.loadMoreDriverCurrent() } }
-                                    }
+                                    Icon(
+                                        Icons.Filled.Add,
+                                        contentDescription = "Create Package",
+                                        tint = colors.purple,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                Spacer(Modifier.width(8.dp))
+
+                                // Close Action
+                                FrostedFloatingIconButton(
+                                    onClick = { isNewPackagesWindowOpen = false },
+                                    shape = FluidShapes.pill,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "Close",
+                                        tint = colors.textSecondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
                             }
                         }
 
-                        1 -> {
-                            // ── PAGE 1: INCOMING (OFFERS + TRANSFERS + ASSIGNED) ─
-                            if (!state.driverHasVehicle) {
+                        Spacer(Modifier.height(12.dp))
+
+                        // Body
+                        if (!state.driverHasVehicle) {
+                            EmptyPackagesState(
+                                title = "Vehicle Required",
+                                subtitle = "You must have an assigned vehicle to access incoming packages"
+                            )
+                        } else if (isDriverInitLoading && incomingItems.isEmpty()) {
+                            ShimmerList(shimmerAlpha)
+                        } else if (incomingItems.isEmpty()) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                if (!state.hasActiveTrip) {
+                                    NoActiveTripWarningBanner()
+                                    Spacer(Modifier.height(12.dp))
+                                }
                                 EmptyPackagesState(
-                                    title = "Vehicle Required",
-                                    subtitle = "You must have an assigned vehicle to access incoming packages"
+                                    title = "No new packages",
+                                    subtitle = "Incoming offers, transfers, and office assignments will appear here"
                                 )
-                            } else if (isDriverInitLoading && incomingItems.isEmpty()) {
-                                ShimmerList(shimmerAlpha)
-                            } else if (incomingItems.isEmpty()) {
-                                Column(modifier = Modifier.fillMaxSize()) {
-                                    if (!state.hasActiveTrip) {
-                                        NoActiveTripWarningBanner()
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                if (!state.hasActiveTrip) {
+                                    item { NoActiveTripWarningBanner() }
+                                }
+                                items(incomingItems, key = {
+                                    when (it) {
+                                        is IncomingPackageItem.Assigned -> "assigned-${it.pkg.id}"
+                                        is IncomingPackageItem.Transfer -> "transfer-${it.transferId}-${it.pkg.id}"
+                                        is IncomingPackageItem.Offer -> "offer-${it.transferId}-${it.pkg.id}"
                                     }
-                                    EmptyPackagesState(
-                                        title = "No incoming packages",
-                                        subtitle = "Offers, transfers, and assignments will appear here"
+                                }) { item ->
+                                    val pkg = item.pkg
+                                    val acceptAction: () -> Unit = when (item) {
+                                        is IncomingPackageItem.Assigned -> {
+                                            { viewModel.pickupPackage(pkg.id) }
+                                        }
+                                        is IncomingPackageItem.Transfer -> {
+                                            when (item.ruleType) {
+                                                "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
+                                                "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
+                                                else -> { { viewModel.acceptIncomingTransfer(item.transferId, pkg.id) } }
+                                            }
+                                        }
+                                        is IncomingPackageItem.Offer -> {
+                                            when (item.ruleType) {
+                                                "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
+                                                "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
+                                                else -> { { viewModel.acceptAUTOTransfer(pkg.id, item.transferId) } }
+                                            }
+                                        }
+                                    }
+
+                                    val isThisAccepting = (state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)) ||
+                                            (state.pickingUpPackageId == pkg.id)
+
+                                    DriverIncomingPackageCard(
+                                        item = item,
+                                        onAccept = acceptAction,
+                                        onDetail = { viewModel.openPackageDetail(pkg.id) },
+                                        isAccepting = isThisAccepting,
+                                        hasActiveTrip = state.hasActiveTrip,
+                                        isNew = pkg.id == state.newPackageFromSubscription?.id
                                     )
                                 }
-                            } else if (isWide) {
-                                LazyVerticalGrid(
-                                    columns = gridCols,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(
-                                        start = adaptiveHorizontalPadding(),
-                                        end = adaptiveHorizontalPadding(),
-                                        top = 4.dp,
-                                        bottom = 90.dp
-                                    ),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    if (!state.hasActiveTrip) {
-                                        item(span = { GridItemSpan(maxLineSpan) }) {
-                                            NoActiveTripWarningBanner()
-                                        }
-                                    }
 
-                                    items(incomingItems, key = {
-                                        when (it) {
-                                            is IncomingPackageItem.Assigned -> "assigned-${it.pkg.id}"
-                                            is IncomingPackageItem.Transfer -> "transfer-${it.transferId}-${it.pkg.id}"
-                                            is IncomingPackageItem.Offer -> "offer-${it.transferId}-${it.pkg.id}"
-                                        }
-                                    }) { item ->
-                                        val pkg = item.pkg
-                                        val acceptAction: () -> Unit = when (item) {
-                                            is IncomingPackageItem.Assigned -> {
-                                                { viewModel.pickupPackage(pkg.id) }
-                                            }
-                                            is IncomingPackageItem.Transfer -> {
-                                                when (item.ruleType) {
-                                                    "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
-                                                    "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
-                                                    else -> { { viewModel.acceptIncomingTransfer(item.transferId, pkg.id) } }
-                                                }
-                                            }
-                                            is IncomingPackageItem.Offer -> {
-                                                when (item.ruleType) {
-                                                    "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
-                                                    "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
-                                                    else -> { { viewModel.acceptAUTOTransfer(pkg.id, item.transferId) } }
-                                                }
-                                            }
-                                        }
-
-                                        val isThisAccepting = (state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)) ||
-                                                (state.pickingUpPackageId == pkg.id)
-
-                                        DriverIncomingPackageCard(
-                                            item = item,
-                                            onAccept = acceptAction,
-                                            onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                            isAccepting = isThisAccepting,
-                                            hasActiveTrip = state.hasActiveTrip,
-                                            isNew = pkg.id == state.newPackageFromSubscription?.id
-                                        )
-                                    }
-
-                                    if (state.driverOffersHasMore && !state.isLoadingMorePackages && !isRefreshing) {
-                                        item { LaunchedEffect(Unit) { viewModel.loadMoreDriverOffers() } }
-                                    }
-                                }
-                            } else {
-                                LazyColumn(
-                                    state = listState,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(
-                                        start = 16.dp,
-                                        end = 16.dp,
-                                        top = 4.dp,
-                                        bottom = 90.dp
-                                    ),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    if (!state.hasActiveTrip) {
-                                        item {
-                                            NoActiveTripWarningBanner()
-                                        }
-                                    }
-
-                                    items(incomingItems, key = {
-                                        when (it) {
-                                            is IncomingPackageItem.Assigned -> "assigned-${it.pkg.id}"
-                                            is IncomingPackageItem.Transfer -> "transfer-${it.transferId}-${it.pkg.id}"
-                                            is IncomingPackageItem.Offer -> "offer-${it.transferId}-${it.pkg.id}"
-                                        }
-                                    }) { item ->
-                                        val pkg = item.pkg
-                                        val acceptAction: () -> Unit = when (item) {
-                                            is IncomingPackageItem.Assigned -> {
-                                                { viewModel.pickupPackage(pkg.id) }
-                                            }
-                                            is IncomingPackageItem.Transfer -> {
-                                                when (item.ruleType) {
-                                                    "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
-                                                    "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
-                                                    else -> { { viewModel.acceptIncomingTransfer(item.transferId, pkg.id) } }
-                                                }
-                                            }
-                                            is IncomingPackageItem.Offer -> {
-                                                when (item.ruleType) {
-                                                    "SECURE" -> { { viewModel.openAcceptTransferCodeDialog(pkg.id, item.transferId, "SECURE") } }
-                                                    "CONFIRM" -> { { viewModel.openRequestTransferDialog(pkg.id, item.transferId) } }
-                                                    else -> { { viewModel.acceptAUTOTransfer(pkg.id, item.transferId) } }
-                                                }
-                                            }
-                                        }
-
-                                        val isThisAccepting = (state.isAcceptingTransfer && (state.acceptTransferPackageId == pkg.id || state.acceptTransferPackageId == null)) ||
-                                                (state.pickingUpPackageId == pkg.id)
-
-                                        DriverIncomingPackageCard(
-                                            item = item,
-                                            onAccept = acceptAction,
-                                            onDetail = { viewModel.openPackageDetail(pkg.id) },
-                                            isAccepting = isThisAccepting,
-                                            hasActiveTrip = state.hasActiveTrip,
-                                            isNew = pkg.id == state.newPackageFromSubscription?.id
-                                        )
-                                    }
-
-                                    if (state.driverOffersHasMore && !state.isLoadingMorePackages && !isRefreshing) {
-                                        item { LaunchedEffect(Unit) { viewModel.loadMoreDriverOffers() } }
-                                    }
+                                if (state.driverOffersHasMore && !state.isLoadingMorePackages && !isRefreshing) {
+                                    item { LaunchedEffect(Unit) { viewModel.loadMoreDriverOffers() } }
                                 }
                             }
                         }
