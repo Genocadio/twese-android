@@ -270,12 +270,11 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 val tabs = listOf(
-                                    0 to ("On Board" to filteredCurrent.size),
-                                    1 to ("Incoming" to incomingItems.size)
+                                    Triple(0, Icons.Filled.LocalShipping, filteredCurrent.size),
+                                    Triple(1, Icons.Filled.MoveToInbox, incomingItems.size)
                                 )
 
-                                tabs.forEach { (index, pair) ->
-                                    val (label, count) = pair
+                                tabs.forEach { (index, icon, count) ->
                                     val isSelected = subTab == index
                                     val disabled = isSelection && index != 0
 
@@ -285,7 +284,7 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                         label = "segmentBg"
                                     )
                                     val contentColor by animateColorAsState(
-                                        if (isSelected) colors.textPrimary else colors.textSecondary,
+                                        if (isSelected) colors.purple else colors.textSecondary,
                                         tween(200),
                                         label = "segmentText"
                                     )
@@ -305,11 +304,11 @@ fun DriverPackagesTab(viewModel: TripViewModel) {
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.Center
                                         ) {
-                                            Text(
-                                                text = label,
-                                                color = contentColor,
-                                                fontSize = 14.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                            Icon(
+                                                imageVector = icon,
+                                                contentDescription = if (index == 0) "On Board" else "Incoming",
+                                                tint = contentColor,
+                                                modifier = Modifier.size(20.dp)
                                             )
                                             Spacer(Modifier.width(6.dp))
 

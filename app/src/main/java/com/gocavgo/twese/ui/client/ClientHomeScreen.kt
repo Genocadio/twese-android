@@ -56,6 +56,7 @@ import com.gocavgo.twese.data.hasOpenTransfer
 import com.gocavgo.twese.data.hasUnreadNotices
 import com.gocavgo.twese.data.sortedByUnreadNotices
 import com.gocavgo.twese.ui.common.CachedAvatarImage
+import com.gocavgo.twese.ui.common.PackageStatusIconBadge
 import com.gocavgo.twese.ui.common.ProfileQuickMenu
 import com.gocavgo.twese.ui.common.SettingsMenu
 import com.gocavgo.twese.ui.common.contentMaxWidth
@@ -689,26 +690,6 @@ private fun PackageCard(
         && !isDelivered && !isCancelled && pkg.status != PackageStatus.PENDING
     val isStale = !isDelivered && !isCancelled && !hasActiveTransfer && hasNoCustodians && pkg.status == PackageStatus.PENDING
 
-    val statusColor = when (pkg.status) {
-        PackageStatus.PENDING -> if (isStale) colors.amber.copy(alpha = 0.5f) else colors.amber
-        PackageStatus.PICKED_UP, PackageStatus.IN_TRANSIT -> colors.purple
-        PackageStatus.ARRIVED_AT_OFFICE -> colors.purple
-        PackageStatus.PENDING_CONFIRMATION -> colors.purple
-        PackageStatus.OUT_FOR_DELIVERY -> colors.purple
-        PackageStatus.DELIVERED -> colors.purple
-        PackageStatus.CANCELLED -> colors.red
-    }
-    val statusIcon = when (pkg.status) {
-        PackageStatus.PENDING -> if (isStale) Icons.Filled.HourglassEmpty else Icons.Filled.Schedule
-        PackageStatus.PICKED_UP -> Icons.Filled.Inventory
-        PackageStatus.IN_TRANSIT -> Icons.Filled.LocalShipping
-        PackageStatus.ARRIVED_AT_OFFICE -> Icons.Filled.Store
-        PackageStatus.PENDING_CONFIRMATION -> Icons.Filled.Verified
-        PackageStatus.OUT_FOR_DELIVERY -> Icons.Filled.Moped
-        PackageStatus.DELIVERED -> Icons.Filled.CheckCircle
-        PackageStatus.CANCELLED -> Icons.Filled.Cancel
-    }
-
     Surface(
         modifier = modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
@@ -816,11 +797,11 @@ private fun PackageCard(
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                Text(
-                    if (isDelivered && pkg.receivedAt.isNotBlank()) formatTime(pkg.receivedAt) else formatTime(pkg.createdAt),
-                    color = colors.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp)
+                PackageStatusIconBadge(
+                    status = pkg.status,
+                    isStale = isStale,
+                    size = 26.dp
                 )
-                Icon(statusIcon, null, tint = statusColor, modifier = Modifier.size(16.dp))
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {

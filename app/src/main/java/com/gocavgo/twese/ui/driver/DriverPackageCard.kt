@@ -38,6 +38,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.Notice
 import com.gocavgo.twese.data.PackageStatus
+import com.gocavgo.twese.ui.common.PackageStatusIconBadge
+import com.gocavgo.twese.ui.common.StatusIconTooltipBadge
 import com.gocavgo.twese.data.hasOpenTransfer
 import com.gocavgo.twese.data.hasUnreadNotices
 import com.gocavgo.twese.ui.common.FullScreenMediaViewer
@@ -440,45 +442,19 @@ fun DriverCurrentPackageCard(
         headerBadge = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isTransferOpen) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = colors.amber.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, colors.amber.copy(alpha = 0.3f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.CompareArrows,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = colors.amber
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                "Outgoing",
-                                color = colors.amber,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                    StatusIconTooltipBadge(
+                        title = "Outgoing Transfer",
+                        description = "You initiated a transfer offer. Waiting for counterparty driver to accept and scan.",
+                        icon = Icons.AutoMirrored.Filled.CompareArrows,
+                        color = colors.amber
+                    )
                     Spacer(Modifier.width(6.dp))
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = statusColor.copy(alpha = 0.12f)
-                ) {
-                    Text(
-                        pkg.status.name.replace("_", " "),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = statusColor,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                PackageStatusIconBadge(
+                    status = pkg.status,
+                    colorOverride = statusColor
+                )
             }
         },
         actions = {
@@ -658,7 +634,7 @@ fun DriverIncomingPackageCard(
     val pkg = item.pkg
 
     // Distinguish source tag (modern, clean, unified purple branding)
-    val (sourceLabel, sourceColor, sourceIcon) = when (item) {
+    val (_, sourceColor, sourceIcon) = when (item) {
         is IncomingPackageItem.Assigned -> Triple("ASSIGNED", colors.purple, Icons.Filled.AssignmentInd)
         is IncomingPackageItem.Transfer -> Triple("TRANSFER", colors.purple, Icons.AutoMirrored.Filled.CompareArrows)
         is IncomingPackageItem.Offer -> Triple("OFFER", colors.purple, Icons.Filled.NewReleases)
@@ -689,49 +665,35 @@ fun DriverIncomingPackageCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // Rule lock/hourglass badge for secure/confirm transfers
                 if (ruleType == "SECURE") {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(colors.purple.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.Lock, null, tint = colors.purple, modifier = Modifier.size(13.dp))
-                    }
+                    StatusIconTooltipBadge(
+                        title = "Secure Code Required",
+                        description = "This transfer requires an exchange of secure verification codes.",
+                        icon = Icons.Filled.Lock,
+                        color = colors.purple
+                    )
                     Spacer(Modifier.width(4.dp))
                 } else if (ruleType == "CONFIRM") {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(colors.amber.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.HourglassTop, null, tint = colors.amber, modifier = Modifier.size(13.dp))
-                    }
+                    StatusIconTooltipBadge(
+                        title = "Confirmation Required",
+                        description = "Counterparty approval is needed before completing this transfer.",
+                        icon = Icons.Filled.HourglassTop,
+                        color = colors.amber
+                    )
                     Spacer(Modifier.width(4.dp))
                 }
 
-                // Source tag
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = sourceColor.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, sourceColor.copy(alpha = 0.3f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(sourceIcon, null, tint = sourceColor, modifier = Modifier.size(12.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            sourceLabel,
-                            color = sourceColor,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                // Source tag icon with click tooltip
+                val (sourceTitle, sourceDesc) = when (item) {
+                    is IncomingPackageItem.Assigned -> "Assigned Package" to "Assigned to you for pickup from sender or origin station."
+                    is IncomingPackageItem.Transfer -> "Incoming Transfer" to "Package being transferred to your vehicle from another driver or station."
+                    is IncomingPackageItem.Offer -> "Route Offer" to "Available broadcast offer along your trip. Tap accept to claim."
                 }
+                StatusIconTooltipBadge(
+                    title = sourceTitle,
+                    description = sourceDesc,
+                    icon = sourceIcon,
+                    color = sourceColor
+                )
             }
         },
         actions = {
