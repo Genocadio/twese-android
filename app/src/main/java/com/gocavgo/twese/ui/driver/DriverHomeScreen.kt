@@ -1993,9 +1993,16 @@ private fun SearchSheetContent(
 
     // Automatically request focus and launch keyboard when search opens
     LaunchedEffect(Unit) {
-        delay(120)
-        focusRequester.requestFocus()
-        keyboardController?.show()
+        delay(200)
+        try {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        } catch (_: Exception) {}
+        delay(150)
+        try {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        } catch (_: Exception) {}
     }
 
     val query = searchQuery.trim()
@@ -2021,7 +2028,6 @@ private fun SearchSheetContent(
             onValueChange = { viewModel.updateDriverPackageSearch(it) },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
                 .focusRequester(focusRequester),
             placeholder = { Text("Search package ID, recipient, stop...", fontSize = 13.sp) },
             leadingIcon = { Icon(Icons.Filled.Search, null, tint = colors.purple, modifier = Modifier.size(20.dp)) },

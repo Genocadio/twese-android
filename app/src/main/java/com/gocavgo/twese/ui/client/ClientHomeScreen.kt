@@ -19,6 +19,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -26,17 +28,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import androidx.activity.compose.BackHandler
 import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.ClientUser
@@ -1235,7 +1242,23 @@ private fun ClientSearchSheetContent(
     onTrackPackage: (String) -> Unit
 ) {
     val colors = LocalDriversColors.current
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     var query by remember { mutableStateOf("") }
+
+    // Automatically request focus and launch keyboard when search opens
+    LaunchedEffect(Unit) {
+        delay(200)
+        try {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        } catch (_: Exception) {}
+        delay(150)
+        try {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        } catch (_: Exception) {}
+    }
 
     val results = remember(allPackages, query) {
         if (query.isBlank()) emptyList()
@@ -1253,7 +1276,9 @@ private fun ClientSearchSheetContent(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
             placeholder = { Text("Search by tracking code, name or stop...", color = colors.textSecondary, fontSize = 13.sp) },
             leadingIcon = { Icon(Icons.Filled.Search, null, tint = colors.purple, modifier = Modifier.size(18.dp)) },
             trailingIcon = {
@@ -1263,10 +1288,14 @@ private fun ClientSearchSheetContent(
                     }
                 }
             },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
             singleLine = true,
-            shape = FluidShapes.button,
+            shape = FluidShapes.pill,
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedBorderColor = colors.divider,
+                unfocusedContainerColor = colors.surfaceAlt,
+                focusedContainerColor = colors.surface,
+                unfocusedBorderColor = colors.divider.copy(alpha = 0.6f),
                 focusedBorderColor = colors.purple,
                 cursorColor = colors.purple
             )
