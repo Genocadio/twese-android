@@ -1260,13 +1260,29 @@ private fun TripSheetContent(
 
                                     Spacer(Modifier.height(8.dp))
 
-                                    // Stop Name
+                                    // Stop / Waypoint Name (Justify-centered layout)
                                     Text(
-                                        stopName,
+                                        text = stopName,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 16.sp,
-                                        color = if (isStopPassed) colors.textSecondary else colors.textPrimary
+                                        color = if (isStopPassed) colors.textSecondary else colors.textPrimary,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
+                                    if (stop.address.isNotBlank() && stop.address != stopName) {
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            text = stop.address,
+                                            fontSize = 12.sp,
+                                            color = colors.textSecondary,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
 
                                     Spacer(Modifier.height(10.dp))
 
