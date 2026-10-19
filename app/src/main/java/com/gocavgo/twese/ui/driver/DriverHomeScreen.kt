@@ -18,6 +18,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import com.gocavgo.twese.data.TripStop
+import com.gocavgo.twese.data.Package
+import kotlinx.coroutines.launch
 import androidx.compose.material3.*
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -268,8 +275,8 @@ fun DriverHomeScreen(
                                 NotificationsSheetContent(
                                     notices = state.notices,
                                     onNoticeClick = { notice ->
-                                        notice.resourceId?.let { pkgId ->
-                                            viewModel.openPackageDetail(pkgId)
+                                        if (notice.resourceId.isNotBlank()) {
+                                            viewModel.openPackageDetail(notice.resourceId)
                                         }
                                     }
                                 )
@@ -698,135 +705,645 @@ private fun TripSheetContent(
     viewModel: TripViewModel
 ) {
     val colors = LocalDriversColors.current
+    val state by viewModel.state.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
     val plateNumber = vehicle?.plateNumber?.takeIf { it.isNotBlank() } ?: activeTrip?.vehicleLicensePlate
-    val seatsCount = vehicle?.seats ?: activeTrip?.seats
-    val vehicleModel = vehicle?.model?.takeIf { it.isNotBlank() } ?: activeTrip?.vehicleModel
-    val vehicleInfoAvailable = !plateNumber.isNullOrBlank() || seatsCount != null
+    val totalSeats = activeTrip?.seats ?: vehicle?.seats
+    val remainingSeats = activeTrip?.remainingSeats ?: totalSeats
+    val speedKmh = activeTrip?.currentSpeed?.toFloat() ?: state.driverLocation.speedKmh
+    val vehicleInfoAvailable = !plateNumber.isNullOrBlank() || totalSeats != null
 
     if (hasActiveTrip && activeTrip != null) {
-        val routeLabel = activeTrip.routeName
-            ?: (if (activeTrip.origin != null && activeTrip.destination != null) "${activeTrip.origin} → ${activeTrip.destination}" else "Active Trip")
-        val nextWp = activeTrip.waypoints.firstOrNull { it.isNext } ?: activeTrip.waypoints.firstOrNull { !it.isPassed }
-        val remainingDist = nextWp?.remainingDistance?.takeIf { it > 0.0 }
-            ?: activeTrip.remainingDistanceToDestination?.takeIf { it > 0.0 }
-        val distText = remainingDist?.let { d ->
+        val isScheduled = activeTrip.status.equals("SCHEDULED", ignoreCase = true)
+        val isCompleted = activeTrip.status.equals("COMPLETED", ignoreCase = true)
+        val isDeparted = activeTrip.status.equals("IN_PROGRESS", ignoreCase = true)
+
+        val originName = activeTrip.origin ?: state.trip.stops.firstOrNull()?.name ?: "Origin"
+        val destName = activeTrip.destination ?: state.trip.stops.lastOrNull()?.name ?: "Destination"
+
+        // Build complete list of stops
+        val stops = remember(state.trip.stops, activeTrip) {
+            if (state.trip.stops.isNotEmpty()) {
+                state.trip.stops
+            } else {
+                val list = mutableListOf<TripStop>()
+                list.add(
+                    TripStop(
+                        id = 0,
+                        name = originName,
+                        address = originName,
+                        lat = activeTrip.originLatitude ?: 0.0,
+                        lng = activeTrip.originLongitude ?: 0.0,
+                        pickups = emptyList(),
+                        dropoffs = emptyList()
+                    )
+                )
+                activeTrip.waypoints.forEachIndexed { i, wp ->
+                    val wName = wp.locationName ?: "Stop ${i + 1}"
+                    list.add(
+                        TripStop(
+                            id = i + 1,
+                            name = wName,
+                            address = wName,
+                            lat = wp.latitude,
+                            lng = wp.longitude,
+                            pickups = emptyList(),
+                            dropoffs = emptyList()
+                        )
+                    )
+                }
+                list.add(
+                    TripStop(
+                        id = list.size,
+                        name = destName,
+                        address = destName,
+                        lat = activeTrip.destinationLatitude ?: 0.0,
+                        lng = activeTrip.destinationLongitude ?: 0.0,
+                        pickups = emptyList(),
+                        dropoffs = emptyList()
+                    )
+                )
+                list
+            }
+        }
+
+        // Active target stop index
+        val activeWp = activeTrip.waypoints.firstOrNull { it.isNext }
+            ?: activeTrip.waypoints.firstOrNull { !it.isPassed }
+            ?: activeTrip.waypoints.getOrNull(state.currentStopIndex)
+
+        val activeStopIndex = remember(activeTrip, stops, state.currentStopIndex) {
+            when {
+                isCompleted -> (stops.size - 1).coerceAtLeast(0)
+                isScheduled -> 0
+                activeWp != null -> {
+                    val wpIdx = activeTrip.waypoints.indexOf(activeWp)
+                    if (stops.size > activeTrip.waypoints.size) (wpIdx + 1).coerceIn(0, stops.size - 1)
+                    else wpIdx.coerceIn(0, stops.size - 1)
+                }
+                else -> state.currentStopIndex.coerceIn(0, (stops.size - 1).coerceAtLeast(0))
+            }
+        }
+
+        val pagerState = rememberPagerState(
+            initialPage = activeStopIndex.coerceIn(0, (stops.size - 1).coerceAtLeast(0))
+        ) { stops.size }
+
+        // Keep pager synced when active stop updates
+        LaunchedEffect(activeStopIndex) {
+            if (activeStopIndex in stops.indices) {
+                pagerState.animateScrollToPage(activeStopIndex)
+            }
+        }
+
+        // Total distance to destination
+        val distToDestMeters = activeTrip.remainingDistanceToDestination?.takeIf { it > 0.0 }
+        val distToDestStr = distToDestMeters?.let { d ->
             if (d < 1000) "${d.toInt()} m" else "${String.format(Locale.US, "%.1f", d / 1000.0)} km"
         }
 
+        // Pulsing animation for live status dot
+        val infiniteTransition = rememberInfiniteTransition(label = "liveTripPulse")
+        val pulseAlpha by infiniteTransition.animateFloat(
+            initialValue = 0.4f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulseAlpha"
+        )
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Vehicle plate and seats just above trip data
-            if (vehicleInfoAvailable) {
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = FluidShapes.card,
-                        color = colors.surfaceAlt,
-                        border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
-                    ) {
+            item {
+                // Unified Card: Car Data on Top + Trip Data + Swipeable Stops
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = FluidShapes.card,
+                    color = colors.surface,
+                    border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.6f)),
+                    shadowElevation = 2.dp
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+
+                        // ── 1. CAR DATA ON TOP (Small, compact: Plate, Live Seats, Speed) ──
                         Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(FluidShapes.pill)
+                                .background(colors.surfaceAlt)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.purple.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            // Plate
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     Icons.Filled.DirectionsCar,
                                     contentDescription = null,
                                     tint = colors.purple,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
+                                Spacer(Modifier.width(6.dp))
                                 Text(
-                                    plateNumber ?: "Vehicle",
+                                    plateNumber ?: "No Plate",
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
                                     color = colors.textPrimary
                                 )
-                                val subtitle = buildString {
-                                    if (!vehicleModel.isNullOrBlank()) append(vehicleModel)
-                                    if (seatsCount != null) {
-                                        if (isNotEmpty()) append(" • ")
-                                        append("$seatsCount seats")
-                                    }
+                            }
+
+                            // Seats (live remaining seats as they get booked)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Filled.EventSeat,
+                                    contentDescription = null,
+                                    tint = colors.purple,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                val seatsLabel = if (remainingSeats != null && totalSeats != null) {
+                                    "$remainingSeats/$totalSeats seats"
+                                } else if (totalSeats != null) {
+                                    "$totalSeats seats"
+                                } else "—"
+                                Text(
+                                    seatsLabel,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textSecondary
+                                )
+                            }
+
+                            // Speed
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Filled.Speed,
+                                    contentDescription = null,
+                                    tint = if (speedKmh >= 1f) colors.purple else colors.textSecondary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    "${speedKmh.toInt()} km/h",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (speedKmh >= 1f) colors.purple else colors.textSecondary
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(14.dp))
+
+                        // ── 2. TRIP ROUTE HEADER (Origin ➔ Destination, Live Badge, Remaining Distance) ──
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Live status pill
+                            Surface(
+                                shape = FluidShapes.capsule,
+                                color = if (isDeparted) CavgoGreen.copy(alpha = 0.12f)
+                                else if (isScheduled) colors.amber.copy(alpha = 0.12f)
+                                else colors.purple.copy(alpha = 0.12f),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isDeparted) CavgoGreen.copy(alpha = 0.35f)
+                                    else if (isScheduled) colors.amber.copy(alpha = 0.35f)
+                                    else colors.purple.copy(alpha = 0.35f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isDeparted) CavgoGreen.copy(alpha = pulseAlpha)
+                                                else if (isScheduled) colors.amber
+                                                else colors.purple
+                                            )
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        when {
+                                            isDeparted -> "LIVE TRIP"
+                                            isScheduled -> "SCHEDULED"
+                                            isCompleted -> "COMPLETED"
+                                            else -> "ACTIVE TRIP"
+                                        },
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isDeparted) CavgoGreen else if (isScheduled) colors.amber else colors.purple,
+                                        letterSpacing = 0.5.sp
+                                    )
                                 }
-                                if (subtitle.isNotEmpty()) {
-                                    Text(subtitle, fontSize = 12.sp, color = colors.textSecondary)
+                            }
+
+                            // Total remaining distance to destination
+                            if (!distToDestStr.isNullOrBlank()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Filled.NearMe,
+                                        contentDescription = null,
+                                        tint = colors.purple,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        distToDestStr,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.purple
+                                    )
                                 }
                             }
                         }
-                    }
-                }
-            }
 
-            // Live Trip Card
-            item {
-                AcrylicGlassSurface(
-                    shape = FluidShapes.card,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(8.dp).clip(CircleShape).background(CavgoGreen))
+                        Spacer(Modifier.height(10.dp))
+
+                        // Origin ➔ Destination Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(colors.purple))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                originName,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
                             Spacer(Modifier.width(8.dp))
-                            Text("LIVE TRIP IN PROGRESS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CavgoGreen)
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = colors.purple,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(colors.red))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                destName,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Text(routeLabel, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                        if (distText != null) {
-                            Spacer(Modifier.height(4.dp))
-                            Text("Next Stop: ${nextWp?.locationName ?: "Upcoming"} ($distText)", fontSize = 13.sp, color = colors.purple)
-                        }
-                    }
-                }
-            }
 
-            if (activeTrip.waypoints.isNotEmpty()) {
-                item {
-                    Text("ROUTE STOPS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.textSecondary)
-                }
+                        Spacer(Modifier.height(14.dp))
+                        HorizontalDivider(color = colors.divider.copy(alpha = 0.5f))
+                        Spacer(Modifier.height(10.dp))
 
-                items(activeTrip.waypoints) { wp ->
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = FluidShapes.card,
-                        color = colors.surfaceAlt,
-                        border = BorderStroke(1.dp, if (wp.isNext) colors.purple.copy(alpha = 0.5f) else colors.divider.copy(alpha = 0.4f))
-                    ) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier.size(24.dp).clip(CircleShape).background(
-                                    if (wp.isPassed) colors.textSecondary.copy(alpha = 0.2f)
-                                    else if (wp.isNext) colors.purple.copy(alpha = 0.2f)
-                                    else colors.surface
-                                ),
-                                contentAlignment = Alignment.Center
+                        // ── 3. SWIPEABLE STOPS PAGER (Swipe left/right between stops) ──
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    if (pagerState.currentPage > 0) {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                                        }
+                                    }
+                                },
+                                enabled = pagerState.currentPage > 0,
+                                modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(
-                                    if (wp.isPassed) Icons.Filled.Check else Icons.Filled.Place,
-                                    null,
-                                    tint = if (wp.isPassed) colors.textSecondary else if (wp.isNext) colors.purple else colors.textPrimary,
-                                    modifier = Modifier.size(14.dp)
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Previous stop",
+                                    tint = if (pagerState.currentPage > 0) colors.purple else colors.divider,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    wp.locationName ?: "Stop",
-                                    fontWeight = if (wp.isNext) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 14.sp,
-                                    color = if (wp.isPassed) colors.textSecondary else colors.textPrimary
+                                    "Stop ${pagerState.currentPage + 1} of ${stops.size}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.textSecondary
                                 )
+                                Spacer(Modifier.width(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    stops.indices.forEach { index ->
+                                        val isCurrentDot = index == pagerState.currentPage
+                                        val dotColor = when {
+                                            isCurrentDot -> colors.purple
+                                            index < activeStopIndex -> colors.textSecondary.copy(alpha = 0.4f)
+                                            else -> colors.divider
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(if (isCurrentDot) 7.dp else 5.dp)
+                                                .clip(CircleShape)
+                                                .background(dotColor)
+                                        )
+                                    }
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    if (pagerState.currentPage < stops.size - 1) {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                        }
+                                    }
+                                },
+                                enabled = pagerState.currentPage < stops.size - 1,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Next stop",
+                                    tint = if (pagerState.currentPage < stops.size - 1) colors.purple else colors.divider,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { page ->
+                            val stop = stops.getOrNull(page) ?: return@HorizontalPager
+                            val stopName = stop.name
+
+                            val isStopPassed = when {
+                                isCompleted -> true
+                                isScheduled -> false
+                                else -> {
+                                    if (page == 0) true
+                                    else if (page == stops.size - 1) false
+                                    else activeTrip.waypoints.getOrNull(page - 1)?.isPassed ?: (page < activeStopIndex)
+                                }
+                            }
+                            val isStopCurrent = !isCompleted && page == activeStopIndex
+
+                            // Stop distance & time
+                            val wpForPage = if (page == 0 || page == stops.size - 1) null
+                            else activeTrip.waypoints.getOrNull(page - 1)
+
+                            val stopDistMeters = if (isStopCurrent) {
+                                activeWp?.remainingDistance?.takeIf { it > 0.0 }
+                                    ?: activeTrip.remainingDistanceToDestination?.takeIf { it > 0.0 }
+                            } else wpForPage?.remainingDistance?.takeIf { it > 0.0 }
+
+                            val stopDistStr = stopDistMeters?.let { d ->
+                                if (d < 1000) "${d.toInt()} m" else "${String.format(Locale.US, "%.1f", d / 1000.0)} km"
+                            }
+
+                            val stopTimeSecs = if (isStopCurrent) {
+                                activeWp?.remainingTime?.takeIf { it > 0.0 }
+                                    ?: activeTrip.remainingTimeToDestination?.takeIf { it > 0.0 }
+                            } else wpForPage?.remainingTime?.takeIf { it > 0.0 }
+
+                            val stopTimeStr = stopTimeSecs?.let { s ->
+                                val mins = (s / 60.0).toInt().coerceAtLeast(1)
+                                if (mins < 60) "$mins min"
+                                else "${mins / 60}h ${mins % 60}m"
+                            }
+
+                            // Match pickups & dropoffs at this stop
+                            val pickupsAtStop = remember(state.driverCurrentPackages, stop) {
+                                if (stop.pickups.isNotEmpty()) stop.pickups
+                                else {
+                                    state.driverCurrentPackages
+                                        .filter {
+                                            it.fromAddress.isNotBlank() &&
+                                            (it.fromAddress.contains(stopName, true) || stopName.contains(it.fromAddress, true))
+                                        }
+                                        .map { pkg ->
+                                            Package(id = pkg.id, label = pkg.description.ifBlank { pkg.id }, recipient = pkg.recipientName, weight = pkg.weight)
+                                        }
+                                }
+                            }
+
+                            val dropoffsAtStop = remember(state.driverCurrentPackages, stop) {
+                                if (stop.dropoffs.isNotEmpty()) stop.dropoffs
+                                else {
+                                    state.driverCurrentPackages
+                                        .filter {
+                                            it.toAddress.isNotBlank() &&
+                                            (it.toAddress.contains(stopName, true) || stopName.contains(it.toAddress, true))
+                                        }
+                                        .map { pkg ->
+                                            Package(id = pkg.id, label = pkg.description.ifBlank { pkg.id }, recipient = pkg.recipientName, weight = pkg.weight)
+                                        }
+                                }
+                            }
+
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = FluidShapes.card,
+                                color = colors.surfaceAlt,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isStopCurrent) colors.purple.copy(alpha = 0.5f)
+                                    else if (isStopPassed) colors.divider.copy(alpha = 0.4f)
+                                    else colors.divider.copy(alpha = 0.6f)
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    // Stop title + status badge + distance/time
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        // Stop badge
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = when {
+                                                isStopPassed -> colors.textSecondary.copy(alpha = 0.12f)
+                                                isStopCurrent -> (if (isScheduled) colors.amber else colors.purple).copy(alpha = 0.14f)
+                                                else -> colors.divider.copy(alpha = 0.4f)
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                if (isStopPassed) {
+                                                    Icon(Icons.Filled.Check, null, tint = colors.textSecondary, modifier = Modifier.size(12.dp))
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text("PASSED", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colors.textSecondary)
+                                                } else if (isStopCurrent) {
+                                                    Box(Modifier.size(6.dp).clip(CircleShape).background(if (isScheduled) colors.amber else colors.purple))
+                                                    Spacer(Modifier.width(5.dp))
+                                                    Text(
+                                                        if (isScheduled) "ORIGIN (DEPARTURE)" else "CURRENT STOP",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isScheduled) colors.amber else colors.purple
+                                                    )
+                                                } else {
+                                                    Text("UPCOMING", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colors.textSecondary)
+                                                }
+                                            }
+                                        }
+
+                                        // Stop distance / ETA if available
+                                        val etaText = buildString {
+                                            if (!stopDistStr.isNullOrBlank()) append(stopDistStr)
+                                            if (!stopTimeStr.isNullOrBlank()) {
+                                                if (isNotEmpty()) append(" • ")
+                                                append(stopTimeStr)
+                                            }
+                                        }
+                                        if (etaText.isNotBlank() && !isStopPassed) {
+                                            Text(
+                                                etaText,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isStopCurrent) colors.purple else colors.textSecondary
+                                            )
+                                        } else if (isStopPassed) {
+                                            Text(
+                                                "Completed",
+                                                fontSize = 11.sp,
+                                                color = colors.textSecondary,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(Modifier.height(8.dp))
+
+                                    // Stop Name
+                                    Text(
+                                        stopName,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = if (isStopPassed) colors.textSecondary else colors.textPrimary
+                                    )
+
+                                    Spacer(Modifier.height(10.dp))
+
+                                    // ── Pickups and Dropoffs Cards for this stop ──
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Pickups
+                                        Surface(
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = colors.surface,
+                                            border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+                                        ) {
+                                            Column(modifier = Modifier.padding(10.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        if (isStopPassed) Icons.Filled.Check else Icons.Filled.AddCircle,
+                                                        null,
+                                                        tint = colors.purple,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(Modifier.width(5.dp))
+                                                    Text(
+                                                        if (isStopPassed) "Picked up (${pickupsAtStop.size})"
+                                                        else "To pick up (${pickupsAtStop.size})",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = colors.purple
+                                                    )
+                                                }
+                                                Spacer(Modifier.height(6.dp))
+                                                if (pickupsAtStop.isEmpty()) {
+                                                    Text("None", fontSize = 11.sp, color = colors.textSecondary)
+                                                } else {
+                                                    pickupsAtStop.take(3).forEach { pkg ->
+                                                        Text(
+                                                            "• ${pkg.id}",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = colors.textPrimary,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier
+                                                                .clickable { viewModel.openPackageDetail(pkg.id) }
+                                                                .padding(vertical = 1.dp)
+                                                        )
+                                                    }
+                                                    if (pickupsAtStop.size > 3) {
+                                                        Text("+${pickupsAtStop.size - 3} more", fontSize = 10.sp, color = colors.textSecondary)
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Dropoffs
+                                        Surface(
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = colors.surface,
+                                            border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
+                                        ) {
+                                            Column(modifier = Modifier.padding(10.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        if (isStopPassed) Icons.Filled.Check else Icons.Filled.RemoveCircle,
+                                                        null,
+                                                        tint = if (isStopPassed) colors.purple else colors.amber,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(Modifier.width(5.dp))
+                                                    Text(
+                                                        if (isStopPassed) "Dropped off (${dropoffsAtStop.size})"
+                                                        else "To drop off (${dropoffsAtStop.size})",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isStopPassed) colors.purple else colors.amber
+                                                    )
+                                                }
+                                                Spacer(Modifier.height(6.dp))
+                                                if (dropoffsAtStop.isEmpty()) {
+                                                    Text("None", fontSize = 11.sp, color = colors.textSecondary)
+                                                } else {
+                                                    dropoffsAtStop.take(3).forEach { pkg ->
+                                                        Text(
+                                                            "• ${pkg.id}",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = colors.textPrimary,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier
+                                                                .clickable { viewModel.openPackageDetail(pkg.id) }
+                                                                .padding(vertical = 1.dp)
+                                                        )
+                                                    }
+                                                    if (dropoffsAtStop.size > 3) {
+                                                        Text("+${dropoffsAtStop.size - 3} more", fontSize = 10.sp, color = colors.textSecondary)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -839,7 +1356,7 @@ private fun TripSheetContent(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Vehicle plate and seats just above trip data
+            // Vehicle plate and seats only (compact)
             if (vehicleInfoAvailable) {
                 item {
                     Surface(
@@ -849,41 +1366,39 @@ private fun TripSheetContent(
                         border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.purple.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Icon(
+                                Icons.Filled.DirectionsCar,
+                                contentDescription = null,
+                                tint = colors.purple,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                plateNumber ?: "Vehicle",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = colors.textPrimary
+                            )
+                            if (totalSeats != null) {
+                                Spacer(Modifier.width(10.dp))
+                                Text("•", color = colors.textSecondary, fontSize = 12.sp)
+                                Spacer(Modifier.width(10.dp))
                                 Icon(
-                                    Icons.Filled.DirectionsCar,
+                                    Icons.Filled.EventSeat,
                                     contentDescription = null,
                                     tint = colors.purple,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
+                                Spacer(Modifier.width(4.dp))
                                 Text(
-                                    plateNumber ?: "Vehicle",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = colors.textPrimary
+                                    "$totalSeats seats",
+                                    fontSize = 12.sp,
+                                    color = colors.textSecondary,
+                                    fontWeight = FontWeight.Medium
                                 )
-                                val subtitle = buildString {
-                                    if (!vehicleModel.isNullOrBlank()) append(vehicleModel)
-                                    if (seatsCount != null) {
-                                        if (isNotEmpty()) append(" • ")
-                                        append("$seatsCount seats")
-                                    }
-                                }
-                                if (subtitle.isNotEmpty()) {
-                                    Text(subtitle, fontSize = 12.sp, color = colors.textSecondary)
-                                }
                             }
                         }
                     }
@@ -902,7 +1417,12 @@ private fun TripSheetContent(
                     Spacer(Modifier.height(10.dp))
                     Text("No active trip", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
                     Spacer(Modifier.height(4.dp))
-                    Text("Start a trip to begin accepting and delivering packages", fontSize = 13.sp, color = colors.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text(
+                        "Start a trip to begin accepting and delivering packages",
+                        fontSize = 13.sp,
+                        color = colors.textSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
                     Spacer(Modifier.height(18.dp))
                     Button(
                         onClick = { viewModel.openDriverCreateTrip() },
