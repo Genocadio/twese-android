@@ -21,6 +21,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gocavgo.twese.SearchUsersQuery
+import com.gocavgo.twese.ui.common.FluidDotLoader
+import com.gocavgo.twese.ui.common.SixDigitPinInput
 import com.gocavgo.twese.ui.theme.LocalDriversColors
 
 // ── Existing Dialogs ───────────────────────────────────────────────────────────
@@ -40,12 +42,12 @@ fun DeliverConfirmationDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         containerColor = colors.surface,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(38.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) { Icon(Icons.Filled.Verified, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
@@ -54,22 +56,54 @@ fun DeliverConfirmationDialog(
         },
         text = {
             Column {
-                Text("Package: $packageId", color = colors.textSecondary, fontSize = 13.sp)
-                Spacer(Modifier.height(12.dp))
-                Text("Delivery was initiated — the recipient was sent a confirmation code.", color = colors.textPrimary, fontSize = 14.sp)
-                Spacer(Modifier.height(6.dp))
-                Text("Enter the code if the recipient shared it with you, otherwise wait for them to confirm in their app:", color = colors.textSecondary, fontSize = 13.sp)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colors.purple.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.2f))
+                ) {
+                    Text(
+                        "Package #$packageId",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        color = colors.purple,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Delivery was initiated — ask the recipient for their 6-digit confirmation code:",
+                    color = colors.textPrimary,
+                    fontSize = 13.sp
+                )
+                Spacer(Modifier.height(14.dp))
+
+                SixDigitPinInput(
                     value = codeInput,
                     onValueChange = onCodeChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Enter delivery code", fontSize = 14.sp) },
-                    singleLine = true,
                     isError = codeError.isNotBlank(),
-                    supportingText = { if (codeError.isNotBlank()) Text(codeError, color = colors.red, fontSize = 12.sp) },
-                    shape = RoundedCornerShape(12.dp),
-                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
+                    enabled = !isConfirming,
+                    autoFocus = true,
+                    onComplete = {
+                        if (!isConfirming) {
+                            onConfirm()
+                        }
+                    }
+                )
+
+                if (codeError.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.ErrorOutline, null, tint = colors.red, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(codeError, color = colors.red, fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Or wait for the recipient to confirm in their Twese app.",
+                    color = colors.textSecondary,
+                    fontSize = 12.sp
                 )
             }
         },
@@ -79,10 +113,10 @@ fun DeliverConfirmationDialog(
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                 modifier = Modifier.height(44.dp),
-                enabled = !isConfirming
+                enabled = !isConfirming && codeInput.isNotBlank()
             ) {
                 if (isConfirming) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    FluidDotLoader(color = Color.White)
                 } else {
                     Text("Confirm", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
@@ -145,7 +179,7 @@ fun TransferToOfficeDialog(
                 enabled = !isCreating
             ) {
                 if (isCreating) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    FluidDotLoader(color = Color.White)
                 } else {
                     Text("Transfer", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
                 }
@@ -320,7 +354,7 @@ fun TransferCreationDialog(
                 enabled = selectedRuleType != null && !isCreating
             ) {
                 if (isCreating) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    FluidDotLoader(color = Color.White)
                 } else {
                     Text("Create", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
@@ -378,7 +412,7 @@ fun ConfirmTransferDialog(
                 enabled = !isConfirming
             ) {
                 if (isConfirming) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    FluidDotLoader(color = Color.White)
                 } else {
                     Icon(Icons.Filled.Check, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
@@ -434,7 +468,7 @@ fun RejectTransferDialog(
                 enabled = !isRejecting
             ) {
                 if (isRejecting) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    FluidDotLoader(color = Color.White)
                 } else {
                     Icon(Icons.Filled.Close, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
@@ -563,7 +597,7 @@ fun RequestTransferDialog(
                 enabled = !isRequesting
             ) {
                 if (isRequesting) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    FluidDotLoader(color = Color.White)
                 } else {
                     Icon(Icons.Filled.Send, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
@@ -657,7 +691,7 @@ fun BatchTransferDialog(
                 enabled = selectedRuleType != null && !isCreating
             ) {
                 if (isCreating) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    FluidDotLoader(color = Color.White)
                 } else {
                     Text("Create Transfer", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
@@ -687,12 +721,12 @@ fun AcceptTransferCodeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         containerColor = colors.surface,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
+                    modifier = Modifier.size(38.dp).clip(CircleShape).background(colors.purple.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) { Icon(Icons.Filled.AddTask, null, tint = colors.purple, modifier = Modifier.size(20.dp)) }
                 Spacer(Modifier.width(10.dp))
@@ -704,19 +738,26 @@ fun AcceptTransferCodeDialog(
                 Text("This package is part of a transfer.", color = colors.textPrimary, fontSize = 14.sp)
                 if (requiresCode) {
                     Spacer(Modifier.height(8.dp))
-                    Text("Enter the transfer code to accept:", color = colors.textPrimary, fontSize = 14.sp)
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    Text("Enter the 6-digit transfer code to accept:", color = colors.textSecondary, fontSize = 13.sp)
+                    Spacer(Modifier.height(14.dp))
+                    SixDigitPinInput(
                         value = codeInput,
                         onValueChange = onCodeChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Enter transfer code", fontSize = 14.sp) },
-                        singleLine = true,
                         isError = codeError.isNotBlank(),
-                        supportingText = { if (codeError.isNotBlank()) Text(codeError, color = colors.red, fontSize = 12.sp) },
-                        shape = RoundedCornerShape(12.dp),
-                        textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
+                        enabled = !isAccepting,
+                        autoFocus = true,
+                        onComplete = {
+                            if (!isAccepting) onConfirm()
+                        }
                     )
+                    if (codeError.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.ErrorOutline, null, tint = colors.red, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(codeError, color = colors.red, fontSize = 12.sp)
+                        }
+                    }
                 } else {
                     Spacer(Modifier.height(8.dp))
                     Text("You can accept this package without a transfer code.", color = colors.textSecondary, fontSize = 13.sp)
@@ -732,7 +773,7 @@ fun AcceptTransferCodeDialog(
                 enabled = !isAccepting && (!requiresCode || codeInput.isNotBlank())
             ) {
                 if (isAccepting) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    FluidDotLoader(color = Color.White)
                 } else {
                     Icon(Icons.Filled.AddTask, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))

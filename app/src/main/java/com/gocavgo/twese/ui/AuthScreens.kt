@@ -24,7 +24,9 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import com.gocavgo.twese.ui.common.FluidDotLoader
 import com.gocavgo.twese.ui.common.FluidShapes
+import com.gocavgo.twese.ui.common.SixDigitPinInput
 import com.gocavgo.twese.ui.common.VehiclePlatePill
 import com.gocavgo.twese.viewmodel.AppRole
 import androidx.compose.material3.*
@@ -208,18 +210,19 @@ fun ForgotPasswordDialog(
                         )
                     }
                     1 -> {
-                        OutlinedTextField(
-                            value = code,
-                            onValueChange = { if (it.length <= 6) code = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Confirmation code") },
-                            leadingIcon = { Icon(Icons.Filled.Lock, null) },
-                            singleLine = true,
-                            enabled = !isLoading,
-                            shape = RoundedCornerShape(12.dp),
-                            placeholder = { Text("000000") }
+                        Text(
+                            "Enter the 6-digit confirmation code:",
+                            color = colors.textSecondary,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(bottom = 8.dp)
                         )
-                        Spacer(Modifier.height(10.dp))
+                        SixDigitPinInput(
+                            value = code,
+                            onValueChange = { code = it },
+                            enabled = !isLoading,
+                            autoFocus = true
+                        )
+                        Spacer(Modifier.height(14.dp))
                         OutlinedTextField(
                             value = newPassword,
                             onValueChange = { newPassword = it },
@@ -276,7 +279,7 @@ fun ForgotPasswordDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                 ) {
                     if (isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        FluidDotLoader(color = MaterialTheme.colorScheme.onPrimary)
                     } else {
                         Text("Reset Password", fontWeight = FontWeight.Bold)
                     }

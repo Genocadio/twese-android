@@ -35,8 +35,10 @@ import com.gocavgo.twese.data.dto.AuthResult
 import com.gocavgo.twese.ui.ForgotPasswordDialog
 import com.gocavgo.twese.ui.PhoneInput
 import com.gocavgo.twese.ui.common.AuthSplitLayout
+import com.gocavgo.twese.ui.common.FluidDotLoader
 import com.gocavgo.twese.ui.common.FluidShapes
 import com.gocavgo.twese.ui.common.PublicPackageSkeleton
+import com.gocavgo.twese.ui.common.SixDigitPinInput
 import com.gocavgo.twese.ui.common.getPackageStatusInfo
 import com.gocavgo.twese.ui.theme.LocalDriversColors
 
@@ -325,7 +327,7 @@ fun ClientLoginScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                     enabled = !isAuthLoading && email.isNotBlank() && password.isNotBlank()
                 ) {
-                    if (isAuthLoading) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    if (isAuthLoading) FluidDotLoader(color = MaterialTheme.colorScheme.onPrimary)
                     else Text("Log in", fontWeight = FontWeight.Bold)
                 }
                 if (authResult is AuthResult.Error) {
@@ -373,13 +375,21 @@ fun OtpVerificationScreen(
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
             Text(email, color = colors.purple, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(16.dp))
-            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = colors.surface, border = BorderStroke(1.dp, colors.divider)) {
+            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = colors.surface, border = BorderStroke(1.dp, colors.divider)) {
                 Column(Modifier.padding(16.dp)) {
-                    OutlinedTextField(
-                        value = code, onValueChange = { if (it.length <= 6) code = it },
-                        modifier = Modifier.fillMaxWidth(), label = { Text("Verification Code") },
-                        leadingIcon = { Icon(Icons.Filled.Lock, null) }, singleLine = true,
-                        enabled = !isAuthLoading, shape = RoundedCornerShape(12.dp), placeholder = { Text("000000") }
+                    Text(
+                        "Enter the 6-digit verification code:",
+                        color = colors.textSecondary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    SixDigitPinInput(
+                        value = code,
+                        onValueChange = { code = it },
+                        isError = authResult is AuthResult.Error,
+                        enabled = !isAuthLoading,
+                        autoFocus = true,
+                        onComplete = { onVerify(it) }
                     )
                     Spacer(Modifier.height(16.dp))
                     Button(
@@ -389,7 +399,7 @@ fun OtpVerificationScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                         enabled = !isAuthLoading && code.length == 6
                     ) {
-                        if (isAuthLoading) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        if (isAuthLoading) FluidDotLoader(color = MaterialTheme.colorScheme.onPrimary)
                         else Text("Verify", fontWeight = FontWeight.Bold)
                     }
                     if (authResult is AuthResult.Error) {
@@ -485,7 +495,7 @@ private fun AuthPanel(
                 colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
                 enabled = !isAuthLoading && email.isNotBlank() && password.isNotBlank() && (!isSignUp || (fullName.isNotBlank() && phone.isNotBlank()))
             ) {
-                if (isAuthLoading) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                if (isAuthLoading) FluidDotLoader(color = MaterialTheme.colorScheme.onPrimary)
                 else Text(if (isSignUp) "Create Account" else "Sign In", fontWeight = FontWeight.Bold)
             }
             if (authResult is AuthResult.Error) {

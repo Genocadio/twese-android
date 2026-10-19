@@ -18,29 +18,46 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -347,10 +364,10 @@ fun SwipeToActionButton(
             contentAlignment = Alignment.Center
         ) {
             if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color = accent
+                FluidDotLoader(
+                    color = accent,
+                    dotSize = 6.dp,
+                    spacing = 5.dp
                 )
             } else {
                 Row(
@@ -710,5 +727,249 @@ fun PublicPackageSkeleton(
         }
     }
 }
+
+// ── Smooth Pulse Dot Loader (Clean modern alternative to circular spinner) ─────
+
+@Composable
+fun FluidDotLoader(
+    modifier: Modifier = Modifier,
+    color: Color = Color.White,
+    dotSize: androidx.compose.ui.unit.Dp = 6.dp,
+    spacing: androidx.compose.ui.unit.Dp = 5.dp
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "dotLoader")
+    val dot1Alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, delayMillis = 0, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot1Alpha"
+    )
+    val dot2Alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, delayMillis = 150, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot2Alpha"
+    )
+    val dot3Alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, delayMillis = 300, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot3Alpha"
+    )
+
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(spacing),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(dotSize)
+                .graphicsLayer { alpha = dot1Alpha }
+                .clip(CircleShape)
+                .background(color)
+        )
+        Box(
+            modifier = Modifier
+                .size(dotSize)
+                .graphicsLayer { alpha = dot2Alpha }
+                .clip(CircleShape)
+                .background(color)
+        )
+        Box(
+            modifier = Modifier
+                .size(dotSize)
+                .graphicsLayer { alpha = dot3Alpha }
+                .clip(CircleShape)
+                .background(color)
+        )
+    }
+}
+
+// ── 6-Digit Auto-Advancing Aquamorphic PIN Input ──────────────────────────────
+
+/**
+ * Modern 6-digit PIN input with discrete rounded cells, auto-focus, automatic focus
+ * advancement, backspace deletion, clipboard paste shortcut, and haptic feedback.
+ */
+@Composable
+fun SixDigitPinInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    length: Int = 6,
+    isError: Boolean = false,
+    enabled: Boolean = true,
+    autoFocus: Boolean = true,
+    keyboardType: KeyboardType = KeyboardType.Ascii,
+    onComplete: ((String) -> Unit)? = null
+) {
+    val colors = LocalDriversColors.current
+    val focusRequester = remember { FocusRequester() }
+    var isFocused by remember { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
+    val haptic = LocalHapticFeedback.current
+
+    LaunchedEffect(autoFocus) {
+        if (autoFocus) {
+            focusRequester.requestFocus()
+        }
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pinCursor")
+    val cursorAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pinCursorAlpha"
+    )
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        BasicTextField(
+            value = TextFieldValue(
+                text = value,
+                selection = TextRange(value.length)
+            ),
+            onValueChange = { tfv ->
+                val filtered = tfv.text.filter { it.isLetterOrDigit() }.take(length).uppercase()
+                if (filtered != value) {
+                    onValueChange(filtered)
+                    if (filtered.length == length) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onComplete?.invoke(filtered)
+                    }
+                }
+            },
+            modifier = Modifier
+                .focusRequester(focusRequester)
+                .onFocusChanged { isFocused = it.isFocused },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = keyboardType,
+                capitalization = KeyboardCapitalization.Characters,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    if (value.length == length) {
+                        onComplete?.invoke(value)
+                    }
+                }
+            ),
+            enabled = enabled,
+            singleLine = true,
+            decorationBox = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    for (i in 0 until length) {
+                        val char = value.getOrNull(i)?.toString() ?: ""
+                        val isCurrentBox = isFocused && (i == value.length || (i == length - 1 && value.length == length))
+
+                        val boxBorderColor = when {
+                            isError -> colors.red
+                            isCurrentBox -> colors.purple
+                            char.isNotEmpty() -> colors.purple.copy(alpha = 0.5f)
+                            else -> colors.divider
+                        }
+
+                        val boxBorderWidth = if (isCurrentBox || isError) 2.dp else 1.dp
+
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(56.dp)
+                                .padding(horizontal = 3.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isCurrentBox) colors.purple.copy(alpha = 0.08f) else colors.surfaceAlt,
+                            border = BorderStroke(boxBorderWidth, boxBorderColor)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (char.isNotEmpty()) {
+                                    Text(
+                                        text = char,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.textPrimary,
+                                        textAlign = TextAlign.Center
+                                    )
+                                } else if (isCurrentBox && isFocused) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(2.dp)
+                                            .height(22.dp)
+                                            .background(colors.purple.copy(alpha = cursorAlpha))
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(colors.textSecondary.copy(alpha = 0.3f))
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        )
+
+        // Paste and Clear helper shortcuts
+        val clipText = clipboardManager.getText()?.text?.trim() ?: ""
+        val canPaste = clipText.length == length && clipText.all { it.isLetterOrDigit() } && value.isEmpty()
+
+        if (canPaste || value.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (canPaste) {
+                    TextButton(
+                        onClick = {
+                            val clean = clipText.take(length).uppercase()
+                            onValueChange(clean)
+                            if (clean.length == length) onComplete?.invoke(clean)
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Filled.ContentPaste, null, tint = colors.purple, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Paste $clipText", color = colors.purple, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                if (value.isNotEmpty()) {
+                    TextButton(
+                        onClick = { onValueChange("") },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(2.dp))
+                        Text("Clear", color = colors.textSecondary, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 

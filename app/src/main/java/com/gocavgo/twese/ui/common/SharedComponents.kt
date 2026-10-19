@@ -380,7 +380,7 @@ fun DeliveryConfirmationDialog(
                 enabled = !isConfirming
             ) {
                 if (isConfirming) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    FluidDotLoader(color = Color.White)
                 } else {
                     Text("Confirm Delivery", fontWeight = FontWeight.Bold)
                 }
