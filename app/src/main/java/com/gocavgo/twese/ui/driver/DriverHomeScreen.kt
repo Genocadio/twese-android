@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -109,6 +110,7 @@ fun DriverHomeScreen(
     val maxW = contentMaxWidth()
 
     var activeDockTab by remember { mutableStateOf<DockWindowTab?>(null) }
+    var isWindowPinned by remember { mutableStateOf(false) }
     var showAddChoiceDialog by remember { mutableStateOf(false) }
 
     val activeTrip = state.activeDriverTrip
@@ -168,6 +170,11 @@ fun DriverHomeScreen(
             viewModel.dismissNewPackageToast()
         }
     }
+    LaunchedEffect(activeDockTab) {
+        if (activeDockTab != DockWindowTab.TRIP && activeDockTab != DockWindowTab.NEW_PACKAGES) {
+            isWindowPinned = false
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
 
@@ -195,13 +202,15 @@ fun DriverHomeScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.42f))
+                    .background(Color.Black.copy(alpha = if (isWindowPinned) 0.20f else 0.42f))
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
                     ) {
-                        activeDockTab = null
-                        onDismissMenus()
+                        if (!isWindowPinned) {
+                            activeDockTab = null
+                            onDismissMenus()
+                        }
                     }
             )
         }
@@ -228,22 +237,56 @@ fun DriverHomeScreen(
                     .fillMaxHeight(0.72f),
                 shape = FluidShapes.dock,
                 backgroundColor = colors.surface.copy(alpha = 0.96f),
-                border = BorderStroke(1.dp, colors.divider.copy(alpha = 0.8f)),
-                shadowElevation = 14.dp
+                border = BorderStroke(
+                    1.dp,
+                    if (isWindowPinned) colors.purple.copy(alpha = 0.75f) else colors.divider.copy(alpha = 0.8f)
+                ),
+                shadowElevation = if (isWindowPinned) 18.dp else 14.dp
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    // Drag handle pill
+                    val canPinSheet = activeDockTab == DockWindowTab.TRIP || activeDockTab == DockWindowTab.NEW_PACKAGES
+                    val pillColor by animateColorAsState(
+                        targetValue = if (isWindowPinned) colors.purple else colors.divider,
+                        label = "pillColor"
+                    )
+                    val pillWidth by animateDpAsState(
+                        targetValue = if (isWindowPinned) 48.dp else 36.dp,
+                        label = "pillWidth"
+                    )
+                    val pillHeight by animateDpAsState(
+                        targetValue = if (isWindowPinned) 5.dp else 4.dp,
+                        label = "pillHeight"
+                    )
+
+                    // Drag / Pin handle pill (Tappable on TRIP or NEW_PACKAGES to pin window)
                     Box(
                         modifier = Modifier
                             .align(Alignment.CenterHorizontally)
-                            .size(width = 36.dp, height = 4.dp)
                             .clip(CircleShape)
-                            .background(colors.divider)
-                    )
+                            .then(
+                                if (canPinSheet) {
+                                    Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        isWindowPinned = !isWindowPinned
+                                    }
+                                } else Modifier
+                            )
+                            .padding(horizontal = 24.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = pillWidth, height = pillHeight)
+                                .clip(CircleShape)
+                                .background(pillColor)
+                        )
+                    }
 
                     Spacer(Modifier.height(10.dp))
 
@@ -354,7 +397,12 @@ fun DriverHomeScreen(
             GrassyDock(
                 activeTab = activeDockTab,
                 onTabClick = { tab ->
-                    activeDockTab = if (activeDockTab == tab) null else tab
+                    if (activeDockTab == tab) {
+                        isWindowPinned = false
+                        activeDockTab = null
+                    } else {
+                        activeDockTab = tab
+                    }
                 },
                 profile = profile,
                 incomingCount = incomingItems.size,
@@ -772,17 +820,23 @@ private fun TripSheetContent(
         val activeWp = activeTrip.waypoints.firstOrNull { it.isNext }
             ?: activeTrip.waypoints.firstOrNull { !it.isPassed }
             ?: activeTrip.waypoints.getOrNull(state.currentStopIndex)
-
+        val isNextIdx = activeTrip.waypoints.indexOfFirst { it.isNext }
+        val firstUnpassed = activeTrip.waypoints.indexOfFirst { !it.isPassed }
         val activeStopIndex = remember(activeTrip, stops, state.currentStopIndex) {
             when {
                 isCompleted -> (stops.size - 1).coerceAtLeast(0)
                 isScheduled -> 0
-                activeWp != null -> {
-                    val wpIdx = activeTrip.waypoints.indexOf(activeWp)
-                    if (stops.size > activeTrip.waypoints.size) (wpIdx + 1).coerceIn(0, stops.size - 1)
-                    else wpIdx.coerceIn(0, stops.size - 1)
+                activeTrip.waypoints.isEmpty() -> if (isDeparted) (stops.size - 1).coerceAtLeast(0) else 0
+                else -> {
+                    val idx = when {
+                        isNextIdx != -1 && firstUnpassed != -1 -> minOf(isNextIdx, firstUnpassed) + 1
+                        isNextIdx != -1 -> isNextIdx + 1
+                        firstUnpassed != -1 -> firstUnpassed + 1
+                        isDeparted -> stops.size - 1
+                        else -> state.currentStopIndex
+                    }
+                    idx.coerceIn(0, (stops.size - 1).coerceAtLeast(0))
                 }
-                else -> state.currentStopIndex.coerceIn(0, (stops.size - 1).coerceAtLeast(0))
             }
         }
 
@@ -790,10 +844,17 @@ private fun TripSheetContent(
             initialPage = activeStopIndex.coerceIn(0, (stops.size - 1).coerceAtLeast(0))
         ) { stops.size }
 
-        // Keep pager synced when active stop updates
+        // Track last active stop index: if current point is passed, auto-swipe to next if focused
+        var lastTrackedActiveStopIndex by remember(activeTrip.id) { mutableIntStateOf(activeStopIndex) }
+
         LaunchedEffect(activeStopIndex) {
             if (activeStopIndex in stops.indices) {
-                pagerState.animateScrollToPage(activeStopIndex)
+                // If user was viewing the stop that was just passed (focused on current stop), auto swipe to next stop!
+                // The user can still freely swipe back to previous stops manually.
+                if (pagerState.currentPage == lastTrackedActiveStopIndex) {
+                    pagerState.animateScrollToPage(activeStopIndex)
+                }
+                lastTrackedActiveStopIndex = activeStopIndex
             }
         }
 
@@ -802,18 +863,6 @@ private fun TripSheetContent(
         val distToDestStr = distToDestMeters?.let { d ->
             if (d < 1000) "${d.toInt()} m" else "${String.format(Locale.US, "%.1f", d / 1000.0)} km"
         }
-
-        // Pulsing animation for live status dot
-        val infiniteTransition = rememberInfiniteTransition(label = "liveTripPulse")
-        val pulseAlpha by infiniteTransition.animateFloat(
-            initialValue = 0.4f,
-            targetValue = 1.0f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(900, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "pulseAlpha"
-        )
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -899,112 +948,91 @@ private fun TripSheetContent(
 
                         Spacer(Modifier.height(14.dp))
 
-                        // ── 2. TRIP ROUTE HEADER (Origin ➔ Destination, Live Badge, Remaining Distance) ──
-                        Row(
+                        // ── 2. JUSTIFY-CENTERED ORIGIN ➔ DESTINATION ROUTE ──
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            // Live status pill
-                            Surface(
-                                shape = FluidShapes.capsule,
-                                color = if (isDeparted) CavgoGreen.copy(alpha = 0.12f)
-                                else if (isScheduled) colors.amber.copy(alpha = 0.12f)
-                                else colors.purple.copy(alpha = 0.12f),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (isDeparted) CavgoGreen.copy(alpha = 0.35f)
-                                    else if (isScheduled) colors.amber.copy(alpha = 0.35f)
-                                    else colors.purple.copy(alpha = 0.35f)
-                                )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
                             ) {
+                                // Origin (right aligned towards center arrow)
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.End,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(7.dp)
+                                            .size(8.dp)
                                             .clip(CircleShape)
-                                            .background(
-                                                if (isDeparted) CavgoGreen.copy(alpha = pulseAlpha)
-                                                else if (isScheduled) colors.amber
-                                                else colors.purple
-                                            )
+                                            .background(colors.purple)
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
-                                        when {
-                                            isDeparted -> "LIVE TRIP"
-                                            isScheduled -> "SCHEDULED"
-                                            isCompleted -> "COMPLETED"
-                                            else -> "ACTIVE TRIP"
-                                        },
-                                        fontSize = 11.sp,
+                                        originName,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isDeparted) CavgoGreen else if (isScheduled) colors.amber else colors.purple,
-                                        letterSpacing = 0.5.sp
+                                        color = colors.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.End
                                     )
                                 }
-                            }
 
-                            // Total remaining distance to destination
-                            if (!distToDestStr.isNullOrBlank()) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Centered Arrow Icon
+                                Box(
+                                    modifier = Modifier
+                                        .padding(horizontal = 10.dp)
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.purple.copy(alpha = 0.10f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Icon(
-                                        Icons.Filled.NearMe,
+                                        Icons.AutoMirrored.Filled.ArrowForward,
                                         contentDescription = null,
                                         tint = colors.purple,
-                                        modifier = Modifier.size(13.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
-                                    Spacer(Modifier.width(4.dp))
+                                }
+
+                                // Destination (left aligned away from center arrow)
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.Start,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(colors.red)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
                                     Text(
-                                        distToDestStr,
-                                        fontSize = 12.sp,
+                                        destName,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = colors.purple
+                                        color = colors.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Start
                                     )
                                 }
                             }
-                        }
 
-                        Spacer(Modifier.height(10.dp))
-
-                        // Origin ➔ Destination Row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(colors.purple))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                originName,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = null,
-                                tint = colors.purple,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(colors.red))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                destName,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
+                            if (!distToDestStr.isNullOrBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "$distToDestStr remaining to destination",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.textSecondary
+                                )
+                            }
                         }
 
                         Spacer(Modifier.height(14.dp))
