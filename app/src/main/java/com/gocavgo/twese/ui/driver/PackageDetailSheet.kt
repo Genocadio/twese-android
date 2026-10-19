@@ -44,7 +44,7 @@ fun PackageDetailSheet(
     isPickingUp: Boolean = false
 ) {
     val colors     = LocalDriversColors.current
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -52,10 +52,19 @@ fun PackageDetailSheet(
         containerColor   = colors.surface,
         shape            = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = {
-            Surface(
-                modifier = Modifier.width(40.dp).height(4.dp).padding(top = 8.dp, bottom = 4.dp),
-                shape = RoundedCornerShape(2.dp), color = colors.divider
-            ) {}
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(colors.divider)
+                )
+            }
         }
     ) {
         val isWide = isWideScreen()
@@ -67,10 +76,10 @@ fun PackageDetailSheet(
             .fillMaxWidth()
             .padding(horizontal = padH)
             .navigationBarsPadding()
-            .padding(bottom = 16.dp)
+            .padding(bottom = 24.dp)
             .verticalScroll(scrollState)
     ) {
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
 
         // ── Header: ID + status ──
         Row(verticalAlignment = Alignment.CenterVertically) {

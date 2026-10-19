@@ -477,37 +477,32 @@ fun DriverCurrentPackageCard(
 
                 when {
                     needsPickup -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
+                        val pickupSource = remember { MutableInteractionSource() }
+                        Button(
+                            onClick = { if (!isPickingUp) onPickup() },
+                            enabled = !isPickingUp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .fluidBounceClick(interactionSource = pickupSource),
+                            shape = FluidShapes.button,
+                            interactionSource = pickupSource,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.purple
+                            )
                         ) {
-                            val pickupSource = remember { MutableInteractionSource() }
-                            Surface(
-                                onClick = { if (!isPickingUp) onPickup() },
-                                shape = CircleShape,
-                                color = colors.purple,
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .fluidBounceClick(interactionSource = pickupSource),
-                                shadowElevation = 3.dp
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    if (isPickingUp) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(18.dp),
-                                            color = Color.White,
-                                            strokeWidth = 2.dp
-                                        )
-                                    } else {
-                                        Icon(
-                                            Icons.Filled.LocalShipping,
-                                            contentDescription = "Pick Up",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
+                            if (isPickingUp) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Picking up...", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Pick Up Package", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -515,49 +510,61 @@ fun DriverCurrentPackageCard(
                     needsArrival || !isAtDestinationOffice -> {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (!isPendingConfirmation) {
-                                val transferSource = remember { MutableInteractionSource() }
-                                Surface(
-                                    onClick = onTransfer,
-                                    shape = CircleShape,
-                                    color = colors.surfaceAlt,
-                                    border = BorderStroke(1.dp, colors.divider),
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .fluidBounceClick(interactionSource = transferSource),
-                                    shadowElevation = 1.dp
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            Icons.Filled.MoveToInbox,
-                                            contentDescription = "Transfer",
-                                            modifier = Modifier.size(20.dp),
-                                            tint = colors.purple
-                                        )
-                                    }
-                                }
-                                Spacer(Modifier.width(10.dp))
+                            val deliverSource = remember { MutableInteractionSource() }
+                            Button(
+                                onClick = onDeliver,
+                                modifier = Modifier
+                                    .weight(1.3f)
+                                    .height(44.dp)
+                                    .fluidBounceClick(interactionSource = deliverSource),
+                                shape = FluidShapes.button,
+                                interactionSource = deliverSource,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.purple
+                                )
+                            ) {
+                                Icon(
+                                    if (isPendingConfirmation) Icons.Filled.Lock else Icons.Filled.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    if (isPendingConfirmation) "Enter Code" else "Deliver",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
                             }
 
-                            val deliverSource = remember { MutableInteractionSource() }
-                            Surface(
-                                onClick = onDeliver,
-                                shape = CircleShape,
-                                color = colors.purple,
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .fluidBounceClick(interactionSource = deliverSource),
-                                shadowElevation = 3.dp
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
+                            if (!isPendingConfirmation) {
+                                val transferSource = remember { MutableInteractionSource() }
+                                OutlinedButton(
+                                    onClick = onTransfer,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                        .fluidBounceClick(interactionSource = transferSource),
+                                    shape = FluidShapes.button,
+                                    interactionSource = transferSource,
+                                    border = BorderStroke(1.dp, colors.divider)
+                                ) {
                                     Icon(
-                                        if (isPendingConfirmation) Icons.Filled.Lock else Icons.Filled.Check,
-                                        contentDescription = if (isPendingConfirmation) "Enter Code" else "Deliver",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
+                                        Icons.Filled.MoveToInbox,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = colors.purple
+                                    )
+                                    Spacer(Modifier.width(5.dp))
+                                    Text(
+                                        "Transfer",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.textPrimary,
+                                        maxLines = 1
                                     )
                                 }
                             }
