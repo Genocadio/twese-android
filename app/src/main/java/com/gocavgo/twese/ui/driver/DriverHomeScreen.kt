@@ -680,14 +680,32 @@ private fun NewPackagesSheetContent(
     newSubscriptionPkgId: String?,
     viewModel: TripViewModel
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "incomingShimmer")
+    val shimmerAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "incomingAlpha"
+    )
+
     if (!hasVehicle) {
         EmptyPackagesState(
             title = "Vehicle Required",
             subtitle = "You must have an assigned vehicle to access incoming packages"
         )
     } else if (isLoading && incomingItems.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = LocalDriversColors.current.purple)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            repeat(4) {
+                PublicPackageSkeleton(shimmerAlpha)
+            }
         }
     } else if (incomingItems.isEmpty()) {
         EmptyPackagesState(

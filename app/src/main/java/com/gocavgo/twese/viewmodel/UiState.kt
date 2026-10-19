@@ -268,6 +268,7 @@ data class TripUiState(
     // Public tracking (pre-login)
     val publicTrackingPackage: ClientPackage? = null,
     val publicTrackingError: String = "",
+    val isPublicTrackingLoading: Boolean = false,
     // Driver packages
     val driverCurrentPackages: List<ClientPackage> = emptyList(),
     val driverAvailableOffers: List<ClientPackage> = emptyList(),

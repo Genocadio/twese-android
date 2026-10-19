@@ -1708,6 +1708,7 @@ class TripViewModel : ViewModel() {
                 isTrackingPackage = false,
                 publicTrackingPackage = null,
                 publicTrackingError = "",
+                isPublicTrackingLoading = false,
                 authResult = null,
                 authUser = null
             )
@@ -4196,23 +4197,23 @@ class TripViewModel : ViewModel() {
 
     fun publicTrackPackage(code: String) {
         viewModelScope.launch {
-            _state.update { it.copy(publicTrackingPackage = null, publicTrackingError = "") }
+            _state.update { it.copy(publicTrackingPackage = null, publicTrackingError = "", isPublicTrackingLoading = true) }
             when (val result = PackageRepository.trackByCode(code)) {
                 is SingleResult.Success -> _state.update {
-                    it.copy(publicTrackingPackage = result.data, publicTrackingError = "")
+                    it.copy(publicTrackingPackage = result.data, publicTrackingError = "", isPublicTrackingLoading = false)
                 }
                 is SingleResult.NotFound -> _state.update {
-                    it.copy(publicTrackingError = "No package found with code \"$code\"")
+                    it.copy(publicTrackingError = "No package found with code \"$code\"", isPublicTrackingLoading = false)
                 }
                 is SingleResult.Failure -> _state.update {
-                    it.copy(publicTrackingError = "Failed to look up package — try again")
+                    it.copy(publicTrackingError = "Failed to look up package — try again", isPublicTrackingLoading = false)
                 }
             }
         }
     }
 
     fun closePublicTracking() {
-        _state.update { it.copy(publicTrackingPackage = null, publicTrackingError = "") }
+        _state.update { it.copy(publicTrackingPackage = null, publicTrackingError = "", isPublicTrackingLoading = false) }
     }
 
     fun searchUsers(query: String, role: com.gocavgo.twese.type.Role? = null) {

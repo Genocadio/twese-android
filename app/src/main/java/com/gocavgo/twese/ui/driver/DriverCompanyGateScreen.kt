@@ -1,5 +1,6 @@
 package com.gocavgo.twese.ui.driver
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,6 +72,14 @@ fun DriverCompanyGateScreen(
     var showRequestForm by remember { mutableStateOf(false) }
     var inputCode by remember { mutableStateOf("") }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "gateSkeleton")
+    val shimmerAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
+        label = "gateAlpha"
+    )
+
     LaunchedEffect(gate) {
         if (gate != DriverCompanyGate.REJECTED) showRequestForm = false
     }
@@ -91,8 +101,20 @@ fun DriverCompanyGateScreen(
             ) {
                 when {
                     evaluating || gate == DriverCompanyGate.UNKNOWN -> {
-                        CircularProgressIndicator(color = colors.purple, strokeWidth = 3.dp)
-                        Spacer(Modifier.height(18.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(colors.purple.copy(alpha = shimmerAlpha))
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(width = 160.dp, height = 14.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colors.textSecondary.copy(alpha = shimmerAlpha * 0.4f))
+                        )
+                        Spacer(Modifier.height(16.dp))
                         Text(
                             if (error != null) "Couldn't verify your company status" else "Checking your company status…",
                             color = colors.textPrimary,

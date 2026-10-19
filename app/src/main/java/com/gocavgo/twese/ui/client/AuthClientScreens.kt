@@ -25,10 +25,19 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.dto.AuthResult
 import com.gocavgo.twese.ui.ForgotPasswordDialog
 import com.gocavgo.twese.ui.PhoneInput
 import com.gocavgo.twese.ui.common.AuthSplitLayout
+import com.gocavgo.twese.ui.common.FluidShapes
+import com.gocavgo.twese.ui.common.PublicPackageSkeleton
+import com.gocavgo.twese.ui.common.getPackageStatusInfo
 import com.gocavgo.twese.ui.theme.LocalDriversColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,6 +45,9 @@ import com.gocavgo.twese.ui.theme.LocalDriversColors
 fun RoleSelectionScreen(
     onTrackByCode: (String) -> Unit = {},
     trackError: String = "",
+    publicPackage: ClientPackage? = null,
+    isTrackingLoading: Boolean = false,
+    onClearPublicTracking: () -> Unit = {},
     authResult: AuthResult? = null,
     isAuthLoading: Boolean = false,
     onSignUp: (String, String, String, String?) -> Unit = { _, _, _, _ -> },
@@ -63,6 +75,17 @@ fun RoleSelectionScreen(
     var password     by remember { mutableStateOf("") }
     var fullName     by remember { mutableStateOf("") }
     var phone        by remember { mutableStateOf("") }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "publicTrackShimmer")
+    val shimmerAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "publicTrackAlpha"
+    )
 
     // React to signInPrefillEmail — switch to sign-in tab with email pre-filled
     LaunchedEffect(signInPrefillEmail) {
@@ -119,16 +142,27 @@ fun RoleSelectionScreen(
                                         }
                                         Spacer(Modifier.height(16.dp))
                                         OutlinedTextField(
-                                            value = trackingCode, onValueChange = { trackingCode = it },
+                                            value = trackingCode, onValueChange = {
+                                                trackingCode = it
+                                                if (publicPackage != null) onClearPublicTracking()
+                                            },
                                             modifier = Modifier.fillMaxWidth(),
                                             placeholder = { Text("Enter tracking number", color = colors.textSecondary, fontSize = 14.sp) },
                                             leadingIcon = { Icon(Icons.Filled.Tag, null, tint = colors.textSecondary, modifier = Modifier.size(18.dp)) },
                                             trailingIcon = {
-                                                if (trackingCode.isNotEmpty()) IconButton(onClick = { trackingCode = "" }, modifier = Modifier.size(20.dp)) {
+                                                if (trackingCode.isNotEmpty()) IconButton(onClick = {
+                                                    trackingCode = ""
+                                                    onClearPublicTracking()
+                                                }, modifier = Modifier.size(20.dp)) {
                                                     Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
                                                 }
                                             },
-                                            singleLine = true, shape = RoundedCornerShape(12.dp),
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                            keyboardActions = KeyboardActions(onSearch = {
+                                                if (trackingCode.isNotBlank()) onTrackByCode(trackingCode.trim())
+                                            }),
+                                            shape = RoundedCornerShape(12.dp),
                                             colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = colors.divider, focusedBorderColor = colors.purple, cursorColor = colors.purple)
                                         )
                                         Spacer(Modifier.height(14.dp))
@@ -136,19 +170,37 @@ fun RoleSelectionScreen(
                                             onClick = { if (trackingCode.isNotBlank()) onTrackByCode(trackingCode.trim()) },
                                             modifier = Modifier.fillMaxWidth().height(50.dp),
                                             shape = RoundedCornerShape(12.dp),
+                                            enabled = !isTrackingLoading,
                                             colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
                                         ) {
                                             Icon(Icons.Filled.Search, null, modifier = Modifier.size(20.dp))
                                             Spacer(Modifier.width(8.dp))
-                                            Text("Track", fontWeight = FontWeight.Bold)
+                                            Text(if (isTrackingLoading) "Searching..." else "Track", fontWeight = FontWeight.Bold)
                                         }
                                         if (trackError.isNotBlank()) {
-                                            Spacer(Modifier.height(8.dp))
+                                            Spacer(Modifier.height(10.dp))
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Icon(Icons.Filled.ErrorOutline, null, tint = colors.red, modifier = Modifier.size(16.dp))
                                                 Spacer(Modifier.width(6.dp))
                                                 Text(trackError, color = colors.red, fontSize = 12.sp)
                                             }
+                                        }
+                                        if (isTrackingLoading) {
+                                            Spacer(Modifier.height(14.dp))
+                                            PublicPackageSkeleton(alpha = shimmerAlpha)
+                                        } else if (publicPackage != null) {
+                                            Spacer(Modifier.height(14.dp))
+                                            PublicPackageMinimalCard(
+                                                pkg = publicPackage,
+                                                onLoginClick = {
+                                                    showAuth = true
+                                                    isSignUp = false
+                                                },
+                                                onDismiss = {
+                                                    trackingCode = ""
+                                                    onClearPublicTracking()
+                                                }
+                                            )
                                         }
                                     }
                                 }
@@ -454,5 +506,154 @@ private fun AuthPanel(
     }
     if (showForgotPassword) {
         ForgotPasswordDialog(onDismiss = onHideForgotPassword, onSendCode = onForgotPassword, onResetPassword = onResetPassword, step = forgotPasswordStep, isLoading = isAuthLoading)
+    }
+}
+
+// ── Minimal Public Package Card (for unauthenticated home tracking) ──────────
+
+@Composable
+fun PublicPackageMinimalCard(
+    pkg: ClientPackage,
+    onLoginClick: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalDriversColors.current
+    val statusInfo = getPackageStatusInfo(pkg.status)
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = colors.surface,
+        border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.35f)),
+        shadowElevation = 6.dp
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header with tracking code and close button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = colors.purple.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = "#${pkg.trackingCode.ifBlank { pkg.id }}",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        color = colors.purple,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Close",
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Package Name / Description
+            Text(
+                text = pkg.description.ifBlank { "Package #${pkg.trackingCode.ifBlank { pkg.id }}" },
+                color = colors.textPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            // Status Badge & Destination
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Status Pill
+                Surface(
+                    shape = FluidShapes.pill,
+                    color = statusInfo.color.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, statusInfo.color.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            statusInfo.icon,
+                            contentDescription = null,
+                            tint = statusInfo.color,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = statusInfo.title,
+                            color = statusInfo.color,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(10.dp))
+
+                // Destination
+                if (pkg.toAddress.isNotBlank()) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.Place,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = pkg.toAddress,
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // "Login to view more" Button
+            Button(
+                onClick = onLoginClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
+            ) {
+                Icon(
+                    Icons.Filled.LockOpen,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Log in to view more",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+        }
     }
 }

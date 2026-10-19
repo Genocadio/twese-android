@@ -65,6 +65,7 @@ import com.gocavgo.twese.ui.PipTripView
 import com.gocavgo.twese.ui.ProfileScreen
 import com.gocavgo.twese.ui.RoleSelectionScreen
 import com.gocavgo.twese.ui.TrackPackageScreen
+import com.gocavgo.twese.ui.common.HomeScreenSkeleton
 import com.gocavgo.twese.ui.common.InAppUpdateBanner
 import com.gocavgo.twese.ui.driver.AcceptTransferCodeDialog
 import com.gocavgo.twese.ui.driver.ConfirmTransferDialog
@@ -344,48 +345,39 @@ class MainActivity : ComponentActivity() {
 
                 when {
                     !state.isAuthInitialized -> {
-                        val c = LocalDriversColors.current
-                        Box(
-                            Modifier.fillMaxSize().background(c.background),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = c.green, strokeWidth = 3.dp)
-                        }
+                        HomeScreenSkeleton()
                     }
                     inPip && state.isPipEnabled -> PipTripView(viewModel = vm)
                     state.appRole == AppRole.NONE -> {
-                        val publicPkg = state.publicTrackingPackage
-                        if (publicPkg != null) {
-                            BackHandler { vm.closePublicTracking() }
-                            TrackPackageScreen(
-                                pkg = publicPkg,
-                                onBack = vm::closePublicTracking
-                            )
-                        } else {
-                            DoubleBackToExitHandler()
-                            RoleSelectionScreen(
-                                onTrackByCode = vm::publicTrackPackage,
-                                trackError = state.publicTrackingError,
-                                authResult = state.authResult,
-                                isAuthLoading = state.isAuthLoading,
-                                onSignUp = vm::signUp,
-                                onSignIn = vm::signIn,
-                                onClearAuthResult = vm::clearAuthResult,
-                                showOtpScreen = state.showOtpScreen,
-                                otpEmail = state.otpEmail,
-                                onVerifyOtp = vm::verifyOtp,
-                                onResendOtp = vm::resendOtp,
-                                onDismissOtp = vm::dismissOtpScreen,
-                                showForgotPassword = state.showForgotPassword,
-                                forgotPasswordStep = state.forgotPasswordStep,
-                                onForgotPassword = vm::sendPasswordResetCode,
-                                onResetPassword = vm::completePasswordReset,
-                                onShowForgotPassword = vm::showForgotPassword,
-                                onHideForgotPassword = vm::hideForgotPassword,
-                                signInPrefillEmail = state.signInPrefillEmail,
-                                onClearSignInPrefill = vm::clearSignInPrefill
-                            )
+                        DoubleBackToExitHandler()
+                        BackHandler(enabled = state.publicTrackingPackage != null) {
+                            vm.closePublicTracking()
                         }
+                        RoleSelectionScreen(
+                            onTrackByCode = vm::publicTrackPackage,
+                            trackError = state.publicTrackingError,
+                            publicPackage = state.publicTrackingPackage,
+                            isTrackingLoading = state.isPublicTrackingLoading,
+                            onClearPublicTracking = vm::closePublicTracking,
+                            authResult = state.authResult,
+                            isAuthLoading = state.isAuthLoading,
+                            onSignUp = vm::signUp,
+                            onSignIn = vm::signIn,
+                            onClearAuthResult = vm::clearAuthResult,
+                            showOtpScreen = state.showOtpScreen,
+                            otpEmail = state.otpEmail,
+                            onVerifyOtp = vm::verifyOtp,
+                            onResendOtp = vm::resendOtp,
+                            onDismissOtp = vm::dismissOtpScreen,
+                            showForgotPassword = state.showForgotPassword,
+                            forgotPasswordStep = state.forgotPasswordStep,
+                            onForgotPassword = vm::sendPasswordResetCode,
+                            onResetPassword = vm::completePasswordReset,
+                            onShowForgotPassword = vm::showForgotPassword,
+                            onHideForgotPassword = vm::hideForgotPassword,
+                            signInPrefillEmail = state.signInPrefillEmail,
+                            onClearSignInPrefill = vm::clearSignInPrefill
+                        )
                     }
                     state.appRole == AppRole.DRIVER -> {
                         if (state.showOtpScreen) {
@@ -415,16 +407,7 @@ class MainActivity : ComponentActivity() {
                                 onClearSignInPrefill = vm::clearSignInPrefill
                             )
                         } else if (!state.driverCompanyGateLoaded) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(LocalDriversColors.current.background),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    color = LocalDriversColors.current.blue
-                                )
-                            }
+                            HomeScreenSkeleton()
                         } else if (state.driverCompanyGate != DriverCompanyGate.APPROVED) {
                             BackHandler { }
                             DriverCompanyGateScreen(

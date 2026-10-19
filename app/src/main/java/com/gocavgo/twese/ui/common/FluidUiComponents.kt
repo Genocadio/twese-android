@@ -8,6 +8,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -468,4 +469,246 @@ fun FloatingHomeButton(
         }
     }
 }
+
+// ── Full-screen Home Skeleton UI (Replaces Circular Loading Spinners) ─────────
+
+@Composable
+fun HomeScreenSkeleton(
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalDriversColors.current
+    val infiniteTransition = rememberInfiniteTransition(label = "homeSkeletonShimmer")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "homeSkeletonAlpha"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(colors.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Header bar skeleton
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(colors.divider.copy(alpha = alpha))
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 120.dp, height = 16.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colors.divider.copy(alpha = alpha))
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(width = 75.dp, height = 11.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(colors.divider.copy(alpha = alpha * 0.7f))
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(colors.divider.copy(alpha = alpha))
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            // Hero / Active banner skeleton
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(130.dp),
+                shape = FluidShapes.card,
+                color = colors.surface.copy(alpha = alpha),
+                border = BorderStroke(1.dp, colors.divider.copy(alpha = alpha))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 90.dp, height = 14.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colors.textSecondary.copy(alpha = 0.2f))
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(width = 50.dp, height = 18.dp)
+                                .clip(FluidShapes.pill)
+                                .background(colors.purple.copy(alpha = 0.25f))
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.8f)
+                            .height(18.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colors.textSecondary.copy(alpha = 0.2f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.5f)
+                            .height(12.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colors.textSecondary.copy(alpha = 0.15f))
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            // Package / item card skeletons
+            repeat(3) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = FluidShapes.card,
+                    color = colors.surface.copy(alpha = alpha),
+                    border = BorderStroke(1.dp, colors.divider.copy(alpha = alpha))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(colors.divider.copy(alpha = alpha))
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.6f)
+                                    .height(14.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.textSecondary.copy(alpha = 0.2f))
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.4f)
+                                    .height(11.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.textSecondary.copy(alpha = 0.15f))
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(width = 60.dp, height = 22.dp)
+                                .clip(FluidShapes.pill)
+                                .background(colors.divider.copy(alpha = alpha))
+                        )
+                    }
+                }
+            }
+        }
+
+        // Bottom dock skeleton pill
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(0.85f)
+                .height(58.dp)
+                .clip(FluidShapes.dock)
+                .background(colors.surface.copy(alpha = alpha))
+                .border(1.dp, colors.divider.copy(alpha = alpha), FluidShapes.dock)
+        )
+    }
+}
+
+// ── Public Package Search Skeleton (for pre-login track loading) ──────────────
+
+@Composable
+fun PublicPackageSkeleton(
+    alpha: Float,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalDriversColors.current
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = colors.surfaceAlt.copy(alpha = alpha),
+        border = BorderStroke(1.dp, colors.divider.copy(alpha = alpha))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 110.dp, height = 15.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(colors.textSecondary.copy(alpha = 0.2f))
+                )
+                Spacer(Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .size(width = 70.dp, height = 22.dp)
+                        .clip(FluidShapes.pill)
+                        .background(colors.purple.copy(alpha = 0.25f))
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.7f)
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(colors.textSecondary.copy(alpha = 0.25f))
+            )
+            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.5f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(colors.textSecondary.copy(alpha = 0.15f))
+            )
+            Spacer(Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.purple.copy(alpha = 0.2f))
+            )
+        }
+    }
+}
+
 

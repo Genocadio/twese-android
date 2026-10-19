@@ -52,6 +52,9 @@ import androidx.compose.ui.graphics.Color
 fun RoleSelectionScreen(
     onTrackByCode: (String) -> Unit = {},
     trackError: String = "",
+    publicPackage: com.gocavgo.twese.data.ClientPackage? = null,
+    isTrackingLoading: Boolean = false,
+    onClearPublicTracking: () -> Unit = {},
     authResult: AuthResult? = null,
     isAuthLoading: Boolean = false,
     onSignUp: (String, String, String, String?) -> Unit = { _, _, _, _ -> },
@@ -70,7 +73,31 @@ fun RoleSelectionScreen(
     onHideForgotPassword: () -> Unit = {},
     signInPrefillEmail: String = "",
     onClearSignInPrefill: () -> Unit = {}
-) = RoleSelectionScreenImpl(onTrackByCode, trackError, authResult, isAuthLoading, onSignUp, onSignIn, onClearAuthResult, showOtpScreen, otpEmail, onVerifyOtp, onResendOtp, onDismissOtp, showForgotPassword, forgotPasswordStep, onForgotPassword, onResetPassword, onShowForgotPassword, onHideForgotPassword, signInPrefillEmail, onClearSignInPrefill)
+) = RoleSelectionScreenImpl(
+    onTrackByCode = onTrackByCode,
+    trackError = trackError,
+    publicPackage = publicPackage,
+    isTrackingLoading = isTrackingLoading,
+    onClearPublicTracking = onClearPublicTracking,
+    authResult = authResult,
+    isAuthLoading = isAuthLoading,
+    onSignUp = onSignUp,
+    onSignIn = onSignIn,
+    onClearAuthResult = onClearAuthResult,
+    showOtpScreen = showOtpScreen,
+    otpEmail = otpEmail,
+    onVerifyOtp = onVerifyOtp,
+    onResendOtp = onResendOtp,
+    onDismissOtp = onDismissOtp,
+    showForgotPassword = showForgotPassword,
+    forgotPasswordStep = forgotPasswordStep,
+    onForgotPassword = onForgotPassword,
+    onResetPassword = onResetPassword,
+    onShowForgotPassword = onShowForgotPassword,
+    onHideForgotPassword = onHideForgotPassword,
+    signInPrefillEmail = signInPrefillEmail,
+    onClearSignInPrefill = onClearSignInPrefill
+)
 
 @Composable
 fun ClientLoginScreen(
