@@ -31,6 +31,11 @@ import com.gocavgo.twese.util.PhoneValidation
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Velocity
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PackageDetailSheet(
@@ -43,14 +48,28 @@ fun PackageDetailSheet(
     isCancellingTransfer: Boolean = false,
     isPickingUp: Boolean = false
 ) {
-    val colors     = LocalDriversColors.current
+    val colors = LocalDriversColors.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isExpanded = sheetState.currentValue == SheetValue.Expanded
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+
+    // Intercept runaway upward fling velocity to prevent oscillation between AnchoredDraggable and verticalScroll
+    val nestedScrollConnection = remember(sheetState) {
+        object : NestedScrollConnection {
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                val isFlingingUp = available.y < 0
+                val targetExpanded = sheetState.targetValue == SheetValue.Expanded
+                return if (isFlingingUp && targetExpanded) available else Velocity.Zero
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState       = sheetState,
-        containerColor   = colors.surface,
-        shape            = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        sheetState = sheetState,
+        containerColor = colors.surface,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -68,17 +87,19 @@ fun PackageDetailSheet(
         }
     ) {
         val isWide = isWideScreen()
-    val padH = if (isWide) 24.dp else 20.dp
+        val padH = if (isWide) 24.dp else 20.dp
+        val scrollState = rememberScrollState()
 
-    val scrollState = rememberScrollState()
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = padH)
-            .navigationBarsPadding()
-            .padding(bottom = 24.dp)
-            .verticalScroll(scrollState)
-    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = screenHeight * 0.90f)
+                .nestedScroll(nestedScrollConnection)
+                .padding(horizontal = padH)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp)
+                .verticalScroll(scrollState, enabled = isExpanded)
+        ) {
         Spacer(Modifier.height(10.dp))
 
         // ── Header: ID + status ──
