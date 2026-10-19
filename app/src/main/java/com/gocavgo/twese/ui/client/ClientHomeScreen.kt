@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
 import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.ClientUser
 import com.gocavgo.twese.data.Notice
@@ -47,6 +48,7 @@ import com.gocavgo.twese.data.isActive
 import com.gocavgo.twese.data.sortedByUnreadNotices
 import com.gocavgo.twese.ui.common.AcrylicGlassSurface
 import com.gocavgo.twese.ui.common.CachedAvatarImage
+import com.gocavgo.twese.ui.common.FloatingHomeButton
 import com.gocavgo.twese.ui.common.FluidShapes
 import com.gocavgo.twese.ui.common.PackageStatusIconBadge
 import com.gocavgo.twese.ui.common.contentMaxWidth
@@ -60,17 +62,12 @@ import com.gocavgo.twese.viewmodel.AppThemeMode
 import com.gocavgo.twese.viewmodel.DataState
 import com.gocavgo.twese.viewmodel.DriverProfile
 
-// ── Dock Window Tab & Profile SubView Enums ───────────────────────────────────
+// ── Dock Window Tab Enum ──────────────────────────────────────────────────────
 
 enum class ClientDockTab {
     PROFILE,
     SEARCH,
     NOTIFICATIONS
-}
-
-enum class ClientProfileSubView {
-    MAIN,
-    COMPLETED_PACKAGES
 }
 
 // ── Passenger / Client Home Screen ───────────────────────────────────────────
@@ -119,13 +116,12 @@ fun ClientHomeScreen(
     val maxW = contentMaxWidth()
 
     var activeDockTab by remember { mutableStateOf<ClientDockTab?>(null) }
-    var profileSubView by remember { mutableStateOf(ClientProfileSubView.MAIN) }
+    var isCompletedPackagesPageOpen by rememberSaveable { mutableStateOf(false) }
 
     // Sync external menu triggers from MainActivity / ViewModel
     LaunchedEffect(isClientProfileMenuOpen, isClientSettingsOpen) {
         if (isClientProfileMenuOpen || isClientSettingsOpen) {
             activeDockTab = ClientDockTab.PROFILE
-            profileSubView = ClientProfileSubView.MAIN
         }
     }
 
@@ -176,7 +172,21 @@ fun ClientHomeScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
+    if (isCompletedPackagesPageOpen) {
+        PassengerCompletedPackagesScreen(
+            completedPackages = completedPackages,
+            client = client,
+            notices = notices,
+            onHomeClick = { isCompletedPackagesPageOpen = false },
+            onTrackPackage = onTrackPackage,
+            onCreateTransfer = onCreateTransfer,
+            onConfirmTransfer = onConfirmTransfer,
+            onRejectTransfer = onRejectTransfer,
+            onGeneratePickupCode = onGeneratePickupCode,
+            onConfirmDeliveryDirect = onConfirmDeliveryDirect
+        )
+    } else {
+        Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
 
         // ── 1. Single Page for Active Packages (Primary Screen Feed) ─────────
         PullToRefreshBox(
@@ -319,7 +329,6 @@ fun ClientHomeScreen(
                         interactionSource = remember { MutableInteractionSource() }
                     ) {
                         activeDockTab = null
-                        profileSubView = ClientProfileSubView.MAIN
                         onDismissMenus()
                     }
             )
@@ -372,58 +381,24 @@ fun ClientHomeScreen(
                     Box(modifier = Modifier.weight(1f)) {
                         when (activeDockTab) {
                             ClientDockTab.PROFILE -> {
-                                AnimatedContent(
-                                    targetState = profileSubView,
-                                    transitionSpec = {
-                                        if (targetState == ClientProfileSubView.COMPLETED_PACKAGES) {
-                                            (slideInHorizontally { it } + fadeIn()) togetherWith
-                                                    (slideOutHorizontally { -it } + fadeOut())
-                                        } else {
-                                            (slideInHorizontally { -it } + fadeIn()) togetherWith
-                                                    (slideOutHorizontally { it } + fadeOut())
-                                        }
+                                ClientProfileSheetContent(
+                                    client = client,
+                                    profile = profile,
+                                    themeMode = themeMode,
+                                    completedPackagesCount = completedPackages.size,
+                                    onOpenCompletedPackages = {
+                                        activeDockTab = null
+                                        isCompletedPackagesPageOpen = true
                                     },
-                                    label = "profileSubView"
-                                ) { subView ->
-                                    when (subView) {
-                                        ClientProfileSubView.MAIN -> {
-                                            ClientProfileSheetContent(
-                                                client = client,
-                                                profile = profile,
-                                                themeMode = themeMode,
-                                                completedPackagesCount = completedPackages.size,
-                                                onOpenCompletedPackages = {
-                                                    profileSubView = ClientProfileSubView.COMPLETED_PACKAGES
-                                                },
-                                                onThemeModeChange = onThemeModeChange,
-                                                onProfileClick = onProfileClick,
-                                                onRequestDriver = onRequestDriver,
-                                                driverRequestStatus = driverRequestStatus,
-                                                driverRequestCompanyCode = driverRequestCompanyCode,
-                                                driverRequestCompanyName = driverRequestCompanyName,
-                                                driverRequestRejectionReason = driverRequestRejectionReason,
-                                                onLogout = onLogout
-                                            )
-                                        }
-                                        ClientProfileSubView.COMPLETED_PACKAGES -> {
-                                            ClientCompletedPackagesSheetContent(
-                                                completedPackages = completedPackages,
-                                                client = client,
-                                                notices = notices,
-                                                onBack = { profileSubView = ClientProfileSubView.MAIN },
-                                                onTrackPackage = { pkgId ->
-                                                    activeDockTab = null
-                                                    onTrackPackage(pkgId)
-                                                },
-                                                onCreateTransfer = onCreateTransfer,
-                                                onConfirmTransfer = onConfirmTransfer,
-                                                onRejectTransfer = onRejectTransfer,
-                                                onGeneratePickupCode = onGeneratePickupCode,
-                                                onConfirmDeliveryDirect = onConfirmDeliveryDirect
-                                            )
-                                        }
-                                    }
-                                }
+                                    onThemeModeChange = onThemeModeChange,
+                                    onProfileClick = onProfileClick,
+                                    onRequestDriver = onRequestDriver,
+                                    driverRequestStatus = driverRequestStatus,
+                                    driverRequestCompanyCode = driverRequestCompanyCode,
+                                    driverRequestCompanyName = driverRequestCompanyName,
+                                    driverRequestRejectionReason = driverRequestRejectionReason,
+                                    onLogout = onLogout
+                                )
                             }
                             ClientDockTab.SEARCH -> {
                                 ClientSearchSheetContent(
@@ -519,13 +494,9 @@ fun ClientHomeScreen(
                 onTabClick = { tab ->
                     if (activeDockTab == tab) {
                         activeDockTab = null
-                        profileSubView = ClientProfileSubView.MAIN
                         onDismissMenus()
                     } else {
                         activeDockTab = tab
-                        if (tab == ClientDockTab.PROFILE) {
-                            profileSubView = ClientProfileSubView.MAIN
-                        }
                     }
                 },
                 profile = profile,
@@ -534,6 +505,7 @@ fun ClientHomeScreen(
             )
         }
     }
+}
 }
 
 // ── Passenger Floating Dock Component ─────────────────────────────────────────
@@ -1056,141 +1028,202 @@ private fun ClientProfileSheetContent(
     }
 }
 
-// ── Client Completed Packages Sheet Content ───────────────────────────────────
+// ── Passenger Completed Packages Screen (Full Page with Floating Home Button) ──
 
 @Composable
-private fun ClientCompletedPackagesSheetContent(
+fun PassengerCompletedPackagesScreen(
     completedPackages: List<ClientPackage>,
     client: ClientUser,
     notices: List<Notice>,
-    onBack: () -> Unit,
+    onHomeClick: () -> Unit,
     onTrackPackage: (String) -> Unit,
     onCreateTransfer: (String) -> Unit,
     onConfirmTransfer: (String, String) -> Unit,
     onRejectTransfer: (String, String) -> Unit,
     onGeneratePickupCode: (String) -> Unit,
-    onConfirmDeliveryDirect: (ClientPackage) -> Unit
+    onConfirmDeliveryDirect: (ClientPackage) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = LocalDriversColors.current
+    val wide = isWideScreen()
+    val maxW = contentMaxWidth()
     var searchQuery by remember { mutableStateOf("") }
+
+    BackHandler { onHomeClick() }
 
     val filteredList = remember(completedPackages, searchQuery) {
         if (searchQuery.isBlank()) completedPackages
         else completedPackages.filter {
             it.id.contains(searchQuery, ignoreCase = true) ||
                     it.description.contains(searchQuery, ignoreCase = true) ||
-                    it.recipientName.contains(searchQuery, ignoreCase = true)
+                    it.recipientName.contains(searchQuery, ignoreCase = true) ||
+                    it.fromAddress.contains(searchQuery, ignoreCase = true) ||
+                    it.toAddress.contains(searchQuery, ignoreCase = true)
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Top Header with Back Arrow
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier.size(34.dp)
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = colors.textPrimary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "Completed Packages",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = colors.textPrimary
-            )
-            Spacer(Modifier.width(6.dp))
-            Surface(
-                shape = CircleShape,
-                color = colors.purple.copy(alpha = 0.12f)
-            ) {
-                Text(
-                    "${completedPackages.size}",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.purple,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                )
-            }
-        }
-
-        // Search bar if there are multiple completed packages
-        if (completedPackages.size > 2) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                placeholder = { Text("Filter past packages...", color = colors.textSecondary, fontSize = 13.sp) },
-                leadingIcon = { Icon(Icons.Filled.Search, null, tint = colors.textSecondary, modifier = Modifier.size(18.dp)) },
-                trailingIcon = {
-                    if (searchQuery.isNotBlank()) {
-                        IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
-                            Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = FluidShapes.button,
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = colors.divider,
-                    focusedBorderColor = colors.purple,
-                    cursorColor = colors.purple
-                )
-            )
-        }
-
-        if (filteredList.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(vertical = 40.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        if (searchQuery.isNotBlank()) Icons.Filled.SearchOff else Icons.Filled.CheckCircle,
-                        null,
-                        tint = colors.textSecondary.copy(alpha = 0.6f),
-                        modifier = Modifier.size(44.dp)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        if (searchQuery.isNotBlank()) "No packages matching \"$searchQuery\""
-                        else "No completed packages yet",
-                        color = colors.textSecondary,
-                        fontSize = 13.sp
-                    )
-                }
-            }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(colors.background)
+    ) {
+        val contentMod = if (wide && maxW != Dp.Unspecified) {
+            Modifier.widthIn(max = maxW).fillMaxHeight().align(Alignment.TopCenter)
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
+            Modifier.fillMaxSize()
+        }
+
+        Column(
+            modifier = contentMod
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp)
+        ) {
+            // Top Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                items(items = filteredList, key = { it.id }) { pkg ->
-                    PackageCard(
-                        pkg = pkg,
-                        onClick = { onTrackPackage(pkg.id) },
-                        clientId = client.id,
-                        clientPhone = client.phone,
-                        onCreateTransfer = { onCreateTransfer(pkg.id) },
-                        onConfirmTransfer = { transferId -> onConfirmTransfer(pkg.id, transferId) },
-                        onRejectTransfer = { transferId -> onRejectTransfer(pkg.id, transferId) },
-                        onGeneratePickupCode = onGeneratePickupCode,
-                        onConfirmDeliveryDirect = onConfirmDeliveryDirect,
-                        notices = notices,
-                        modifier = Modifier.animateItem(tween(250))
+                IconButton(
+                    onClick = onHomeClick,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = colors.textPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Completed Packages",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textPrimary
+                )
+                Spacer(Modifier.width(8.dp))
+                Surface(
+                    shape = CircleShape,
+                    color = colors.purple.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        "${completedPackages.size}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.purple,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                     )
                 }
             }
+
+            // Search bar if there are multiple completed packages
+            if (completedPackages.size > 2) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    placeholder = { Text("Filter past packages...", color = colors.textSecondary, fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Filled.Search, null, tint = colors.purple, modifier = Modifier.size(18.dp)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
+                                Icon(Icons.Filled.Close, null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = FluidShapes.button,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = colors.divider,
+                        focusedBorderColor = colors.purple,
+                        cursorColor = colors.purple
+                    )
+                )
+            }
+
+            if (filteredList.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(bottom = 60.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(72.dp),
+                            shape = CircleShape,
+                            color = colors.purple.copy(alpha = 0.10f),
+                            border = BorderStroke(1.dp, colors.purple.copy(alpha = 0.25f))
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    if (searchQuery.isNotBlank()) Icons.Filled.SearchOff else Icons.Filled.CheckCircle,
+                                    null,
+                                    tint = colors.purple,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            if (searchQuery.isNotBlank()) "No packages matching \"$searchQuery\""
+                            else "No completed packages yet",
+                            color = colors.textPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (searchQuery.isNotBlank()) "Try searching with a different term."
+                            else "Delivered packages will appear here.",
+                            color = colors.textSecondary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 100.dp)
+                ) {
+                    items(items = filteredList, key = { it.id }) { pkg ->
+                        PackageCard(
+                            pkg = pkg,
+                            onClick = { onTrackPackage(pkg.id) },
+                            clientId = client.id,
+                            clientPhone = client.phone,
+                            onCreateTransfer = { onCreateTransfer(pkg.id) },
+                            onConfirmTransfer = { transferId -> onConfirmTransfer(pkg.id, transferId) },
+                            onRejectTransfer = { transferId -> onRejectTransfer(pkg.id, transferId) },
+                            onGeneratePickupCode = onGeneratePickupCode,
+                            onConfirmDeliveryDirect = onConfirmDeliveryDirect,
+                            notices = notices,
+                            modifier = Modifier.animateItem(tween(250))
+                        )
+                    }
+                }
+            }
         }
+
+        // Floating Home Button (Floating at bottom center)
+        FloatingHomeButton(
+            onClick = onHomeClick,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 20.dp)
+        )
     }
 }
 

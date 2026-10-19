@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -425,3 +426,46 @@ fun SwipeToActionButton(
         }
     }
 }
+
+/**
+ * Modern floating Home pill button with icon and label, used on sub-pages (e.g. Completed Packages, Trip History)
+ * to quickly navigate back to the primary Home feed.
+ */
+@Composable
+fun FloatingHomeButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String = "Home"
+) {
+    val colors = LocalDriversColors.current
+
+    Surface(
+        modifier = modifier
+            .fluidBounceClick(scaleDown = 0.92f) { onClick() },
+        shape = FluidShapes.pill,
+        color = colors.purple,
+        shadowElevation = 10.dp,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                Icons.Filled.Home,
+                contentDescription = label,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                label,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+

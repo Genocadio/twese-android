@@ -33,6 +33,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -112,6 +113,7 @@ fun DriverHomeScreen(
     var activeDockTab by remember { mutableStateOf<DockWindowTab?>(null) }
     var isWindowPinned by remember { mutableStateOf(false) }
     var showAddChoiceDialog by remember { mutableStateOf(false) }
+    var isTripHistoryOpen by rememberSaveable { mutableStateOf(false) }
 
     val activeTrip = state.activeDriverTrip
     val hasActiveTrip = state.hasActiveTrip || activeTrip != null
@@ -176,7 +178,13 @@ fun DriverHomeScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
+    if (isTripHistoryOpen) {
+        DriverTripHistoryScreen(
+            trips = completedTrips,
+            onHomeClick = { isTripHistoryOpen = false }
+        )
+    } else {
+        Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
 
         // ── 1. Primary Feed: DriverPackagesTab (Full screen active packages with infinite scroll) ──
         Box(
@@ -334,7 +342,11 @@ fun DriverHomeScreen(
                                     onThemeModeChange = onThemeModeChange,
                                     onPipEnabledChange = onPipEnabledChange,
                                     onKeepScreenAwakeChange = onKeepScreenAwakeChange,
-                                    onCompletedTripsClick = onCompletedTripsClick,
+                                    onCompletedTripsClick = {
+                                        isTripHistoryOpen = true
+                                        activeDockTab = null
+                                        onCompletedTripsClick()
+                                    },
                                     onLogout = onLogout
                                 )
                             }
@@ -505,6 +517,7 @@ fun DriverHomeScreen(
             )
         }
     }
+}
 }
 
 // ── Grassy Floating Dock Component ──────────────────────────────────────────
