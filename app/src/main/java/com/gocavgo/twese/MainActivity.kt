@@ -803,11 +803,17 @@ class MainActivity : ComponentActivity() {
     private fun handlePipToggle(enabled: Boolean) {
         if (enabled && !Settings.canDrawOverlays(this)) {
             pendingPipEnable = true
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
-            overlayPermissionLauncher.launch(intent)
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                overlayPermissionLauncher.launch(intent)
+            } catch (e: Exception) {
+                Log.w(TAG, "Overlay permission intent not supported on this device, enabling PiP directly", e)
+                pendingPipEnable = false
+                tripViewModel?.setPipEnabled(true)
+            }
         } else {
             tripViewModel?.setPipEnabled(enabled)
         }

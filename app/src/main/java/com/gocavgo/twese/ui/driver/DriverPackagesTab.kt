@@ -1,5 +1,6 @@
 package com.gocavgo.twese.ui.driver
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -76,6 +77,10 @@ fun DriverPackagesTab(
     val isSelection = state.isSelectionMode
     val selectedIds = state.selectedPackageIds
 
+    BackHandler(enabled = isSelection) {
+        viewModel.exitSelectionMode()
+    }
+
     val incomingPackageUuids = remember(state.driverIncomingTransfers) {
         state.driverIncomingTransfers.flatMap { it.packages.map { pkg -> pkg.packageUuid } }.toSet()
     }
@@ -91,7 +96,7 @@ fun DriverPackagesTab(
         val inProgress = list.filter { it.status != PackageStatus.DELIVERED && it.status != PackageStatus.CANCELLED && it.status != PackageStatus.PENDING_CONFIRMATION && !it.hasOpenTransfer }
         val pendingAction = list.filter { it.status == PackageStatus.PENDING_CONFIRMATION || it.hasOpenTransfer }
         val done = list.filter { it.status == PackageStatus.DELIVERED || it.status == PackageStatus.CANCELLED }
-        inProgress.sortedByUnreadNotices(state.notices) + pendingAction + done
+        (inProgress.sortedByUnreadNotices(state.notices) + pendingAction + done).distinctBy { it.id }
     }
 
     val screenWidthDp = LocalConfiguration.current.screenWidthDp

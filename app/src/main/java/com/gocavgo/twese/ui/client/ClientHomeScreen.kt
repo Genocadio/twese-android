@@ -133,12 +133,17 @@ fun ClientHomeScreen(
         }
     }
 
+    BackHandler(enabled = activeDockTab != null && !isCompletedPackagesPageOpen) {
+        activeDockTab = null
+        onDismissMenus()
+    }
+
     // Single source of active vs completed packages
     val activePackages = remember(packages, notices) {
-        packages.filter { it.isActive() }.sortedByUnreadNotices(notices)
+        packages.filter { it.isActive() }.sortedByUnreadNotices(notices).distinctBy { it.id }
     }
     val completedPackages = remember(packages) {
-        packages.filter { !it.isActive() }
+        packages.filter { !it.isActive() }.distinctBy { it.id }
     }
 
     // Auto-open create package panel ONLY when backend confirms zero active packages
@@ -1272,7 +1277,7 @@ private fun ClientSearchSheetContent(
                     it.recipientName.contains(query, ignoreCase = true) ||
                     it.fromAddress.contains(query, ignoreCase = true) ||
                     it.toAddress.contains(query, ignoreCase = true)
-        }
+        }.distinctBy { it.id }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1395,12 +1400,15 @@ private fun ClientNotificationsSheetContent(
             }
         }
     } else {
+        val uniqueNotices = remember(notices) {
+            notices.distinctBy { it.viewerNoticeId.ifBlank { it.id } }
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(bottom = 12.dp)
         ) {
-            items(notices, key = { it.id }) { notice ->
+            items(uniqueNotices, key = { it.viewerNoticeId.ifBlank { it.id } }) { notice ->
                 val isUnread = notice.viewerReadAt == null
                 Surface(
                     modifier = Modifier

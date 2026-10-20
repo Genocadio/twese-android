@@ -333,12 +333,14 @@ object AuthRepository {
             val response = ApolloClientProvider.client
                 .query(MyProfileQuery())
                 .execute()
-            if (response.errors != null && response.errors!!.isNotEmpty()) {
-                val errors = response.errors!!.joinToString("; ") { it.message ?: "unknown" }
+            val gqlErrors = response.errors
+            val gqlData = response.data
+            if (!gqlErrors.isNullOrEmpty()) {
+                val errors = gqlErrors.joinToString("; ") { it.message ?: "unknown" }
                 Log.e(TAG, "fetchProfile: GraphQL errors — $errors")
                 SyncResult.Error(errors)
-            } else if (response.data != null) {
-                val gqlUser = response.data!!.myProfile ?: run {
+            } else if (gqlData != null) {
+                val gqlUser = gqlData.myProfile ?: run {
                     Log.e(TAG, "fetchProfile: myProfile is null in response data")
                     return SyncResult.Error("GraphQL query returned no user data")
                 }

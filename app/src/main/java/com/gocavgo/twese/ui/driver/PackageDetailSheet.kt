@@ -1,5 +1,11 @@
 package com.gocavgo.twese.ui.driver
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -391,6 +397,113 @@ private fun DetailTimeRow(label: String, iso: String, icon: ImageVector, iconTin
             Text(label, color = colors.textSecondary, fontSize = 12.sp)
             SmartTimeText(iso.ifBlank { "N/A" },
                 color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PackageDetailLoadingSheet(
+    onDismiss: () -> Unit
+) {
+    val colors = LocalDriversColors.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val infiniteTransition = rememberInfiniteTransition(label = "driverDetailSkeleton")
+    val shimmerAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.28f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "driverDetailShimmerAlpha"
+    )
+    val placeholderColor = colors.textSecondary.copy(alpha = shimmerAlpha * 0.35f)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.surface,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(colors.divider)
+                )
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 28.dp)
+        ) {
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .width(130.dp)
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(placeholderColor)
+                )
+                Spacer(Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .width(88.dp)
+                        .height(26.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(placeholderColor)
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            repeat(3) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = colors.surfaceAlt,
+                    border = BorderStroke(1.dp, colors.divider),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .width(100.dp)
+                                .height(12.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(placeholderColor)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.8f)
+                                .height(15.dp)
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(placeholderColor)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.55f)
+                                .height(13.dp)
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(placeholderColor)
+                        )
+                    }
+                }
+            }
         }
     }
 }

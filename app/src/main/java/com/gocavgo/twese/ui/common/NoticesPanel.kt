@@ -126,12 +126,13 @@ fun NoticesPanel(
                             }
                         }
                     } else {
+                        val uniqueNotices = notices.distinctBy { it.viewerNoticeId.ifBlank { it.id } }
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 380.dp)
                         ) {
-                            items(notices, key = { it.id }) { notice ->
+                            items(uniqueNotices, key = { it.viewerNoticeId.ifBlank { it.id } }) { notice ->
                                 NoticeItem(
                                     notice = notice,
                                     onClick = { onNoticeClick(notice) },

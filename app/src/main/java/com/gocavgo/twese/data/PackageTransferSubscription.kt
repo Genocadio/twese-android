@@ -201,8 +201,9 @@ object PackageTransferSubscription {
                         backoffMs = INITIAL_BACKOFF_MS
 
                         if (!started) return@collect
-                        if (response.errors != null && response.errors!!.isNotEmpty()) {
-                            Log.e(TAG, "subscription errors: ${response.errors!!.joinToString { it.message }}")
+                        val gqlErrors = response.errors
+                        if (!gqlErrors.isNullOrEmpty()) {
+                            Log.e(TAG, "subscription errors: ${gqlErrors.joinToString { it.message }}")
                             return@collect
                         }
                         val gql = response.data?.newPackageTransfer ?: return@collect

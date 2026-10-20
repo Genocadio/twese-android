@@ -155,8 +155,9 @@ object NoticeRepository {
                         backoffMs = INITIAL_BACKOFF_MS
 
                         if (!started) return@collect
-                        if (response.errors != null && response.errors!!.isNotEmpty()) {
-                            Log.e(TAG, "subscription: ${response.errors!!.joinToString { it.message ?: "" }}")
+                        val gqlErrors = response.errors
+                        if (!gqlErrors.isNullOrEmpty()) {
+                            Log.e(TAG, "subscription: ${gqlErrors.joinToString { it.message ?: "" }}")
                             return@collect
                         }
                         val gql = response.data?.noticeCreated ?: return@collect
@@ -320,8 +321,9 @@ object NoticeRepository {
             val response = ApolloClientProvider.client
                 .query(MyNoticesQuery())
                 .execute()
-            if (response.errors != null && response.errors!!.isNotEmpty()) {
-                Log.e(TAG, "fetchNotices: ${response.errors!!.joinToString { it.message ?: "" }}")
+            val gqlErrors = response.errors
+            if (!gqlErrors.isNullOrEmpty()) {
+                Log.e(TAG, "fetchNotices: ${gqlErrors.joinToString { it.message ?: "" }}")
                 return
             }
             val items = response.data?.myNotices?.filterNotNull() ?: emptyList()
@@ -407,8 +409,9 @@ object NoticeRepository {
             val response = ApolloClientProvider.client
                 .mutation(MarkNoticeReadMutation(viewerId = viewerId))
                 .execute()
-            if (response.errors != null && response.errors!!.isNotEmpty()) {
-                Log.e(TAG, "markRead: GraphQL errors — ${response.errors!!.joinToString { it.message ?: "" }}")
+            val gqlErrors = response.errors
+            if (!gqlErrors.isNullOrEmpty()) {
+                Log.e(TAG, "markRead: GraphQL errors — ${gqlErrors.joinToString { it.message ?: "" }}")
                 return
             }
             val readAt = response.data?.markNoticeRead?.readAt

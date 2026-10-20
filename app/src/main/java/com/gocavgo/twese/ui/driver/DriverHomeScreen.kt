@@ -1,5 +1,6 @@
 package com.gocavgo.twese.ui.driver
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -146,7 +147,13 @@ fun DriverHomeScreen(
         visibleOffers.filter { it.packageUuid !in incomingPackageUuids }.forEach { pkg ->
             list.add(IncomingPackageItem.Offer(pkg, pkg.transferId ?: "", pkg.transferRuleType ?: "AUTO"))
         }
-        list
+        list.distinctBy {
+            when (it) {
+                is IncomingPackageItem.Assigned -> "assigned-${it.pkg.id}"
+                is IncomingPackageItem.Transfer -> "transfer-${it.transferId}-${it.pkg.id}"
+                is IncomingPackageItem.Offer -> "offer-${it.transferId}-${it.pkg.id}"
+            }
+        }
     }
 
     val unreadNoticeCount = remember(state.notices) {
@@ -171,10 +178,21 @@ fun DriverHomeScreen(
             viewModel.dismissNewPackageToast()
         }
     }
+    LaunchedEffect(state.isPackageDetailSheetOpen) {
+        if (state.isPackageDetailSheetOpen) {
+            isTripHistoryOpen = false
+        }
+    }
     LaunchedEffect(activeDockTab) {
         if (activeDockTab != DockWindowTab.TRIP && activeDockTab != DockWindowTab.NEW_PACKAGES) {
             isWindowPinned = false
         }
+    }
+
+    BackHandler(enabled = activeDockTab != null && !isTripHistoryOpen) {
+        isWindowPinned = false
+        activeDockTab = null
+        onDismissMenus()
     }
 
     if (isTripHistoryOpen) {
@@ -461,26 +479,32 @@ fun DriverHomeScreen(
             )
         }
 
-        if (state.isPackageDetailSheetOpen && selectedPkg != null) {
-            PackageDetailSheet(
-                pkg = selectedPkg,
-                onDismiss = { viewModel.closePackageDetail() },
-                onDeliver = {
-                    val id = selectedPkg.id
-                    viewModel.closePackageDetail()
-                    viewModel.openDeliverDialog(id)
-                },
-                onTransfer = {
-                    val id = selectedPkg.id
-                    viewModel.closePackageDetail()
-                    viewModel.openTransferDialog(id)
-                },
-                onPickup = { viewModel.pickupPackage(selectedPkg.id) },
-                onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
-                isCancellingTransfer = state.isCancellingTransfer,
-                isPickingUp = state.pickingUpPackageId == selectedPkg.id,
-                isDelivering = state.deliveringPackageId == selectedPkg.id || (state.isInitiatingDelivery && state.selectedDriverPackageId == selectedPkg.id)
-            )
+        if (state.isPackageDetailSheetOpen) {
+            if (selectedPkg != null) {
+                PackageDetailSheet(
+                    pkg = selectedPkg,
+                    onDismiss = { viewModel.closePackageDetail() },
+                    onDeliver = {
+                        val id = selectedPkg.id
+                        viewModel.closePackageDetail()
+                        viewModel.openDeliverDialog(id)
+                    },
+                    onTransfer = {
+                        val id = selectedPkg.id
+                        viewModel.closePackageDetail()
+                        viewModel.openTransferDialog(id)
+                    },
+                    onPickup = { viewModel.pickupPackage(selectedPkg.id) },
+                    onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
+                    isCancellingTransfer = state.isCancellingTransfer,
+                    isPickingUp = state.pickingUpPackageId == selectedPkg.id,
+                    isDelivering = state.deliveringPackageId == selectedPkg.id || (state.isInitiatingDelivery && state.selectedDriverPackageId == selectedPkg.id)
+                )
+            } else {
+                PackageDetailLoadingSheet(
+                    onDismiss = { viewModel.closePackageDetail() }
+                )
+            }
         }
 
         if (state.showBatchTransferDialog) {
@@ -1510,11 +1534,14 @@ private fun NotificationsSheetContent(
             }
         }
     } else {
+        val uniqueNotices = remember(notices) {
+            notices.distinctBy { it.viewerNoticeId.ifBlank { it.id } }
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(notices, key = { it.id }) { notice ->
+            items(uniqueNotices, key = { it.viewerNoticeId.ifBlank { it.id } }) { notice ->
                 val isUnread = notice.viewerReadAt == null
                 Surface(
                     modifier = Modifier
@@ -2013,7 +2040,7 @@ private fun SearchSheetContent(
                 pkg.fromAddress.contains(query, ignoreCase = true) ||
                 pkg.description.contains(query, ignoreCase = true) ||
                 pkg.recipientPhone.contains(query, ignoreCase = true)
-            }
+            }.distinctBy { it.id }
         }
     }
 
