@@ -315,10 +315,9 @@ fun FloatingCreatePanel(
                                 ) {
                                     if (isLastStep) {
                                         if (isSubmitting) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(14.dp),
-                                                strokeWidth = 2.dp,
-                                                color = Color.White
+                                            FluidDotLoader(
+                                                color = Color.White,
+                                                dotSize = 3.dp
                                             )
                                         } else {
                                             Icon(

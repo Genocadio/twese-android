@@ -40,6 +40,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.Notice
 import com.gocavgo.twese.data.PackageStatus
+import com.gocavgo.twese.ui.common.FluidDotLoader
 import com.gocavgo.twese.ui.common.FluidShapes
 import com.gocavgo.twese.ui.common.PackageStatusIconBadge
 import com.gocavgo.twese.ui.common.StatusIconTooltipBadge
@@ -426,6 +427,7 @@ fun DriverCurrentPackageCard(
     onCancelTransfer: ((String, String) -> Unit)? = null,
     isCancellingTransfer: Boolean = false,
     isPickingUp: Boolean = false,
+    isDelivering: Boolean = false,
     notices: List<Notice> = emptyList()
 ) {
     val colors = LocalDriversColors.current
@@ -479,8 +481,8 @@ fun DriverCurrentPackageCard(
                     needsPickup -> {
                         val pickupSource = remember { MutableInteractionSource() }
                         Button(
-                            onClick = { if (!isPickingUp) onPickup() },
-                            enabled = !isPickingUp,
+                            onClick = { if (!isPickingUp && !isDelivering) onPickup() },
+                            enabled = !isPickingUp && !isDelivering,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(44.dp)
@@ -488,17 +490,14 @@ fun DriverCurrentPackageCard(
                             shape = FluidShapes.button,
                             interactionSource = pickupSource,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.purple
+                                containerColor = colors.purple,
+                                disabledContainerColor = colors.purple.copy(alpha = 0.6f)
                             )
                         ) {
                             if (isPickingUp) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
-                                )
+                                FluidDotLoader(color = Color.White)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Picking up...", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Picking up...", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             } else {
                                 Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
@@ -515,7 +514,8 @@ fun DriverCurrentPackageCard(
                         ) {
                             val deliverSource = remember { MutableInteractionSource() }
                             Button(
-                                onClick = onDeliver,
+                                onClick = { if (!isDelivering && !isPickingUp) onDeliver() },
+                                enabled = !isDelivering && !isPickingUp,
                                 modifier = Modifier
                                     .weight(1.3f)
                                     .height(44.dp)
@@ -523,27 +523,41 @@ fun DriverCurrentPackageCard(
                                 shape = FluidShapes.button,
                                 interactionSource = deliverSource,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = colors.purple
+                                    containerColor = colors.purple,
+                                    disabledContainerColor = colors.purple.copy(alpha = 0.6f)
                                 )
                             ) {
-                                Icon(
-                                    if (isPendingConfirmation) Icons.Filled.Lock else Icons.Filled.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    if (isPendingConfirmation) "Enter Code" else "Deliver",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1
-                                )
+                                if (isDelivering) {
+                                    FluidDotLoader(color = Color.White)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "Delivering...",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        color = Color.White
+                                    )
+                                } else {
+                                    Icon(
+                                        if (isPendingConfirmation) Icons.Filled.Lock else Icons.Filled.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        if (isPendingConfirmation) "Enter Code" else "Deliver",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
                             }
 
                             if (!isPendingConfirmation) {
                                 val transferSource = remember { MutableInteractionSource() }
                                 OutlinedButton(
-                                    onClick = onTransfer,
+                                    onClick = { if (!isDelivering && !isPickingUp) onTransfer() },
+                                    enabled = !isDelivering && !isPickingUp,
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(44.dp)
@@ -639,10 +653,10 @@ fun DriverCurrentPackageCard(
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     if (isCancellingTransfer) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
+                                        FluidDotLoader(
+                                            modifier = Modifier.size(24.dp),
                                             color = colors.red,
-                                            strokeWidth = 2.dp
+                                            dotSize = 3.dp
                                         )
                                     } else {
                                         Icon(
@@ -774,21 +788,17 @@ fun DriverIncomingPackageCard(
 
                 val acceptSource = remember { MutableInteractionSource() }
                 Surface(
-                    onClick = { if (isEnabled) onAccept() },
+                    onClick = { if (isEnabled && !isAccepting) onAccept() },
                     shape = CircleShape,
-                    color = if (isEnabled) colors.purple else colors.divider,
+                    color = if (isEnabled && !isAccepting) colors.purple else colors.divider,
                     modifier = Modifier
                         .size(42.dp)
                         .fluidBounceClick(interactionSource = acceptSource),
-                    shadowElevation = if (isEnabled) 3.dp else 0.dp
+                    shadowElevation = if (isEnabled && !isAccepting) 3.dp else 0.dp
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (isAccepting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
+                            FluidDotLoader(color = Color.White, dotSize = 4.dp, spacing = 3.dp)
                         } else {
                             Icon(
                                 actionIcon,

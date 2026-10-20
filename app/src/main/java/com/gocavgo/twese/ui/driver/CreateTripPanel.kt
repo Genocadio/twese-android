@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.gocavgo.twese.network.BackendStorage
+import com.gocavgo.twese.ui.common.FluidDotLoader
 import com.gocavgo.twese.ui.theme.LocalDriversColors
 import com.gocavgo.twese.viewmodel.LocationSearchResult
 import java.text.SimpleDateFormat
@@ -218,7 +219,7 @@ fun CreateTripPanel(
                                         modifier = Modifier.padding(vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                        FluidDotLoader(color = colors.purple, dotSize = 4.dp)
                                         Spacer(Modifier.width(8.dp))
                                         Text("Searching routes…", color = colors.textSecondary, fontSize = 12.sp)
                                     }
@@ -346,7 +347,7 @@ fun CreateTripPanel(
                                     )
                                 ) {
                                     if (isCreating) {
-                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                                        FluidDotLoader(color = Color.White)
                                         Spacer(Modifier.width(8.dp))
                                         Text("Creating trip…", fontWeight = FontWeight.Bold)
                                     } else {
@@ -474,7 +475,7 @@ private fun TripLocationField(
             shape = RoundedCornerShape(12.dp),
             trailingIcon = {
                 if (isSearching) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    FluidDotLoader(modifier = Modifier.padding(end = 8.dp), color = colors.purple, dotSize = 3.dp)
                 } else if (value.isNotBlank()) {
                     Icon(
                         Icons.Filled.Close,
@@ -501,7 +502,7 @@ private fun TripLocationField(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                            FluidDotLoader(color = colors.purple, dotSize = 3.5.dp)
                             Spacer(Modifier.width(8.dp))
                             Text("Searching…", color = colors.textSecondary, fontSize = 13.sp)
                         }

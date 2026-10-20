@@ -1415,7 +1415,9 @@ class TripViewModel : ViewModel() {
     }
 
     fun openDeliverDialog(packageId: String) {
-        val pkg = _state.value.driverCurrentPackages.find { it.id == packageId } ?: return
+        val s = _state.value
+        if (s.isInitiatingDelivery || s.deliveringPackageId != null) return
+        val pkg = s.driverCurrentPackages.find { it.id == packageId } ?: return
         if (pkg.status == PackageStatus.PENDING_CONFIRMATION) {
             // Delivery already initiated — just open the code entry dialog
             _state.update { it.copy(isDeliverDialogOpen = true, selectedDriverPackageId = packageId, deliverCodeInput = "", deliverCodeError = "") }
@@ -1425,41 +1427,45 @@ class TripViewModel : ViewModel() {
             viewModelScope.launch { _toastEvent.emit("Missing package UUID — cannot initiate delivery") }
             return
         }
-        // Driver initiates delivery — no code required. The sender/receiver
-        // receives the PACKAGE_DELIVERY_INITIATED notice with the delivery code
-        // and confirms in-app (or shares the code with the driver).
+        // Set state synchronously on UI thread before launching coroutine to lock out double/triple clicks
+        _state.update { it.copy(isInitiatingDelivery = true, deliveringPackageId = packageId) }
         viewModelScope.launch {
-            _state.update { it.copy(isInitiatingDelivery = true) }
-            val result = PackageRepository.initiateDelivery(pkg.packageUuid)
-            if (result != null) {
-                _state.update { s ->
-                    s.copy(
-                        isInitiatingDelivery = false,
-                        isDeliverDialogOpen = true,
-                        selectedDriverPackageId = packageId,
-                        deliverCodeInput = "",
-                        deliverCodeError = "",
-                        driverCurrentPackages = s.driverCurrentPackages.map {
-                            if (it.id == packageId) it.copy(
-                                status = PackageStatus.PENDING_CONFIRMATION,
-                                statusHistory = it.statusHistory + StatusUpdate(
-                                    PackageStatus.PENDING_CONFIRMATION, "Just now", it.toAddress,
-                                    "Delivery initiated — awaiting confirmation"
-                                )
-                            ) else it
-                        }
-                    )
+            try {
+                val result = PackageRepository.initiateDelivery(pkg.packageUuid)
+                if (result != null) {
+                    _state.update { s2 ->
+                        s2.copy(
+                            isInitiatingDelivery = false,
+                            deliveringPackageId = null,
+                            isDeliverDialogOpen = true,
+                            selectedDriverPackageId = packageId,
+                            deliverCodeInput = "",
+                            deliverCodeError = "",
+                            driverCurrentPackages = s2.driverCurrentPackages.map {
+                                if (it.id == packageId) it.copy(
+                                    status = PackageStatus.PENDING_CONFIRMATION,
+                                    statusHistory = it.statusHistory + StatusUpdate(
+                                        PackageStatus.PENDING_CONFIRMATION, "Just now", it.toAddress,
+                                        "Delivery initiated — awaiting confirmation"
+                                    )
+                                ) else it
+                            }
+                        )
+                    }
+                    _toastEvent.emit("Delivery initiated. Ask the recipient to confirm in their app, or enter the code they share with you.")
+                } else {
+                    _state.update { it.copy(isInitiatingDelivery = false, deliveringPackageId = null) }
+                    _toastEvent.emit("Failed to initiate delivery — please try again")
                 }
-                _toastEvent.emit("Delivery initiated. Ask the recipient to confirm in their app, or enter the code they share with you.")
-            } else {
-                _state.update { it.copy(isInitiatingDelivery = false) }
-                _toastEvent.emit("Failed to initiate delivery")
+            } catch (e: Exception) {
+                _state.update { it.copy(isInitiatingDelivery = false, deliveringPackageId = null) }
+                _toastEvent.emit("Error initiating delivery: ${e.message ?: "network error"}")
             }
         }
     }
 
     fun closeDeliverDialog() {
-        _state.update { it.copy(isDeliverDialogOpen = false, selectedDriverPackageId = null, deliverCodeInput = "", deliverCodeError = "") }
+        _state.update { it.copy(isDeliverDialogOpen = false, selectedDriverPackageId = null, deliverCodeInput = "", deliverCodeError = "", isConfirmingDelivery = false) }
     }
 
     fun updateDeliverCode(code: String) {
@@ -1483,31 +1489,36 @@ class TripViewModel : ViewModel() {
             _state.update { it.copy(deliverCodeError = "Missing package UUID") }
             return false
         }
+        // Set synchronously to lock out double/triple clicks immediately
+        _state.update { it.copy(isConfirmingDelivery = true, deliverCodeError = "") }
         viewModelScope.launch {
-            _state.update { it.copy(isConfirmingDelivery = true, deliverCodeError = "") }
-            val updated = PackageRepository.confirmDelivery(pkg.packageUuid, code)
-            if (updated != null) {
-                _state.update { s2 ->
-                    s2.copy(
-                        isConfirmingDelivery = false,
-                        isDeliverDialogOpen = false,
-                        selectedDriverPackageId = null,
-                        deliverCodeInput = "",
-                        deliverCodeError = "",
-                        driverCurrentPackages = s2.driverCurrentPackages.map {
-                            if (it.id == pkg.id) it.copy(
-                                status = PackageStatus.DELIVERED,
-                                receivedAt = "Just now",
-                                statusHistory = it.statusHistory + StatusUpdate(
-                                    PackageStatus.DELIVERED, "Just now", it.toAddress, "Delivered successfully"
-                                )
-                            ) else it
-                        }
-                    )
+            try {
+                val updated = PackageRepository.confirmDelivery(pkg.packageUuid, code)
+                if (updated != null) {
+                    _state.update { s2 ->
+                        s2.copy(
+                            isConfirmingDelivery = false,
+                            isDeliverDialogOpen = false,
+                            selectedDriverPackageId = null,
+                            deliverCodeInput = "",
+                            deliverCodeError = "",
+                            driverCurrentPackages = s2.driverCurrentPackages.map {
+                                if (it.id == pkg.id) it.copy(
+                                    status = PackageStatus.DELIVERED,
+                                    receivedAt = "Just now",
+                                    statusHistory = it.statusHistory + StatusUpdate(
+                                        PackageStatus.DELIVERED, "Just now", it.toAddress, "Delivered successfully"
+                                    )
+                                ) else it
+                            }
+                        )
+                    }
+                    _toastEvent.emit("Package delivered")
+                } else {
+                    _state.update { it.copy(isConfirmingDelivery = false, deliverCodeError = "Invalid or expired confirmation code") }
                 }
-                _toastEvent.emit("Package delivered")
-            } else {
-                _state.update { it.copy(isConfirmingDelivery = false, deliverCodeError = "Invalid or expired confirmation code") }
+            } catch (e: Exception) {
+                _state.update { it.copy(isConfirmingDelivery = false, deliverCodeError = e.message ?: "Delivery confirmation failed") }
             }
         }
         return true
@@ -1541,8 +1552,9 @@ class TripViewModel : ViewModel() {
             viewModelScope.launch { _toastEvent.emit("Missing package UUID") }
             return
         }
+        // Set synchronously to prevent double click
+        _state.update { it.copy(pickingUpPackageId = packageId) }
         viewModelScope.launch {
-            _state.update { it.copy(pickingUpPackageId = packageId) }
             try {
                 val result = PackageRepository.updatePackageStatus(pkg.packageUuid, "IN_TRANSIT", "Driver picked up package")
                 if (result != null) {
@@ -2745,8 +2757,8 @@ class TripViewModel : ViewModel() {
             return
         }
         val tripId = s.activeDriverTrip?.id?.toString()
+        _state.update { it.copy(isAcceptingTransfer = true, acceptTransferPackageId = packageId) }
         viewModelScope.launch {
-            _state.update { it.copy(isAcceptingTransfer = true, acceptTransferPackageId = packageId) }
             try {
                 val result = PackageRepository.acceptPackageByTransfer(transferId, tripId = tripId)
                 if (result.success) {
@@ -3646,8 +3658,8 @@ class TripViewModel : ViewModel() {
         val s = _state.value
         if (s.isAcceptingTransfer) return
         val tripId = s.activeDriverTrip?.id?.toString()
+        _state.update { it.copy(isAcceptingTransfer = true, acceptTransferPackageId = packageId) }
         viewModelScope.launch {
-            _state.update { it.copy(isAcceptingTransfer = true, acceptTransferPackageId = packageId) }
             try {
                 val result = PackageRepository.acceptPackageByTransfer(transferId, transferCode, tripId = tripId)
                 if (result.success) {
@@ -4007,8 +4019,8 @@ class TripViewModel : ViewModel() {
 
     fun cancelTransferOffer(packageId: String, transferId: String) {
         if (_state.value.isCancellingTransfer) return
+        _state.update { it.copy(isCancellingTransfer = true) }
         viewModelScope.launch {
-            _state.update { it.copy(isCancellingTransfer = true) }
             val result = PackageRepository.cancelTransfer(transferId)
             if (result != null) {
                 _state.update { s2 ->
@@ -4137,10 +4149,9 @@ class TripViewModel : ViewModel() {
         val packageId = s.acceptTransferPackageId ?: return
         val ruleType = s.acceptTransferRuleType ?: "AUTO"
         val tripId = s.activeDriverTrip?.id?.toString()
+        _state.update { it.copy(isAcceptingTransfer = true) }
 
         viewModelScope.launch {
-            _state.update { it.copy(isAcceptingTransfer = true) }
-
             val code = if (ruleType == "SECURE") {
                 val input = s.acceptTransferCodeInput.trim()
                 if (input.isBlank()) {

@@ -188,6 +188,7 @@ fun DriverPackagesTab(
                                 },
                                 onPickup = { viewModel.pickupPackage(pkg.id) },
                                 isPickingUp = state.pickingUpPackageId == pkg.id,
+                                isDelivering = state.deliveringPackageId == pkg.id || (state.isInitiatingDelivery && state.selectedDriverPackageId == pkg.id),
                                 notices = state.notices
                             )
                         }
@@ -234,6 +235,7 @@ fun DriverPackagesTab(
                                 },
                                 onPickup = { viewModel.pickupPackage(pkg.id) },
                                 isPickingUp = state.pickingUpPackageId == pkg.id,
+                                isDelivering = state.deliveringPackageId == pkg.id || (state.isInitiatingDelivery && state.selectedDriverPackageId == pkg.id),
                                 notices = state.notices
                             )
                         }

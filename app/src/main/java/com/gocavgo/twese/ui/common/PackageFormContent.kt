@@ -1065,10 +1065,9 @@ private fun SummaryStep(
                                             modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
-                                                strokeWidth = 2.dp,
-                                                color = colors.blue
+                                            FluidDotLoader(
+                                                color = Color.White,
+                                                dotSize = 3.dp
                                             )
                                         }
                                     }
@@ -1448,7 +1447,7 @@ private fun LocationSearchField(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                                FluidDotLoader(color = colors.blue, dotSize = 3.5.dp)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Searching…", color = colors.textSecondary, fontSize = 13.sp)
                             }

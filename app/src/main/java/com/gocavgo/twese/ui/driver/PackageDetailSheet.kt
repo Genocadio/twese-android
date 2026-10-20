@@ -22,6 +22,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.gocavgo.twese.data.ClientPackage
 import com.gocavgo.twese.data.PackageStatus
 import com.gocavgo.twese.data.hasOpenTransfer
+import com.gocavgo.twese.ui.common.FluidDotLoader
 import com.gocavgo.twese.ui.common.FullScreenMediaViewer
 import com.gocavgo.twese.ui.common.MediaCarousel
 import com.gocavgo.twese.ui.common.SmartTimeText
@@ -46,7 +47,8 @@ fun PackageDetailSheet(
     onPickup: (() -> Unit)? = null,
     onCancelTransfer: ((String, String) -> Unit)? = null,
     isCancellingTransfer: Boolean = false,
-    isPickingUp: Boolean = false
+    isPickingUp: Boolean = false,
+    isDelivering: Boolean = false
 ) {
     val colors = LocalDriversColors.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -243,16 +245,19 @@ fun PackageDetailSheet(
             when {
                 needsPickup && onPickup != null -> {
                     Button(
-                        onClick = { if (!isPickingUp) onPickup() },
-                        enabled = !isPickingUp,
+                        onClick = { if (!isPickingUp && !isDelivering) onPickup() },
+                        enabled = !isPickingUp && !isDelivering,
                         modifier = Modifier.fillMaxWidth().height(44.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.purple,
+                            disabledContainerColor = colors.purple.copy(alpha = 0.6f)
+                        )
                     ) {
                         if (isPickingUp) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                            FluidDotLoader(color = Color.White)
                             Spacer(Modifier.width(8.dp))
-                            Text("Picking up...", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Picking up...", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         } else {
                             Icon(Icons.Filled.LocalShipping, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
@@ -280,14 +285,14 @@ fun PackageDetailSheet(
                             if (pkg.transferId != null && onCancelTransfer != null) {
                                 Spacer(Modifier.height(8.dp))
                                 OutlinedButton(
-                                    onClick = { onCancelTransfer(pkg.id, pkg.transferId) },
+                                    onClick = { if (!isCancellingTransfer) onCancelTransfer(pkg.id, pkg.transferId) },
                                     enabled = !isCancellingTransfer,
                                     modifier = Modifier.fillMaxWidth().height(38.dp),
                                     shape = RoundedCornerShape(10.dp),
                                     border = BorderStroke(1.dp, colors.red.copy(alpha = 0.5f))
                                 ) {
                                     if (isCancellingTransfer) {
-                                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = colors.red, strokeWidth = 2.dp)
+                                        FluidDotLoader(color = colors.red)
                                         Spacer(Modifier.width(6.dp))
                                         Text("Cancelling...", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.red)
                                     } else {
@@ -307,29 +312,43 @@ fun PackageDetailSheet(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(
-                            onClick = onDeliver,
+                            onClick = { if (!isDelivering && !isPickingUp) onDeliver() },
+                            enabled = !isDelivering && !isPickingUp,
                             modifier = Modifier.weight(1.3f).height(44.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.purple
+                                containerColor = colors.purple,
+                                disabledContainerColor = colors.purple.copy(alpha = 0.6f)
                             )
                         ) {
-                            Icon(
-                                if (isPendingConfirmation) Icons.Filled.Lock else Icons.Filled.Check,
-                                null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                if (isPendingConfirmation) "Enter Code" else "Deliver",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            if (isDelivering) {
+                                FluidDotLoader(color = Color.White)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "Delivering...",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            } else {
+                                Icon(
+                                    if (isPendingConfirmation) Icons.Filled.Lock else Icons.Filled.Check,
+                                    null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    if (isPendingConfirmation) "Enter Code" else "Deliver",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
 
                         if (!isPendingConfirmation && onTransfer != null) {
                             OutlinedButton(
-                                onClick = onTransfer,
+                                onClick = { if (!isDelivering && !isPickingUp) onTransfer() },
+                                enabled = !isDelivering && !isPickingUp,
                                 modifier = Modifier.weight(1f).height(44.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, colors.divider)

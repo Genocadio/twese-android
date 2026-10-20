@@ -116,7 +116,11 @@ fun DeliverConfirmationDialog(
                 enabled = !isConfirming && codeInput.isNotBlank()
             ) {
                 if (isConfirming) {
-                    FluidDotLoader(color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FluidDotLoader(color = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Confirming...", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 } else {
                     Text("Confirm", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
@@ -179,7 +183,11 @@ fun TransferToOfficeDialog(
                 enabled = !isCreating
             ) {
                 if (isCreating) {
-                    FluidDotLoader(color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FluidDotLoader(color = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Transferring...", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                    }
                 } else {
                     Text("Transfer", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
                 }
@@ -354,7 +362,11 @@ fun TransferCreationDialog(
                 enabled = selectedRuleType != null && !isCreating
             ) {
                 if (isCreating) {
-                    FluidDotLoader(color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FluidDotLoader(color = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Creating...", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 } else {
                     Text("Create", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
@@ -412,7 +424,11 @@ fun ConfirmTransferDialog(
                 enabled = !isConfirming
             ) {
                 if (isConfirming) {
-                    FluidDotLoader(color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FluidDotLoader(color = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Confirming...", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 } else {
                     Icon(Icons.Filled.Check, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
@@ -468,7 +484,11 @@ fun RejectTransferDialog(
                 enabled = !isRejecting
             ) {
                 if (isRejecting) {
-                    FluidDotLoader(color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FluidDotLoader(color = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Rejecting...", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 } else {
                     Icon(Icons.Filled.Close, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
@@ -597,7 +617,11 @@ fun RequestTransferDialog(
                 enabled = !isRequesting
             ) {
                 if (isRequesting) {
-                    FluidDotLoader(color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FluidDotLoader(color = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Sending...", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 } else {
                     Icon(Icons.Filled.Send, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))
@@ -691,7 +715,11 @@ fun BatchTransferDialog(
                 enabled = selectedRuleType != null && !isCreating
             ) {
                 if (isCreating) {
-                    FluidDotLoader(color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FluidDotLoader(color = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Creating...", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 } else {
                     Text("Create Transfer", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
@@ -773,7 +801,11 @@ fun AcceptTransferCodeDialog(
                 enabled = !isAccepting && (!requiresCode || codeInput.isNotBlank())
             ) {
                 if (isAccepting) {
-                    FluidDotLoader(color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FluidDotLoader(color = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Accepting...", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 } else {
                     Icon(Icons.Filled.AddTask, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(5.dp))

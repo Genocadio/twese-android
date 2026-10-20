@@ -150,10 +150,9 @@ fun MediaCarousel(mediaUrls: List<String>, modifier: Modifier = Modifier, onMaxi
                                 contentScale = ContentScale.Fit,
                                 loading = {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(
+                                        FluidDotLoader(
                                             color = colors.purple,
-                                            modifier = Modifier.size(32.dp),
-                                            strokeWidth = 2.dp
+                                            dotSize = 5.dp
                                         )
                                     }
                                 },
@@ -263,10 +262,9 @@ fun FullScreenMediaViewer(
                             contentScale = ContentScale.Fit,
                             loading = {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(
+                                    FluidDotLoader(
                                         color = Color(0xFF90CAF9),
-                                        modifier = Modifier.size(40.dp),
-                                        strokeWidth = 2.5.dp
+                                        dotSize = 5.dp
                                     )
                                 }
                             },
@@ -455,10 +453,9 @@ private fun VideoPlayer(uri: String, useController: Boolean, shutterColorHex: Co
         )
 
         if (isBuffering && playbackError == null) {
-            CircularProgressIndicator(
+            FluidDotLoader(
                 color = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier.size(36.dp),
-                strokeWidth = 2.5.dp
+                dotSize = 5.dp
             )
         }
 

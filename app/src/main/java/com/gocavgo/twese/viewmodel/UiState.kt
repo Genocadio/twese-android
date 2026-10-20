@@ -350,6 +350,7 @@ data class TripUiState(
     val pickingUpPackageId: String? = null,
     // Delivery confirmation (PENDING_CONFIRMATION flow)
     val isInitiatingDelivery: Boolean = false,
+    val deliveringPackageId: String? = null,
     val showDeliveryConfirmationDialog: Boolean = false,
     val deliveryConfirmationPackageUuid: String? = null,
     val deliveryConfirmationCode: String = "",

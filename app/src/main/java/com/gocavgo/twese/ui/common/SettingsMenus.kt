@@ -367,10 +367,9 @@ fun RequestDriverDialog(
                 shape = RoundedCornerShape(10.dp)
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
+                    FluidDotLoader(
                         color = androidx.compose.ui.graphics.Color.White,
-                        strokeWidth = 2.dp
+                        dotSize = 3.dp
                     )
                 } else {
                     Text("Submit")

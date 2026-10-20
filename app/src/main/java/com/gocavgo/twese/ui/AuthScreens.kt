@@ -128,10 +128,9 @@ fun LoginScreen(
                     enabled = !isAuthLoading && email.isNotBlank() && password.isNotBlank()
                 ) {
                     if (isAuthLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
+                        FluidDotLoader(
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            dotSize = 4.dp
                         )
                     } else {
                         Text("Log in", fontWeight = FontWeight.Bold)
@@ -411,12 +410,11 @@ fun ProfileScreen(
                 contentAlignment = Alignment.Center
             ) {
                 if (state.isUploadingProfileImage) {
-                    // Show uploading spinner overlay
+                    // Show uploading overlay
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(40.dp),
-                            strokeWidth = 3.dp,
-                            color = colors.purple
+                        FluidDotLoader(
+                            color = colors.purple,
+                            dotSize = 4.dp
                         )
                     }
                 } else if (state.selectedProfileImage != null) {
@@ -531,7 +529,7 @@ fun ProfileScreen(
                             )
                         ) {
                             if (state.isUpdatingProfile) {
-                                CircularProgressIndicator(modifier = Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                                FluidDotLoader(color = MaterialTheme.colorScheme.onPrimary, dotSize = 4.dp)
                             } else {
                                 Icon(Icons.Filled.CheckCircle, null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
@@ -598,7 +596,7 @@ fun ProfileScreen(
                     enabled = currentPassword.isNotBlank() && password.length >= 6 && !state.isUpdatingProfile
                 ) {
                     if (state.isUpdatingProfile) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.textSecondary)
+                        FluidDotLoader(dotSize = 3.5.dp, color = colors.textSecondary)
                     } else {
                         Text("Update Password", fontWeight = FontWeight.Bold)
                     }

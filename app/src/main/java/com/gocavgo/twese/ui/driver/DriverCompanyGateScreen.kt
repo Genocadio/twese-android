@@ -21,7 +21,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import com.gocavgo.twese.ui.common.FluidDotLoader
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -217,10 +217,9 @@ private fun RequestCompanyForm(
         colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
     ) {
         if (isSubmitting) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
+            FluidDotLoader(
                 color = Color.White,
-                strokeWidth = 2.dp
+                dotSize = 4.dp
             )
         } else {
             Text("Request Access", fontWeight = FontWeight.Bold)
@@ -257,10 +256,9 @@ private fun PendingApprovalContent(
     )
     Spacer(Modifier.height(10.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(14.dp),
+        FluidDotLoader(
             color = colors.amber,
-            strokeWidth = 2.dp
+            dotSize = 3.5.dp
         )
         Spacer(Modifier.width(8.dp))
         Text(

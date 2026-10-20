@@ -112,7 +112,6 @@ fun DriverHomeScreen(
 
     var activeDockTab by remember { mutableStateOf<DockWindowTab?>(null) }
     var isWindowPinned by remember { mutableStateOf(false) }
-    var showAddChoiceDialog by remember { mutableStateOf(false) }
     var isTripHistoryOpen by rememberSaveable { mutableStateOf(false) }
 
     val activeTrip = state.activeDriverTrip
@@ -387,7 +386,7 @@ fun DriverHomeScreen(
                             if (hasActiveTrip) {
                                 onCreatePackage()
                             } else {
-                                showAddChoiceDialog = true
+                                viewModel.openDriverCreateTrip()
                             }
                         },
                     shape = CircleShape,
@@ -395,12 +394,21 @@ fun DriverHomeScreen(
                     shadowElevation = 8.dp
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.Add,
-                            contentDescription = "Add Package or Trip",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                        )
+                        AnimatedContent(
+                            targetState = hasActiveTrip,
+                            transitionSpec = {
+                                (fadeIn(tween(200)) + scaleIn(tween(200), initialScale = 0.8f))
+                                    .togetherWith(fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.8f))
+                            },
+                            label = "driverFabIcon"
+                        ) { active ->
+                            Icon(
+                                imageVector = if (active) Icons.Filled.Inventory2 else Icons.Filled.DirectionsCar,
+                                contentDescription = if (active) "New Package" else "Start Trip",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -423,37 +431,6 @@ fun DriverHomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-            )
-        }
-
-        // ── 5. Add Choice Dialog (Package vs Trip when no active trip) ────────
-        if (showAddChoiceDialog) {
-            AlertDialog(
-                onDismissRequest = { showAddChoiceDialog = false },
-                title = { Text("Create", fontWeight = FontWeight.Bold, color = colors.textPrimary) },
-                text = { Text("What would you like to create?", color = colors.textSecondary) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showAddChoiceDialog = false
-                            onCreatePackage()
-                        }
-                    ) {
-                        Text("New Package", fontWeight = FontWeight.Bold, color = colors.purple)
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showAddChoiceDialog = false
-                            viewModel.openDriverCreateTrip()
-                        }
-                    ) {
-                        Text("Start Trip", fontWeight = FontWeight.Bold, color = colors.purple)
-                    }
-                },
-                shape = FluidShapes.card,
-                containerColor = colors.surface
             )
         }
 
@@ -502,7 +479,8 @@ fun DriverHomeScreen(
                 onPickup = { viewModel.pickupPackage(selectedPkg.id) },
                 onCancelTransfer = { pkgId, tId -> viewModel.cancelTransferOffer(pkgId, tId) },
                 isCancellingTransfer = state.isCancellingTransfer,
-                isPickingUp = state.pickingUpPackageId == selectedPkg.id
+                isPickingUp = state.pickingUpPackageId == selectedPkg.id,
+                isDelivering = state.deliveringPackageId == selectedPkg.id || (state.isInitiatingDelivery && state.selectedDriverPackageId == selectedPkg.id)
             )
         }
 
