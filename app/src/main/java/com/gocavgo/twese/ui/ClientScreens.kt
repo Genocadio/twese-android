@@ -40,6 +40,7 @@ import com.gocavgo.twese.ui.common.formatTime
 import com.gocavgo.twese.ui.client.ClientHomeScreen as ClientHomeScreenImpl
 import com.gocavgo.twese.ui.client.CreatePackageScreen as CreatePackageScreenImpl
 import com.gocavgo.twese.ui.client.TrackPackageScreen as TrackPackageScreenImpl
+import com.gocavgo.twese.ui.client.TrackPackageLoadingSkeleton as TrackPackageLoadingSkeletonImpl
 import com.gocavgo.twese.ui.client.RoleSelectionScreen as RoleSelectionScreenImpl
 import com.gocavgo.twese.ui.client.ClientLoginScreen as ClientLoginScreenImpl
 import com.gocavgo.twese.ui.client.OtpVerificationScreen as OtpVerificationScreenImpl
@@ -156,6 +157,7 @@ fun ClientHomeScreen(
     clientDataState: com.gocavgo.twese.viewmodel.DataState = com.gocavgo.twese.viewmodel.DataState.UNKNOWN,
     onConfirmDeliveryDirect: (ClientPackage) -> Unit = {},
     onNoticesClick: () -> Unit = {},
+    onNoticeClick: ((com.gocavgo.twese.data.Notice) -> Unit)? = null,
     noticeCount: Int = 0,
     notices: List<com.gocavgo.twese.data.Notice> = emptyList(),
     onRequestDriver: (() -> Unit)? = null,
@@ -163,7 +165,7 @@ fun ClientHomeScreen(
     driverRequestCompanyCode: String? = null,
     driverRequestCompanyName: String? = null,
     driverRequestRejectionReason: String? = null
-) = ClientHomeScreenImpl(client, packages, themeMode, isClientProfileMenuOpen, isClientSettingsOpen, onCreatePackage, onTrackPackage, onLogout, onProfileMenuClick, onSettingsClick, onProfileClick, onThemeModeChange, isRefreshing, isInitialLoading, onRefresh, isLoadingMore, onLoadMore, onCloseSettings, onDismissMenus, onCreateTransfer, onConfirmTransfer, onRejectTransfer, onGeneratePickupCode, hasUnsavedDraft, packagesFetchedOnce, clientDataState, onConfirmDeliveryDirect = onConfirmDeliveryDirect, onNoticesClick = onNoticesClick, noticeCount = noticeCount, notices = notices, onRequestDriver = onRequestDriver, driverRequestStatus = driverRequestStatus, driverRequestCompanyCode = driverRequestCompanyCode, driverRequestCompanyName = driverRequestCompanyName, driverRequestRejectionReason = driverRequestRejectionReason)
+) = ClientHomeScreenImpl(client, packages, themeMode, isClientProfileMenuOpen, isClientSettingsOpen, onCreatePackage, onTrackPackage, onLogout, onProfileMenuClick, onSettingsClick, onProfileClick, onThemeModeChange, isRefreshing, isInitialLoading, onRefresh, isLoadingMore, onLoadMore, onCloseSettings, onDismissMenus, onCreateTransfer, onConfirmTransfer, onRejectTransfer, onGeneratePickupCode, hasUnsavedDraft, packagesFetchedOnce, clientDataState, onConfirmDeliveryDirect = onConfirmDeliveryDirect, onNoticesClick = onNoticesClick, onNoticeClick = onNoticeClick, noticeCount = noticeCount, notices = notices, onRequestDriver = onRequestDriver, driverRequestStatus = driverRequestStatus, driverRequestCompanyCode = driverRequestCompanyCode, driverRequestCompanyName = driverRequestCompanyName, driverRequestRejectionReason = driverRequestRejectionReason)
 
 @Composable
 fun CreatePackageScreen(
@@ -198,6 +200,12 @@ fun TrackPackageScreen(
     onConfirmDelivery: (String, String) -> Unit = { _, _ -> },
     pendingDeliveryCode: String = ""
 ) = TrackPackageScreenImpl(pkg, onBack, currentUserId, onCreateTransfer, onConfirmTransfer, onRejectTransfer, onGeneratePickupCode, onConfirmDelivery, pendingDeliveryCode)
+
+@Composable
+fun TrackPackageLoadingSkeleton(
+    onBack: () -> Unit,
+    packageIdHint: String = ""
+) = TrackPackageLoadingSkeletonImpl(onBack, packageIdHint)
 
 @Composable
 fun ProfileQuickMenu(

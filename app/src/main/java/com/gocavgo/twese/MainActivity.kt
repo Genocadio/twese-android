@@ -63,6 +63,7 @@ import com.gocavgo.twese.ui.OtpVerificationScreen
 import com.gocavgo.twese.ui.PipTripView
 import com.gocavgo.twese.ui.ProfileScreen
 import com.gocavgo.twese.ui.RoleSelectionScreen
+import com.gocavgo.twese.ui.TrackPackageLoadingSkeleton
 import com.gocavgo.twese.ui.TrackPackageScreen
 import com.gocavgo.twese.ui.common.HomeScreenSkeleton
 import com.gocavgo.twese.ui.common.InAppUpdateBanner
@@ -525,6 +526,11 @@ class MainActivity : ComponentActivity() {
                                             onConfirmDelivery = vm::confirmDeliveryFromCode,
                                             pendingDeliveryCode = if (state.deliveryConfirmationPackageUuid == selectedPkg.packageUuid) state.deliveryConfirmationCode else ""
                                         )
+                                    } else {
+                                        TrackPackageLoadingSkeleton(
+                                            onBack = vm::closeTrackPackage,
+                                            packageIdHint = state.clientSelectedPackageId.orEmpty()
+                                        )
                                     }
                                 }
                                 "profile" -> ProfileScreen(
@@ -604,6 +610,7 @@ class MainActivity : ComponentActivity() {
                                         clientDataState = state.clientDataState,
                                         onConfirmDeliveryDirect = vm::openDeliveryConfirmationForPackage,
                                         onNoticesClick = vm::toggleNotices,
+                                        onNoticeClick = vm::openNoticeFromNotification,
                                         noticeCount = state.noticeCount,
                                         notices = state.notices,
                                         onRequestDriver = vm::openRequestDriverDialog,

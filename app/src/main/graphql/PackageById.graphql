@@ -52,6 +52,11 @@ query PackageById($id: ID!) {
       timestamp
       notes
     }
+    transfers {
+      id
+      ruleType
+      status
+    }
     createdAt
     updatedAt
   }

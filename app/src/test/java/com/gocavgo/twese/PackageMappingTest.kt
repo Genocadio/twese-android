@@ -81,6 +81,7 @@ class PackageMappingTest {
                 PackageByIdQuery.Event("e2", "DELIVERED", "user-2", "Delivered", "2026-01-02T00:00:00Z")
             ),
             custody = emptyList(),
+            transfers = emptyList(),
             createdAt = "2026-01-01T00:00:00Z",
             updatedAt = "2026-01-02T00:00:00Z"
         )
@@ -128,6 +129,7 @@ class PackageMappingTest {
             details = null,
             events = emptyList(),
             custody = emptyList(),
+            transfers = emptyList(),
             createdAt = "2026-01-01T00:00:00Z",
             updatedAt = "2026-01-01T00:00:00Z"
         )

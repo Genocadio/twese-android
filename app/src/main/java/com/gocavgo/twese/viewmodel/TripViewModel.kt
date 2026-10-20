@@ -1644,9 +1644,16 @@ class TripViewModel : ViewModel() {
     fun getSelectedDriverPackage(): ClientPackage? {
         val s = _state.value
         val id = s.selectedDriverPackageId ?: return null
-        return s.driverCurrentPackages.find { it.id == id || it.packageUuid == id }
-            ?: s.driverAvailableOffers.find { it.id == id || it.packageUuid == id }
-            ?: s.driverIncomingTransfers.flatMap { it.packages }.find { it.id == id || it.packageUuid == id }
+        val match: (ClientPackage) -> Boolean = {
+            it.id.equals(id, ignoreCase = true) ||
+                it.packageUuid == id ||
+                it.trackingCode.equals(id, ignoreCase = true) ||
+                it.transferId == id ||
+                it.transfers.any { t -> t.id == id }
+        }
+        return s.driverCurrentPackages.find(match)
+            ?: s.driverAvailableOffers.find(match)
+            ?: s.driverIncomingTransfers.flatMap { it.packages }.find(match)
     }
 
     // ── Client Methods ────────────────────────────────────────────────────────
@@ -2286,7 +2293,98 @@ class TripViewModel : ViewModel() {
 
     fun getSelectedPackage(): ClientPackage? {
         val id = _state.value.clientSelectedPackageId ?: return null
-        return _state.value.clientPackages.find { it.id == id || it.packageUuid == id }
+        return _state.value.clientPackages.find {
+            it.id.equals(id, ignoreCase = true) ||
+                it.packageUuid == id ||
+                it.trackingCode.equals(id, ignoreCase = true) ||
+                it.transferId == id ||
+                it.transfers.any { t -> t.id == id }
+        }
+    }
+
+    private fun mergePackagePreservingLocalFields(existing: ClientPackage?, fresh: ClientPackage): ClientPackage {
+        if (existing == null) return fresh
+        val keepDeliveryCode = fresh.deliveryCode.isBlank() &&
+            existing.deliveryCode.isNotBlank() &&
+            fresh.status != PackageStatus.DELIVERED &&
+            fresh.status != PackageStatus.CANCELLED
+        return if (keepDeliveryCode) {
+            fresh.copy(deliveryCode = existing.deliveryCode)
+        } else {
+            fresh
+        }
+    }
+
+    private fun mergeClientPackagesWithPage(
+        existing: List<ClientPackage>,
+        pageItems: List<ClientPackage>,
+        selectedId: String?
+    ): List<ClientPackage> {
+        val mergedPage = pageItems.map { pageItem ->
+            val match = existing.find {
+                it.id.equals(pageItem.id, ignoreCase = true) ||
+                    (pageItem.packageUuid.isNotBlank() && it.packageUuid == pageItem.packageUuid)
+            }
+            mergePackagePreservingLocalFields(match, pageItem)
+        }
+        val extraFromExisting = existing.filter { old ->
+            val inPage = mergedPage.any {
+                it.id.equals(old.id, ignoreCase = true) ||
+                    (old.packageUuid.isNotBlank() && it.packageUuid == old.packageUuid)
+            }
+            if (inPage) return@filter false
+            val isSelected = selectedId != null && (
+                old.id.equals(selectedId, ignoreCase = true) ||
+                    old.packageUuid == selectedId ||
+                    old.transferId == selectedId ||
+                    old.transfers.any { t -> t.id == selectedId }
+            )
+            val referencedByNotice = _state.value.notices.any { n ->
+                n.resourceId == old.packageUuid ||
+                    n.resourceId.equals(old.id, ignoreCase = true) ||
+                    n.resourceId == old.transferId ||
+                    old.transfers.any { t -> t.id == n.resourceId }
+            }
+            isSelected || referencedByNotice
+        }
+        return mergedPage + extraFromExisting
+    }
+
+    private suspend fun fetchSinglePackageResilient(
+        uuidCandidate: String,
+        trackingCodeCandidate: String = ""
+    ): SingleResult<ClientPackage> {
+        val cleanUuid = uuidCandidate.trim()
+        val cleanCode = trackingCodeCandidate.trim()
+        val looksLikeCode = cleanUuid.startsWith("CAV-", ignoreCase = true) ||
+            cleanUuid.startsWith("PKG-", ignoreCase = true) ||
+            cleanUuid.startsWith("TW-", ignoreCase = true)
+
+        if (cleanUuid.isNotBlank() && !looksLikeCode) {
+            when (val byId = PackageRepository.fetchPackageById(cleanUuid)) {
+                is SingleResult.Success -> return byId
+                else -> {
+                    if (cleanCode.isNotBlank()) {
+                        val byCode = PackageRepository.trackByCode(cleanCode)
+                        if (byCode is SingleResult.Success) return byCode
+                    }
+                    return byId
+                }
+            }
+        }
+        val codeToTry = cleanCode.ifBlank { cleanUuid }
+        if (codeToTry.isNotBlank()) {
+            when (val byCode = PackageRepository.trackByCode(codeToTry)) {
+                is SingleResult.Success -> return byCode
+                else -> {
+                    if (cleanUuid.isNotBlank() && cleanUuid != codeToTry) {
+                        return PackageRepository.fetchPackageById(cleanUuid)
+                    }
+                    return byCode
+                }
+            }
+        }
+        return SingleResult.NotFound("Package not found")
     }
 
     /**
@@ -2296,13 +2394,37 @@ class TripViewModel : ViewModel() {
         if (!AuthRepository.isNetworkAvailable()) return
         viewModelScope.launch {
             try {
-                val currentPkg = _state.value.clientPackages.find { it.id == packageIdOrUuid || it.packageUuid == packageIdOrUuid }
-                    ?: _state.value.driverCurrentPackages.find { it.id == packageIdOrUuid || it.packageUuid == packageIdOrUuid }
+                val matchFn: (ClientPackage) -> Boolean = {
+                    it.id.equals(packageIdOrUuid, ignoreCase = true) ||
+                        it.packageUuid == packageIdOrUuid ||
+                        it.trackingCode.equals(packageIdOrUuid, ignoreCase = true) ||
+                        it.transferId == packageIdOrUuid ||
+                        it.transfers.any { t -> t.id == packageIdOrUuid }
+                }
+                val currentPkg = _state.value.clientPackages.find(matchFn)
+                    ?: _state.value.driverCurrentPackages.find(matchFn)
                 val targetUuid = currentPkg?.packageUuid?.ifBlank { packageIdOrUuid } ?: packageIdOrUuid
-                val freshPkg = when (val result = PackageRepository.fetchPackageById(targetUuid)) {
-                    is SingleResult.Success -> result.data
-                    is SingleResult.NotFound -> { _toastEvent.emit("Package not found"); return@launch }
-                    is SingleResult.Failure -> { _toastEvent.emit("Failed to load package"); return@launch }
+                val targetCode = currentPkg?.id?.ifBlank { currentPkg.trackingCode }.orEmpty()
+                val freshPkg = when (val result = fetchSinglePackageResilient(targetUuid, targetCode)) {
+                    is SingleResult.Success -> mergePackagePreservingLocalFields(currentPkg, result.data)
+                    is SingleResult.NotFound -> {
+                        if (currentPkg == null) {
+                            if (_state.value.appRole == AppRole.CLIENT && _state.value.isTrackingPackage && getSelectedPackage() == null) {
+                                closeTrackPackage()
+                            }
+                            _toastEvent.emit("Package not found")
+                        }
+                        return@launch
+                    }
+                    is SingleResult.Failure -> {
+                        if (currentPkg == null) {
+                            if (_state.value.appRole == AppRole.CLIENT && _state.value.isTrackingPackage && getSelectedPackage() == null) {
+                                closeTrackPackage()
+                            }
+                            _toastEvent.emit("Failed to load package")
+                        }
+                        return@launch
+                    }
                 }
                 withContext(Dispatchers.IO) {
                     if (_state.value.appRole == AppRole.CLIENT) {
@@ -2314,16 +2436,45 @@ class TripViewModel : ViewModel() {
                 _state.update { s ->
                     when (s.appRole) {
                         AppRole.CLIENT -> {
-                            val updated = s.clientPackages.map {
-                                if (it.id == freshPkg.id || it.packageUuid == freshPkg.packageUuid) freshPkg else it
+                            val exists = s.clientPackages.any {
+                                it.id.equals(freshPkg.id, ignoreCase = true) ||
+                                    (freshPkg.packageUuid.isNotBlank() && it.packageUuid == freshPkg.packageUuid)
                             }
-                            s.copy(clientPackages = updated)
+                            val updated = if (exists) {
+                                s.clientPackages.map {
+                                    if (it.id.equals(freshPkg.id, ignoreCase = true) || (freshPkg.packageUuid.isNotBlank() && it.packageUuid == freshPkg.packageUuid)) {
+                                        mergePackagePreservingLocalFields(it, freshPkg)
+                                    } else it
+                                }
+                            } else {
+                                listOf(freshPkg) + s.clientPackages
+                            }
+                            val newSelectedId = if (s.clientSelectedPackageId == packageIdOrUuid) freshPkg.id else s.clientSelectedPackageId
+                            s.copy(
+                                clientPackages = updated,
+                                clientSelectedPackageId = newSelectedId,
+                                clientDataState = DataState.HAS_DATA
+                            )
                         }
                         AppRole.DRIVER -> {
-                            val updated = s.driverCurrentPackages.map {
-                                if (it.id == freshPkg.id || it.packageUuid == freshPkg.packageUuid) freshPkg else it
+                            val exists = s.driverCurrentPackages.any {
+                                it.id.equals(freshPkg.id, ignoreCase = true) ||
+                                    (freshPkg.packageUuid.isNotBlank() && it.packageUuid == freshPkg.packageUuid)
                             }
-                            s.copy(driverCurrentPackages = updated)
+                            val updated = if (exists) {
+                                s.driverCurrentPackages.map {
+                                    if (it.id.equals(freshPkg.id, ignoreCase = true) || (freshPkg.packageUuid.isNotBlank() && it.packageUuid == freshPkg.packageUuid)) {
+                                        mergePackagePreservingLocalFields(it, freshPkg)
+                                    } else it
+                                }
+                            } else {
+                                listOf(freshPkg) + s.driverCurrentPackages
+                            }
+                            val newSelectedId = if (s.selectedDriverPackageId == packageIdOrUuid) freshPkg.id else s.selectedDriverPackageId
+                            s.copy(
+                                driverCurrentPackages = updated,
+                                selectedDriverPackageId = newSelectedId
+                            )
                         }
                         else -> s
                     }
@@ -2352,7 +2503,7 @@ class TripViewModel : ViewModel() {
                 if (cached != null && cached.items.isNotEmpty()) {
                     hasActiveCached = cached.items.any { it.isActive() }
                     _state.update { it.copy(
-                        clientPackages = cached.items,
+                        clientPackages = mergeClientPackagesWithPage(it.clientPackages, cached.items, it.clientSelectedPackageId),
                         clientCurrentPage = 0,
                         clientHasMore = cached.currentPage + 1 < cached.totalPages,
                         clientTotalPages = cached.totalPages,
@@ -2387,17 +2538,20 @@ class TripViewModel : ViewModel() {
                         val page = result.page
                         withContext(Dispatchers.IO) { PackageCache.saveClient(page) }
                         if (gen != sessionGeneration) return@launch
-                        val hasActive = page.items.any { it.isActive() }
-                        _state.update { it.copy(
-                            clientPackages = page.items,
-                            clientCurrentPage = 0,
-                            clientHasMore = page.currentPage + 1 < page.totalPages,
-                            clientTotalPages = page.totalPages,
-                            clientTotalCount = page.totalCount,
-                            clientPackagesFetchedOnce = true,
-                            // Definitive: If no active packages exist, set NO_DATA to trigger create modal
-                            clientDataState = if (!hasActive) DataState.NO_DATA else DataState.HAS_DATA
-                        ) }
+                        _state.update {
+                            val merged = mergeClientPackagesWithPage(it.clientPackages, page.items, it.clientSelectedPackageId)
+                            val hasActive = merged.any { pkg -> pkg.isActive() }
+                            it.copy(
+                                clientPackages = merged,
+                                clientCurrentPage = 0,
+                                clientHasMore = page.currentPage + 1 < page.totalPages,
+                                clientTotalPages = page.totalPages,
+                                clientTotalCount = page.totalCount,
+                                clientPackagesFetchedOnce = true,
+                                // Definitive: If no active packages exist, set NO_DATA to trigger create modal
+                                clientDataState = if (!hasActive && merged.isEmpty()) DataState.NO_DATA else DataState.HAS_DATA
+                            )
+                        }
                     }
                     is FetchPackagesResult.Error -> {
                         Log.e("TripViewModel", "fetchClientPackages: server fetch failed — ${result.message}")
@@ -2443,15 +2597,18 @@ class TripViewModel : ViewModel() {
                         val page = result.page
                         withContext(Dispatchers.IO) { PackageCache.saveClient(page) }
                         if (gen != sessionGeneration) return@launch
-                        val hasActive = page.items.any { it.isActive() }
-                        _state.update { it.copy(
-                            clientPackages = page.items,
-                            clientCurrentPage = 0,
-                            clientHasMore = page.currentPage + 1 < page.totalPages,
-                            clientTotalPages = page.totalPages,
-                            clientTotalCount = page.totalCount,
-                            clientDataState = if (!hasActive) DataState.NO_DATA else DataState.HAS_DATA
-                        ) }
+                        _state.update {
+                            val merged = mergeClientPackagesWithPage(it.clientPackages, page.items, it.clientSelectedPackageId)
+                            val hasActive = merged.any { pkg -> pkg.isActive() }
+                            it.copy(
+                                clientPackages = merged,
+                                clientCurrentPage = 0,
+                                clientHasMore = page.currentPage + 1 < page.totalPages,
+                                clientTotalPages = page.totalPages,
+                                clientTotalCount = page.totalCount,
+                                clientDataState = if (!hasActive && merged.isEmpty()) DataState.NO_DATA else DataState.HAS_DATA
+                            )
+                        }
                     }
                     is FetchPackagesResult.Error -> {
                         Log.e("TripViewModel", "refreshClientPackages: ${result.message}")
@@ -4574,26 +4731,120 @@ class TripViewModel : ViewModel() {
         _state.update { it.copy(showNoticesPanel = false) }
     }
 
+    private data class NoticeIdentifiers(
+        val resourceId: String,
+        val packageUuid: String,
+        val trackingCode: String
+    )
+
+    private fun extractNoticeIdentifiers(notice: Notice): NoticeIdentifiers {
+        val resourceId = notice.resourceId.trim()
+        val json = notice.payload?.takeIf { it.isNotBlank() }?.let {
+            try { JSONObject(it) } catch (_: Exception) { null }
+        }
+        val payloadCode = json?.optString("trackingCode")?.trim().orEmpty().ifBlank {
+            val codesArray = json?.optJSONArray("trackingCodes")
+            if (codesArray != null && codesArray.length() > 0) {
+                codesArray.optString(0).trim()
+            } else {
+                json?.optString("trackingCodes")
+                    ?.split(",", " ")
+                    ?.firstOrNull { it.isNotBlank() }
+                    ?.trim()
+                    .orEmpty()
+            }
+        }
+        val payloadUuid = json?.optString("packageId")?.trim().orEmpty().ifBlank {
+            json?.optString("packageUuid")?.trim().orEmpty().ifBlank {
+                val idsArray = json?.optJSONArray("packageIds")
+                if (idsArray != null && idsArray.length() > 0) {
+                    idsArray.optString(0).trim()
+                } else {
+                    json?.optString("packageIds")
+                        ?.split(",", " ")
+                        ?.firstOrNull { it.isNotBlank() }
+                        ?.trim()
+                        .orEmpty()
+                }
+            }
+        }
+        val regexCode = Regex("\\b(?:CAV|PKG|TW)-[A-Za-z0-9]+\\b", RegexOption.IGNORE_CASE)
+            .find("${notice.title} ${notice.message}")
+            ?.value
+            ?.uppercase()
+            .orEmpty()
+
+        val effectiveCode = payloadCode.ifBlank { regexCode }
+        val isTransferResource = notice.resourceType.equals("TRANSFER", ignoreCase = true)
+        val effectiveUuid = payloadUuid.ifBlank {
+            if (!isTransferResource) resourceId else ""
+        }
+        return NoticeIdentifiers(
+            resourceId = resourceId,
+            packageUuid = effectiveUuid,
+            trackingCode = effectiveCode
+        )
+    }
+
+    private fun findPackageForNotice(notice: Notice): ClientPackage? {
+        val ids = extractNoticeIdentifiers(notice)
+        val s = _state.value
+        val match: (ClientPackage) -> Boolean = { p ->
+            (ids.resourceId.isNotBlank() && (
+                p.packageUuid == ids.resourceId ||
+                p.id.equals(ids.resourceId, ignoreCase = true) ||
+                p.trackingCode.equals(ids.resourceId, ignoreCase = true) ||
+                p.transferId == ids.resourceId ||
+                p.transfers.any { it.id == ids.resourceId }
+            )) ||
+            (ids.packageUuid.isNotBlank() && p.packageUuid == ids.packageUuid) ||
+            (ids.trackingCode.isNotBlank() && (
+                p.id.equals(ids.trackingCode, ignoreCase = true) ||
+                p.trackingCode.equals(ids.trackingCode, ignoreCase = true)
+            ))
+        }
+        return s.clientPackages.find(match)
+            ?: s.driverCurrentPackages.find(match)
+            ?: s.driverAvailableOffers.find(match)
+            ?: s.driverIncomingTransfers.flatMap { it.packages }.find(match)
+    }
+
     /**
      * Marks all unread notices whose [Notice.resourceId] matches [packageIdOrUuid]
-     * (or whose payload trackingCode matches) as read. Called when the user opens
+     * (or whose payload trackingCode / transferId matches) as read. Called when the user opens
      * a package detail screen from any path — not just the notices panel.
      */
     private fun markNoticesForPackageAsRead(packageIdOrUuid: String) {
-        val currentNotices = _state.value.notices
+        val s = _state.value
+        val pkg = s.clientPackages.find {
+            it.id.equals(packageIdOrUuid, ignoreCase = true) ||
+                it.packageUuid == packageIdOrUuid ||
+                it.trackingCode.equals(packageIdOrUuid, ignoreCase = true)
+        } ?: s.driverCurrentPackages.find {
+            it.id.equals(packageIdOrUuid, ignoreCase = true) ||
+                it.packageUuid == packageIdOrUuid ||
+                it.trackingCode.equals(packageIdOrUuid, ignoreCase = true)
+        }
+        val knownIds = buildSet {
+            add(packageIdOrUuid)
+            if (pkg != null) {
+                if (pkg.id.isNotBlank()) add(pkg.id)
+                if (pkg.packageUuid.isNotBlank()) add(pkg.packageUuid)
+                if (pkg.trackingCode.isNotBlank()) add(pkg.trackingCode)
+                if (!pkg.transferId.isNullOrBlank()) add(pkg.transferId)
+                pkg.transfers.forEach { if (it.id.isNotBlank()) add(it.id) }
+            }
+        }
+
+        val currentNotices = s.notices
         val matching = currentNotices.filter { notice ->
-            notice.viewerReadAt == null &&
-            notice.resourceType.equals("PACKAGE", ignoreCase = true) &&
-            (
-                notice.resourceId == packageIdOrUuid ||
-                // Also match by trackingCode inside the payload
-                notice.payload?.let { payload ->
-                    try {
-                        val json = JSONObject(payload)
-                        json.optString("trackingCode") == packageIdOrUuid
-                    } catch (_: Exception) { false }
-                } == true
-            )
+            if (notice.viewerReadAt != null) return@filter false
+            val ids = extractNoticeIdentifiers(notice)
+            knownIds.any { k ->
+                k.equals(ids.resourceId, ignoreCase = true) ||
+                    (ids.packageUuid.isNotBlank() && k.equals(ids.packageUuid, ignoreCase = true)) ||
+                    (ids.trackingCode.isNotBlank() && k.equals(ids.trackingCode, ignoreCase = true))
+            }
         }
         for (notice in matching) {
             viewModelScope.launch {
@@ -4604,8 +4855,8 @@ class TripViewModel : ViewModel() {
 
     /**
      * Opens a notification: marks it as read (optimistic, local) and, when the
-     * notice is about a package, fetches that package fresh from the backend
-     * (GraphQL [PackageByIdQuery]) and navigates to its details — the driver
+     * notice is about a package or transfer, resolves that package from local state
+     * or fetches it fresh from the backend and navigates to its details — the driver
      * package detail sheet, or the client tracking screen.
      */
     fun openNoticeFromNotification(notice: Notice) {
@@ -4618,6 +4869,8 @@ class TripViewModel : ViewModel() {
             NoticeRepository.markRead(notice)
         }
 
+        val ids = extractNoticeIdentifiers(notice)
+
         // A delivery-initiated notice carries the one-time code. Tapping it should
         // re-open the delivery-confirmation popup (with the code) instead of just
         // navigating, so the user can confirm or dismiss from there.
@@ -4629,17 +4882,17 @@ class TripViewModel : ViewModel() {
             }
             val code = json?.optString("deliveryCode")?.takeIf { it.isNotBlank() }
             if (code != null && json != null) {
-                val packageUuid = notice.resourceId
-                val trackingCode = json.optString("trackingCode")
+                val packageUuid = ids.packageUuid.ifBlank { notice.resourceId }
+                val trackingCode = ids.trackingCode
                 // Never re-open the popup if the package was already delivered.
-                val pkg = findClientPackageForDelivery(packageUuid, trackingCode)
+                val pkg = findPackageForNotice(notice) ?: findClientPackageForDelivery(packageUuid, trackingCode)
                 if (pkg?.status != PackageStatus.DELIVERED) {
                     _state.update {
                         it.copy(
                             showDeliveryConfirmationDialog = true,
-                            deliveryConfirmationPackageUuid = packageUuid,
+                            deliveryConfirmationPackageUuid = pkg?.packageUuid?.ifBlank { packageUuid } ?: packageUuid,
                             deliveryConfirmationCode = code,
-                            deliveryConfirmationTrackingCode = trackingCode,
+                            deliveryConfirmationTrackingCode = trackingCode.ifBlank { pkg?.id.orEmpty() },
                             deliveryConfirmationRecipientName = pkg?.recipientName ?: ""
                         )
                     }
@@ -4648,14 +4901,121 @@ class TripViewModel : ViewModel() {
             }
         }
 
-        // Only package notices can navigate to a package detail page
-        if (!notice.resourceType.equals("PACKAGE", ignoreCase = true) || notice.resourceId.isBlank()) return
+        // Fast path: if the package (ongoing or completed) is already in memory,
+        // navigate immediately on frame 1 so there is zero delay and no blank screen!
+        val localPkg = findPackageForNotice(notice)
+        if (localPkg != null) {
+            when (_state.value.appRole) {
+                AppRole.DRIVER -> {
+                    _state.update { s ->
+                        val exists = s.driverCurrentPackages.any { it.packageUuid == localPkg.packageUuid || it.id == localPkg.id }
+                        s.copy(
+                            driverCurrentPackages = if (exists) s.driverCurrentPackages else listOf(localPkg) + s.driverCurrentPackages
+                        )
+                    }
+                    openPackageDetail(localPkg.id)
+                }
+                AppRole.CLIENT -> {
+                    _state.update { s ->
+                        val exists = s.clientPackages.any { it.packageUuid == localPkg.packageUuid || it.id == localPkg.id }
+                        s.copy(
+                            clientPackages = if (exists) s.clientPackages else listOf(localPkg) + s.clientPackages,
+                            clientDataState = DataState.HAS_DATA
+                        )
+                    }
+                    trackPackage(localPkg.id)
+                }
+                else -> {}
+            }
+            return
+        }
+
+        // Slow path: package is not in memory yet (e.g. older completed package on page 2+,
+        // or recipient package not yet synced).
+        if (ids.resourceId.isBlank() && ids.packageUuid.isBlank() && ids.trackingCode.isBlank()) return
+
+        val placeholderId = ids.trackingCode.ifBlank { ids.packageUuid.ifBlank { ids.resourceId } }
+        if (_state.value.appRole == AppRole.CLIENT) {
+            // Transition immediately to the track screen where TrackPackageLoadingSkeleton
+            // will render smoothly while the backend request is in flight.
+            _state.update {
+                it.copy(
+                    isTrackingPackage = true,
+                    isCreatingPackage = false,
+                    clientSelectedPackageId = placeholderId
+                )
+            }
+        }
 
         viewModelScope.launch {
-            val pkg = when (val result = PackageRepository.fetchPackageById(notice.resourceId)) {
-                is SingleResult.Success -> result.data
-                is SingleResult.NotFound -> { _toastEvent.emit("Package not found for this notification"); return@launch }
-                is SingleResult.Failure -> { _toastEvent.emit("Could not load the package for this notification"); return@launch }
+            // Check disk cache first before hitting network
+            val cachedPkg = withContext(Dispatchers.IO) {
+                val allCached = (PackageCache.getClientCached()?.items.orEmpty()) +
+                    (PackageCache.getDriverCached()?.items.orEmpty())
+                allCached.find { p ->
+                    (ids.resourceId.isNotBlank() && (
+                        p.packageUuid == ids.resourceId ||
+                        p.id.equals(ids.resourceId, ignoreCase = true) ||
+                        p.transferId == ids.resourceId ||
+                        p.transfers.any { it.id == ids.resourceId }
+                    )) ||
+                    (ids.packageUuid.isNotBlank() && p.packageUuid == ids.packageUuid) ||
+                    (ids.trackingCode.isNotBlank() && p.id.equals(ids.trackingCode, ignoreCase = true))
+                }
+            }
+            if (cachedPkg != null) {
+                when (_state.value.appRole) {
+                    AppRole.DRIVER -> {
+                        _state.update { s ->
+                            val exists = s.driverCurrentPackages.any { it.packageUuid == cachedPkg.packageUuid || it.id == cachedPkg.id }
+                            s.copy(
+                                driverCurrentPackages = if (exists) s.driverCurrentPackages else listOf(cachedPkg) + s.driverCurrentPackages
+                            )
+                        }
+                        openPackageDetail(cachedPkg.id)
+                    }
+                    AppRole.CLIENT -> {
+                        _state.update { s ->
+                            val exists = s.clientPackages.any { it.packageUuid == cachedPkg.packageUuid || it.id == cachedPkg.id }
+                            s.copy(
+                                clientPackages = if (exists) s.clientPackages else listOf(cachedPkg) + s.clientPackages,
+                                clientDataState = DataState.HAS_DATA
+                            )
+                        }
+                        trackPackage(cachedPkg.id)
+                    }
+                    else -> {}
+                }
+                return@launch
+            }
+
+            val fetchResult = fetchSinglePackageResilient(
+                uuidCandidate = ids.packageUuid.ifBlank { ids.resourceId },
+                trackingCodeCandidate = ids.trackingCode
+            )
+            val pkg = when (fetchResult) {
+                is SingleResult.Success -> fetchResult.data
+                is SingleResult.NotFound -> {
+                    if (_state.value.appRole == AppRole.CLIENT && _state.value.isTrackingPackage && getSelectedPackage() == null) {
+                        closeTrackPackage()
+                    }
+                    _toastEvent.emit("Package not found for this notification")
+                    return@launch
+                }
+                is SingleResult.Failure -> {
+                    if (_state.value.appRole == AppRole.CLIENT && _state.value.isTrackingPackage && getSelectedPackage() == null) {
+                        closeTrackPackage()
+                    }
+                    _toastEvent.emit("Could not load the package for this notification")
+                    return@launch
+                }
+            }
+            withContext(Dispatchers.IO) {
+                if (_state.value.appRole == AppRole.CLIENT) {
+                    PackageCache.mergeClientUpdate(pkg)
+                } else {
+                    PackageCache.mergeDriverUpdate(pkg)
+                }
             }
             when (_state.value.appRole) {
                 AppRole.DRIVER -> {
@@ -4671,11 +5031,21 @@ class TripViewModel : ViewModel() {
                     _state.update { s ->
                         val exists = s.clientPackages.any { it.packageUuid == pkg.packageUuid || it.id == pkg.id }
                         s.copy(
-                            clientPackages = if (exists) s.clientPackages else listOf(pkg) + s.clientPackages,
+                            clientPackages = if (exists) {
+                                s.clientPackages.map { if (it.packageUuid == pkg.packageUuid || it.id == pkg.id) mergePackagePreservingLocalFields(it, pkg) else it }
+                            } else {
+                                listOf(pkg) + s.clientPackages
+                            },
+                            clientSelectedPackageId = if (s.isTrackingPackage) pkg.id else s.clientSelectedPackageId,
                             clientDataState = DataState.HAS_DATA
                         )
                     }
-                    trackPackage(pkg.id)
+                    if (_state.value.isTrackingPackage) {
+                        saveNavigationState()
+                        markNoticesForPackageAsRead(pkg.id)
+                    } else {
+                        trackPackage(pkg.id)
+                    }
                 }
                 else -> {}
             }
@@ -4822,17 +5192,22 @@ class TripViewModel : ViewModel() {
      */
     private fun syncLatestPackageFromNotice(notices: List<Notice>) {
         val packageNotices = notices.filter {
-            (it.resourceType.equals("PACKAGE", ignoreCase = true) || it.eventType.startsWith("PACKAGE_")) &&
-            it.resourceId.isNotBlank() &&
+            (it.resourceType.equals("PACKAGE", ignoreCase = true) ||
+                it.resourceType.equals("TRANSFER", ignoreCase = true) ||
+                it.eventType.startsWith("PACKAGE_") ||
+                it.eventType.startsWith("TRANSFER_")) &&
+            (it.resourceId.isNotBlank() || !it.payload.isNullOrBlank()) &&
             !syncedNoticeIds.contains(it.id)
         }
         if (packageNotices.isEmpty()) return
 
         viewModelScope.launch {
-            for (notice in packageNotices.take(5)) {
+            for (notice in packageNotices.take(15)) {
                 syncedNoticeIds.add(notice.id)
                 try {
-                    val freshPkg = when (val result = PackageRepository.fetchPackageById(notice.resourceId)) {
+                    val ids = extractNoticeIdentifiers(notice)
+                    if (ids.packageUuid.isBlank() && ids.trackingCode.isBlank()) continue
+                    val freshPkg = when (val result = fetchSinglePackageResilient(ids.packageUuid.ifBlank { ids.resourceId }, ids.trackingCode)) {
                         is SingleResult.Success -> result.data
                         is SingleResult.NotFound -> continue
                         is SingleResult.Failure -> continue
@@ -4849,7 +5224,11 @@ class TripViewModel : ViewModel() {
                             AppRole.CLIENT -> {
                                 val exists = s.clientPackages.any { it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id }
                                 val updated = if (exists) {
-                                    s.clientPackages.map { if (it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id) freshPkg else it }
+                                    s.clientPackages.map {
+                                        if (it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id) {
+                                            mergePackagePreservingLocalFields(it, freshPkg)
+                                        } else it
+                                    }
                                 } else {
                                     listOf(freshPkg) + s.clientPackages
                                 }
@@ -4869,7 +5248,11 @@ class TripViewModel : ViewModel() {
                                     s.driverCurrentPackages.filter { it.packageUuid != freshPkg.packageUuid && it.id != freshPkg.id }
                                 } else {
                                     if (exists) {
-                                        s.driverCurrentPackages.map { if (it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id) freshPkg else it }
+                                        s.driverCurrentPackages.map {
+                                            if (it.packageUuid == freshPkg.packageUuid || it.id == freshPkg.id) {
+                                                mergePackagePreservingLocalFields(it, freshPkg)
+                                            } else it
+                                        }
                                     } else {
                                         listOf(freshPkg) + s.driverCurrentPackages
                                     }

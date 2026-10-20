@@ -581,10 +581,14 @@ object PackageRepository {
                 message = event.description ?: ""
             )
         }
+        val serverTransfers = pkg.transfers.map { t ->
+            ServerTransferInfo(id = t.id, ruleType = t.ruleType.name, status = t.status.name)
+        }
 
         return buildClientPackage(
             trackingCode = pkg.trackingCode,
             packageUuid = pkg.id,
+            deliveryType = pkg.deliveryType.name,
             senderId = sender?.userId ?: "",
             senderName = sender?.name ?: "",
             senderPhone = sender?.phone ?: "",
@@ -606,6 +610,7 @@ object PackageRepository {
             custodians = pkg.custodians.map { c ->
                 CustodianInfo(c.id, c.userId, c.name ?: "", c.phone ?: "", c.role.name, c.assignedAt)
             },
+            transfers = serverTransfers,
             backendStatus = pkg.status.name
         )
     }
@@ -675,6 +680,7 @@ object PackageRepository {
         return buildClientPackage(
             trackingCode = pkg.trackingCode,
             packageUuid = pkg.id,
+            deliveryType = pkg.deliveryType.name,
             senderId = sender?.userId ?: "",
             senderName = sender?.name ?: "",
             senderPhone = sender?.phone ?: "",

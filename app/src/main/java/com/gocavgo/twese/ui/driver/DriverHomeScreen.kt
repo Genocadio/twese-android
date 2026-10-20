@@ -325,9 +325,8 @@ fun DriverHomeScreen(
                                 NotificationsSheetContent(
                                     notices = state.notices,
                                     onNoticeClick = { notice ->
-                                        if (notice.resourceId.isNotBlank()) {
-                                            viewModel.openPackageDetail(notice.resourceId)
-                                        }
+                                        activeDockTab = null
+                                        viewModel.openNoticeFromNotification(notice)
                                     }
                                 )
                             }

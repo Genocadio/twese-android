@@ -95,13 +95,25 @@ val ClientPackage.hasOpenTransfer: Boolean
 fun ClientPackage.hasUnreadNotices(notices: List<Notice>): Boolean =
     notices.any { n ->
         n.viewerReadAt == null &&
-        n.resourceType.equals("PACKAGE", ignoreCase = true) &&
         (
-            n.resourceId == packageUuid ||
-            n.resourceId == id ||
+            n.resourceType.equals("PACKAGE", ignoreCase = true) ||
+            n.resourceType.equals("TRANSFER", ignoreCase = true) ||
+            n.eventType.startsWith("PACKAGE_") ||
+            n.eventType.startsWith("TRANSFER_")
+        ) &&
+        (
+            (packageUuid.isNotBlank() && n.resourceId == packageUuid) ||
+            (id.isNotBlank() && n.resourceId.equals(id, ignoreCase = true)) ||
+            (!transferId.isNullOrBlank() && n.resourceId == transferId) ||
+            transfers.any { t -> t.id.isNotBlank() && t.id == n.resourceId } ||
             n.payload?.let { payload ->
                 try {
-                    org.json.JSONObject(payload).optString("trackingCode") == id
+                    val json = org.json.JSONObject(payload)
+                    val tc = json.optString("trackingCode")
+                    val tcs = json.optString("trackingCodes")
+                    val pid = json.optString("packageId").ifBlank { json.optString("packageUuid") }
+                    (id.isNotBlank() && (tc.equals(id, ignoreCase = true) || tcs.contains(id, ignoreCase = true))) ||
+                        (packageUuid.isNotBlank() && pid == packageUuid)
                 } catch (_: Exception) { false }
             } == true
         )

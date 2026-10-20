@@ -1,6 +1,7 @@
 package com.gocavgo.twese.ui.client
 
 import android.util.Log
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -155,6 +156,141 @@ fun TrackPackageScreen(
             pkg.status == PackageStatus.CANCELLED -> CancelledPackageSummary(pkg)
             else                                  -> ActivePackageTracking(pkg, currentUserId, onCreateTransfer, onConfirmTransfer, onRejectTransfer, onGeneratePickupCode, onConfirmDelivery, pendingDeliveryCode)
         }
+        }
+    }
+}
+
+@Composable
+fun TrackPackageLoadingSkeleton(
+    onBack: () -> Unit,
+    packageIdHint: String = ""
+) {
+    val colors = LocalDriversColors.current
+    val maxW = contentMaxWidth()
+    val infiniteTransition = rememberInfiniteTransition(label = "trackSkeletonShimmer")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
+        label = "trackSkeletonAlpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.background)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .then(if (maxW != Dp.Unspecified) Modifier.widthIn(max = maxW) else Modifier)
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.size(42.dp).clip(CircleShape).background(colors.surfaceAlt)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = colors.textPrimary)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Track Package", color = colors.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    if (packageIdHint.isNotBlank() && packageIdHint.length <= 24) {
+                        Text(packageIdHint, color = colors.textSecondary, fontSize = 12.sp)
+                    } else {
+                        Spacer(Modifier.height(4.dp))
+                        Box(
+                            Modifier
+                                .size(width = 96.dp, height = 10.dp)
+                                .background(colors.textSecondary.copy(alpha = alpha * 0.4f), RoundedCornerShape(4.dp))
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Status hero card skeleton
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = colors.surface.copy(alpha = alpha),
+                    border = BorderStroke(1.dp, colors.divider.copy(alpha = alpha))
+                ) {
+                    Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(colors.textSecondary.copy(alpha = alpha * 0.3f))
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(
+                                Modifier
+                                    .size(width = 120.dp, height = 16.dp)
+                                    .background(colors.textSecondary.copy(alpha = alpha * 0.4f), RoundedCornerShape(6.dp))
+                            )
+                            Box(
+                                Modifier
+                                    .size(width = 180.dp, height = 11.dp)
+                                    .background(colors.textSecondary.copy(alpha = alpha * 0.25f), RoundedCornerShape(4.dp))
+                            )
+                        }
+                    }
+                }
+
+                // Route card skeleton
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = colors.surface.copy(alpha = alpha),
+                    border = BorderStroke(1.dp, colors.divider.copy(alpha = alpha))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.size(40.dp, 9.dp).background(colors.textSecondary.copy(alpha = alpha * 0.25f), RoundedCornerShape(4.dp)))
+                            Box(Modifier.size(100.dp, 13.dp).background(colors.textSecondary.copy(alpha = alpha * 0.4f), RoundedCornerShape(4.dp)))
+                        }
+                        Box(Modifier.size(20.dp, 12.dp).background(colors.textSecondary.copy(alpha = alpha * 0.25f), RoundedCornerShape(4.dp)))
+                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.size(40.dp, 9.dp).background(colors.textSecondary.copy(alpha = alpha * 0.25f), RoundedCornerShape(4.dp)))
+                            Box(Modifier.size(100.dp, 13.dp).background(colors.textSecondary.copy(alpha = alpha * 0.4f), RoundedCornerShape(4.dp)))
+                        }
+                    }
+                }
+
+                // People & Details card skeleton
+                repeat(2) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = colors.surface.copy(alpha = alpha),
+                        border = BorderStroke(1.dp, colors.divider.copy(alpha = alpha))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Box(Modifier.size(70.dp, 11.dp).background(colors.textSecondary.copy(alpha = alpha * 0.25f), RoundedCornerShape(4.dp)))
+                                Box(Modifier.size(110.dp, 11.dp).background(colors.textSecondary.copy(alpha = alpha * 0.4f), RoundedCornerShape(4.dp)))
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Box(Modifier.size(85.dp, 11.dp).background(colors.textSecondary.copy(alpha = alpha * 0.25f), RoundedCornerShape(4.dp)))
+                                Box(Modifier.size(95.dp, 11.dp).background(colors.textSecondary.copy(alpha = alpha * 0.4f), RoundedCornerShape(4.dp)))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

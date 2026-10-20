@@ -110,6 +110,7 @@ fun ClientHomeScreen(
     clientDataState: DataState = DataState.UNKNOWN,
     onConfirmDeliveryDirect: (ClientPackage) -> Unit = {},
     onNoticesClick: () -> Unit = {},
+    onNoticeClick: ((Notice) -> Unit)? = null,
     noticeCount: Int = 0,
     notices: List<Notice> = emptyList(),
     onRequestDriver: (() -> Unit)? = null,
@@ -420,8 +421,10 @@ fun ClientHomeScreen(
                                 ClientNotificationsSheetContent(
                                     notices = notices,
                                     onNoticeClick = { notice ->
-                                        if (notice.resourceId.isNotBlank()) {
-                                            activeDockTab = null
+                                        activeDockTab = null
+                                        if (onNoticeClick != null) {
+                                            onNoticeClick(notice)
+                                        } else if (notice.resourceId.isNotBlank()) {
                                             onTrackPackage(notice.resourceId)
                                         }
                                     }
