@@ -5191,8 +5191,18 @@ class TripViewModel : ViewModel() {
                 return@launch
             }
 
+            if (ids.packageUuid.isBlank() && ids.trackingCode.isBlank()) {
+                if (_state.value.appRole == AppRole.CLIENT && _state.value.isTrackingPackage && getSelectedPackage() == null) {
+                    closeTrackPackage()
+                }
+                if (_state.value.appRole == AppRole.DRIVER && _state.value.isPackageDetailSheetOpen && getSelectedDriverPackage() == null) {
+                    closePackageDetail()
+                }
+                return@launch
+            }
+
             val fetchResult = fetchSinglePackageResilient(
-                uuidCandidate = ids.packageUuid.ifBlank { ids.resourceId },
+                uuidCandidate = ids.packageUuid,
                 trackingCodeCandidate = ids.trackingCode
             )
             val pkg = when (fetchResult) {
@@ -5436,7 +5446,7 @@ class TripViewModel : ViewModel() {
                 try {
                     val ids = extractNoticeIdentifiers(notice)
                     if (ids.packageUuid.isBlank() && ids.trackingCode.isBlank()) continue
-                    val freshPkg = when (val result = fetchSinglePackageResilient(ids.packageUuid.ifBlank { ids.resourceId }, ids.trackingCode)) {
+                    val freshPkg = when (val result = fetchSinglePackageResilient(ids.packageUuid, ids.trackingCode)) {
                         is SingleResult.Success -> result.data
                         is SingleResult.NotFound -> continue
                         is SingleResult.Failure -> continue

@@ -79,19 +79,14 @@ object ApolloClientProvider {
             .pingInterval(25, TimeUnit.SECONDS)
             .build()
 
-        val token = NexxAuth.getAccessToken()
-        val wsHeaders = listOfNotNull(
-            token?.let { HttpHeader("Authorization", "Bearer $it") }
-        )
-
         return ApolloClient.Builder()
             .serverUrl(BuildConfig.GRAPHQL_URL)
             .httpEngine(DefaultHttpEngine(okHttpClient))
             .subscriptionNetworkTransport(
                 WebSocketNetworkTransport.Builder()
                     .serverUrl(BuildConfig.GRAPHQL_URL)
-                    .headers(wsHeaders)
-                    .idleTimeoutMillis(60_000L)
+                    .webSocketEngine(com.apollographql.apollo.network.ws.DefaultWebSocketEngine(okHttpClient))
+                    .idleTimeoutMillis(300_000L)
                     .protocol(
                         GraphQLWsProtocol.Factory(
                             pingIntervalMillis = 25_000L,
