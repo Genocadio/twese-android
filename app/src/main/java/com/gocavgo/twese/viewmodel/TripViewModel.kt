@@ -1268,23 +1268,29 @@ class TripViewModel : ViewModel() {
         }
         _state.update { it.copy(isSearchingDriverTripLocations = true) }
         tripOriginSearchJob = viewModelScope.launch {
-            val results = com.gocavgo.twese.network.BackendStorage.searchLocations(query)
-            _state.update { it.copy(
-                driverTripOriginResults = results.map { loc ->
-                    LocationSearchResult(
-                        id = loc.id,
-                        latitude = loc.latitude,
-                        longitude = loc.longitude,
-                        customName = loc.customName,
-                        googlePlaceName = loc.googlePlaceName,
-                        province = loc.province,
-                        district = loc.district,
-                        placeId = loc.placeId,
-                        code = loc.code
-                    )
-                },
-                isSearchingDriverTripLocations = false
-            ) }
+            try {
+                val results = com.gocavgo.twese.network.BackendStorage.searchLocations(query)
+                _state.update { it.copy(
+                    driverTripOriginResults = results.map { loc ->
+                        LocationSearchResult(
+                            id = loc.id,
+                            latitude = loc.latitude,
+                            longitude = loc.longitude,
+                            customName = loc.customName,
+                            googlePlaceName = loc.googlePlaceName,
+                            province = loc.province,
+                            district = loc.district,
+                            placeId = loc.placeId,
+                            code = loc.code
+                        )
+                    },
+                    isSearchingDriverTripLocations = false
+                ) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(isSearchingDriverTripLocations = false) }
+            }
         }
     }
 
@@ -1297,23 +1303,29 @@ class TripViewModel : ViewModel() {
         }
         _state.update { it.copy(isSearchingDriverTripLocations = true) }
         tripDestSearchJob = viewModelScope.launch {
-            val results = com.gocavgo.twese.network.BackendStorage.searchLocations(query)
-            _state.update { it.copy(
-                driverTripDestinationResults = results.map { loc ->
-                    LocationSearchResult(
-                        id = loc.id,
-                        latitude = loc.latitude,
-                        longitude = loc.longitude,
-                        customName = loc.customName,
-                        googlePlaceName = loc.googlePlaceName,
-                        province = loc.province,
-                        district = loc.district,
-                        placeId = loc.placeId,
-                        code = loc.code
-                    )
-                },
-                isSearchingDriverTripLocations = false
-            ) }
+            try {
+                val results = com.gocavgo.twese.network.BackendStorage.searchLocations(query)
+                _state.update { it.copy(
+                    driverTripDestinationResults = results.map { loc ->
+                        LocationSearchResult(
+                            id = loc.id,
+                            latitude = loc.latitude,
+                            longitude = loc.longitude,
+                            customName = loc.customName,
+                            googlePlaceName = loc.googlePlaceName,
+                            province = loc.province,
+                            district = loc.district,
+                            placeId = loc.placeId,
+                            code = loc.code
+                        )
+                    },
+                    isSearchingDriverTripLocations = false
+                ) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(isSearchingDriverTripLocations = false) }
+            }
         }
     }
 
@@ -1384,8 +1396,14 @@ class TripViewModel : ViewModel() {
         }
         _state.update { it.copy(isSearchingDriverRoutes = true, driverRouteSearchResults = emptyList()) }
         routeSearchJob = viewModelScope.launch {
-            val results = com.gocavgo.twese.network.BackendStorage.searchRoutes(origin, destination)
-            _state.update { it.copy(driverRouteSearchResults = results, isSearchingDriverRoutes = false) }
+            try {
+                val results = com.gocavgo.twese.network.BackendStorage.searchRoutes(origin, destination)
+                _state.update { it.copy(driverRouteSearchResults = results, isSearchingDriverRoutes = false) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(isSearchingDriverRoutes = false) }
+            }
         }
     }
 
@@ -5246,7 +5264,7 @@ class TripViewModel : ViewModel() {
         }
     }
 
-    private val syncedNoticeIds = mutableSetOf<String>()
+    private val syncedNoticeIds: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
 
     /**
      * Start collecting flows from [NoticeRepository] into [TripUiState].
@@ -5386,18 +5404,35 @@ class TripViewModel : ViewModel() {
      */
     private fun syncLatestPackageFromNotice(notices: List<Notice>) {
         val packageNotices = notices.filter {
+            val noticeKey = it.viewerNoticeId.ifBlank { it.id }
             (it.resourceType.equals("PACKAGE", ignoreCase = true) ||
                 it.resourceType.equals("TRANSFER", ignoreCase = true) ||
                 it.eventType.startsWith("PACKAGE_") ||
                 it.eventType.startsWith("TRANSFER_")) &&
             (it.resourceId.isNotBlank() || !it.payload.isNullOrBlank()) &&
+            !syncedNoticeIds.contains(noticeKey) &&
             !syncedNoticeIds.contains(it.id)
         }
         if (packageNotices.isEmpty()) return
 
+        // Mark all candidate notices as synced immediately on the caller thread so rapid
+        // back-to-back emissions (e.g. cache warm-up + network refresh) never spawn
+        // duplicate concurrent fetches for the same notices.
+        val batch = packageNotices.take(15)
+        batch.forEach { n ->
+            if (n.viewerNoticeId.isNotBlank()) syncedNoticeIds.add(n.viewerNoticeId)
+            if (n.id.isNotBlank()) syncedNoticeIds.add(n.id)
+        }
+
+        // Deduplicate by target package identifier within the batch so multiple notices
+        // about the same package (e.g. CREATED -> PICKED_UP -> DELIVERED) only fetch once.
+        val uniqueByPackage = batch.distinctBy { n ->
+            val ids = extractNoticeIdentifiers(n)
+            ids.packageUuid.ifBlank { ids.trackingCode.ifBlank { ids.resourceId } }.lowercase()
+        }
+
         viewModelScope.launch {
-            for (notice in packageNotices.take(15)) {
-                syncedNoticeIds.add(notice.id)
+            for (notice in uniqueByPackage) {
                 try {
                     val ids = extractNoticeIdentifiers(notice)
                     if (ids.packageUuid.isBlank() && ids.trackingCode.isBlank()) continue

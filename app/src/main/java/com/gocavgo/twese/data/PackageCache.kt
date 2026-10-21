@@ -28,12 +28,31 @@ object PackageCache {
     private const val EXPIRY_MS = 7 * 24 * 60 * 60 * 1000L // 7 days (was 1 hour)
     private const val TOUCH_THROTTLE_MS = 5 * 60 * 1000L
 
+    private val cacheLock = Any()
+    @Volatile
     private var cacheDir: File? = null
 
     fun init(context: Context) {
-        cacheDir = File(context.cacheDir, "pkg_cache")
-        cacheDir?.mkdirs()
-        evictExpired()
+        synchronized(cacheLock) {
+            cacheDir = File(context.cacheDir, "pkg_cache")
+            cacheDir?.mkdirs()
+            evictExpiredLocked()
+        }
+    }
+
+    /**
+     * Atomically writes [content] to [file] by writing to a sibling `.tmp` file first
+     * and renaming it over [file]. Must be called while holding [cacheLock].
+     */
+    private fun writeFileAtomicallyLocked(file: File, content: String) {
+        val parent = file.parentFile ?: return
+        if (!parent.exists()) parent.mkdirs()
+        val tmpFile = File(parent, "${file.name}.tmp")
+        tmpFile.writeText(content)
+        if (!tmpFile.renameTo(file)) {
+            file.writeText(content)
+            tmpFile.delete()
+        }
     }
 
     // ── Driver Packages ──────────────────────────────────────────────────────
@@ -66,7 +85,7 @@ object PackageCache {
 
     // ── Incoming Transfers ───────────────────────────────────────────────────
 
-    fun getIncomingTransfers(): List<PackageRepository.MatchedTransfer>? {
+    fun getIncomingTransfers(): List<PackageRepository.MatchedTransfer>? = synchronized(cacheLock) {
         val dir = cacheDir ?: return null
         val file = File(dir, TRANSFERS_CACHE_FILE)
         if (!file.exists()) return null
@@ -104,7 +123,7 @@ object PackageCache {
                 )
             }
             if (isOnline) {
-                touch(file, json, cachedAt)
+                touchLocked(file, json, cachedAt)
             }
             Log.d(TAG, "Cache hit: ${result.size} incoming transfers from $TRANSFERS_CACHE_FILE")
             result
@@ -118,38 +137,40 @@ object PackageCache {
     }
 
     fun saveIncomingTransfers(transfers: List<PackageRepository.MatchedTransfer>) {
-        val dir = cacheDir ?: return
-        try {
-            val arr = JSONArray()
-            transfers.forEach { t ->
-                val tObj = JSONObject().apply {
-                    put("transferId", t.transferId)
-                    put("ruleType", t.ruleType)
-                    put("acceptorType", t.acceptorType)
-                    put("status", t.status)
-                    put("creatorId", t.creatorId)
-                    val pkgsArr = JSONArray()
-                    t.packages.forEach { pkg ->
-                        pkgsArr.put(packageToJson(pkg))
+        synchronized(cacheLock) {
+            val dir = cacheDir ?: return
+            try {
+                val arr = JSONArray()
+                transfers.forEach { t ->
+                    val tObj = JSONObject().apply {
+                        put("transferId", t.transferId)
+                        put("ruleType", t.ruleType)
+                        put("acceptorType", t.acceptorType)
+                        put("status", t.status)
+                        put("creatorId", t.creatorId)
+                        val pkgsArr = JSONArray()
+                        t.packages.forEach { pkg ->
+                            pkgsArr.put(packageToJson(pkg))
+                        }
+                        put("packages", pkgsArr)
                     }
-                    put("packages", pkgsArr)
+                    arr.put(tObj)
                 }
-                arr.put(tObj)
+                val json = JSONObject().apply {
+                    put("cachedAt", System.currentTimeMillis())
+                    put("transfers", arr)
+                }
+                writeFileAtomicallyLocked(File(dir, TRANSFERS_CACHE_FILE), json.toString())
+                Log.d(TAG, "Cache saved: ${transfers.size} incoming transfers to $TRANSFERS_CACHE_FILE")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save incoming transfers cache: $TRANSFERS_CACHE_FILE", e)
             }
-            val json = JSONObject().apply {
-                put("cachedAt", System.currentTimeMillis())
-                put("transfers", arr)
-            }
-            File(dir, TRANSFERS_CACHE_FILE).writeText(json.toString())
-            Log.d(TAG, "Cache saved: ${transfers.size} incoming transfers to $TRANSFERS_CACHE_FILE")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save incoming transfers cache: $TRANSFERS_CACHE_FILE", e)
         }
     }
 
     // ── Generic Cache Operations ─────────────────────────────────────────────
 
-    private fun getCached(fileName: String): PagedResult? {
+    private fun getCached(fileName: String): PagedResult? = synchronized(cacheLock) {
         val dir = cacheDir ?: return null
         val file = File(dir, fileName)
         if (!file.exists()) return null
@@ -173,7 +194,7 @@ object PackageCache {
                 items.add(packageFromJson(itemsArr.getJSONObject(i)))
             }
             if (isOnline) {
-                touch(file, json, cachedAt)
+                touchLocked(file, json, cachedAt)
             }
             Log.d(TAG, "Cache hit: ${items.size} packages from $fileName (expired=$isExpired, online=$isOnline)")
             PagedResult(
@@ -192,23 +213,25 @@ object PackageCache {
     }
 
     private fun save(fileName: String, result: PagedResult) {
-        val dir = cacheDir ?: return
-        try {
-            val itemsArr = JSONArray()
-            result.items.forEach { pkg ->
-                itemsArr.put(packageToJson(pkg))
+        synchronized(cacheLock) {
+            val dir = cacheDir ?: return
+            try {
+                val itemsArr = JSONArray()
+                result.items.forEach { pkg ->
+                    itemsArr.put(packageToJson(pkg))
+                }
+                val json = JSONObject().apply {
+                    put("cachedAt", System.currentTimeMillis())
+                    put("totalCount", result.totalCount)
+                    put("totalPages", result.totalPages)
+                    put("currentPage", result.currentPage)
+                    put("items", itemsArr)
+                }
+                writeFileAtomicallyLocked(File(dir, fileName), json.toString())
+                Log.d(TAG, "Cache saved: ${result.items.size} packages to $fileName")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save cache: $fileName", e)
             }
-            val json = JSONObject().apply {
-                put("cachedAt", System.currentTimeMillis())
-                put("totalCount", result.totalCount)
-                put("totalPages", result.totalPages)
-                put("currentPage", result.currentPage)
-                put("items", itemsArr)
-            }
-            File(dir, fileName).writeText(json.toString())
-            Log.d(TAG, "Cache saved: ${result.items.size} packages to $fileName")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save cache: $fileName", e)
         }
     }
 
@@ -218,33 +241,41 @@ object PackageCache {
      * This preserves the existing list order and avoids full re-fetch.
      */
     private fun mergeUpdate(fileName: String, updated: ClientPackage) {
-        val dir = cacheDir ?: return
-        val file = File(dir, fileName)
-        if (!file.exists()) return
-        try {
-            val json = JSONObject(file.readText())
-            val itemsArr = json.getJSONArray("items")
-            var found = false
-            for (i in 0 until itemsArr.length()) {
-                val item = itemsArr.getJSONObject(i)
-                val itemId = item.optString("id")
-                val itemUuid = item.optString("packageUuid")
-                if (itemId == updated.id || (updated.packageUuid.isNotBlank() && itemUuid == updated.packageUuid)) {
-                    itemsArr.put(i, packageToJson(updated))
-                    found = true
-                    break
+        synchronized(cacheLock) {
+            val dir = cacheDir ?: return
+            val file = File(dir, fileName)
+            if (!file.exists()) return
+            try {
+                val json = JSONObject(file.readText())
+                val itemsArr = json.getJSONArray("items")
+                var found = false
+                for (i in 0 until itemsArr.length()) {
+                    val item = itemsArr.getJSONObject(i)
+                    val itemId = item.optString("id")
+                    val itemUuid = item.optString("packageUuid")
+                    if (itemId == updated.id || (updated.packageUuid.isNotBlank() && itemUuid == updated.packageUuid)) {
+                        itemsArr.put(i, packageToJson(updated))
+                        found = true
+                        break
+                    }
                 }
+                if (!found) {
+                    // Package not in cache yet — prepend it
+                    val newArr = JSONArray()
+                    newArr.put(packageToJson(updated))
+                    for (i in 0 until itemsArr.length()) {
+                        newArr.put(itemsArr.getJSONObject(i))
+                    }
+                    json.put("items", newArr)
+                } else {
+                    json.put("items", itemsArr)
+                }
+                json.put("cachedAt", System.currentTimeMillis()) // extend expiry
+                writeFileAtomicallyLocked(file, json.toString())
+                Log.d(TAG, "Cache merged: ${updated.id} in $fileName (found=$found)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to merge cache: $fileName", e)
             }
-            if (!found) {
-                // Package not in cache yet — prepend it
-                itemsArr.put(0, packageToJson(updated))
-            }
-            json.put("items", itemsArr)
-            json.put("cachedAt", System.currentTimeMillis()) // extend expiry
-            file.writeText(json.toString())
-            Log.d(TAG, "Cache merged: ${updated.id} in $fileName (found=$found)")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to merge cache: $fileName", e)
         }
     }
 
@@ -252,50 +283,58 @@ object PackageCache {
      * Remove a package from the cache by ID.
      */
     private fun removePackage(fileName: String, packageId: String) {
-        val dir = cacheDir ?: return
-        val file = File(dir, fileName)
-        if (!file.exists()) return
-        try {
-            val json = JSONObject(file.readText())
-            val itemsArr = json.getJSONArray("items")
-            val newArr = JSONArray()
-            for (i in 0 until itemsArr.length()) {
-                val item = itemsArr.getJSONObject(i)
-                if (item.optString("id") != packageId) {
-                    newArr.put(item)
+        synchronized(cacheLock) {
+            val dir = cacheDir ?: return
+            val file = File(dir, fileName)
+            if (!file.exists()) return
+            try {
+                val json = JSONObject(file.readText())
+                val itemsArr = json.getJSONArray("items")
+                val newArr = JSONArray()
+                for (i in 0 until itemsArr.length()) {
+                    val item = itemsArr.getJSONObject(i)
+                    if (item.optString("id") != packageId && item.optString("packageUuid") != packageId) {
+                        newArr.put(item)
+                    }
                 }
+                json.put("items", newArr)
+                json.put("totalCount", newArr.length())
+                json.put("cachedAt", System.currentTimeMillis())
+                writeFileAtomicallyLocked(file, json.toString())
+                Log.d(TAG, "Cache removed: $packageId from $fileName")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to remove from cache: $fileName", e)
             }
-            json.put("items", newArr)
-            json.put("totalCount", newArr.length())
-            json.put("cachedAt", System.currentTimeMillis())
-            file.writeText(json.toString())
-            Log.d(TAG, "Cache removed: $packageId from $fileName")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to remove from cache: $fileName", e)
         }
     }
 
     fun clear() {
-        cacheDir?.listFiles()?.forEach { it.delete() }
+        synchronized(cacheLock) {
+            cacheDir?.listFiles()?.forEach { it.delete() }
+        }
     }
 
-    private fun touch(file: File, json: JSONObject, cachedAt: Long) {
+    private fun touchLocked(file: File, json: JSONObject, cachedAt: Long) {
         val now = System.currentTimeMillis()
         if (now - cachedAt < TOUCH_THROTTLE_MS) return
         try {
             json.put("cachedAt", now)
-            file.writeText(json.toString())
+            writeFileAtomicallyLocked(file, json.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to touch cache", e)
         }
     }
 
-    private fun evictExpired() {
+    private fun evictExpiredLocked() {
         if (!AuthRepository.isNetworkAvailable()) {
             Log.d(TAG, "evictExpired skipped: offline / backend unreachable")
             return
         }
         cacheDir?.listFiles()?.forEach { file ->
+            if (file.name.endsWith(".tmp")) {
+                file.delete()
+                return@forEach
+            }
             try {
                 val json = JSONObject(file.readText())
                 val cachedAt = json.optLong("cachedAt", 0L)

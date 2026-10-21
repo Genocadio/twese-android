@@ -20,12 +20,27 @@ object DriverTripCache {
     private const val EXPIRY_MS = 30 * 60 * 1000L // 30 minutes
     private const val TOUCH_THROTTLE_MS = 2 * 60 * 1000L
 
+    private val cacheLock = Any()
+    @Volatile
     private var cacheDir: File? = null
 
     fun init(context: android.content.Context) {
-        cacheDir = File(context.cacheDir, "driver_trip_cache")
-        cacheDir?.mkdirs()
-        evictExpired()
+        synchronized(cacheLock) {
+            cacheDir = File(context.cacheDir, "driver_trip_cache")
+            cacheDir?.mkdirs()
+            evictExpiredLocked()
+        }
+    }
+
+    private fun writeFileAtomicallyLocked(file: File, content: String) {
+        val parent = file.parentFile ?: return
+        if (!parent.exists()) parent.mkdirs()
+        val tmpFile = File(parent, "${file.name}.tmp")
+        tmpFile.writeText(content)
+        if (!tmpFile.renameTo(file)) {
+            file.writeText(content)
+            tmpFile.delete()
+        }
     }
 
     data class CachedDriverTripState(
@@ -42,7 +57,7 @@ object DriverTripCache {
         val cachedAt: Long = System.currentTimeMillis()
     )
 
-    fun get(): CachedDriverTripState? {
+    fun get(): CachedDriverTripState? = synchronized(cacheLock) {
         val dir = cacheDir ?: return null
         val file = File(dir, CACHE_FILE)
         if (!file.exists()) return null
@@ -60,7 +75,7 @@ object DriverTripCache {
                     Log.w(TAG, "Cache expired but offline — preserving stale cache")
                 }
             }
-            if (isOnline) touch(file, json, cachedAt)
+            if (isOnline) touchLocked(file, json, cachedAt)
             parseCache(json)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to read cache", e)
@@ -70,40 +85,44 @@ object DriverTripCache {
     }
 
     fun save(state: CachedDriverTripState) {
-        val dir = cacheDir ?: return
-        try {
-            val json = JSONObject().apply {
-                put("cachedAt", System.currentTimeMillis())
-                put("vehicleId", state.vehicleId ?: JSONObject.NULL)
-                put("vehiclePlate", state.vehiclePlate)
-                put("vehicleModel", state.vehicleModel)
-                put("vehicleType", state.vehicleType ?: JSONObject.NULL)
-                put("vehicleSeats", state.vehicleSeats)
-                put("driverHasVehicle", state.driverHasVehicle)
-                put("activeTrip", state.activeTrip?.let { tripToJson(it) } ?: JSONObject.NULL)
-                val histArr = JSONArray()
-                state.tripHistory.take(20).forEach { histArr.put(tripToJson(it)) }
-                put("tripHistory", histArr)
-                put("metrics", state.metrics?.let { metricsToJson(it) } ?: JSONObject.NULL)
-                val completedArr = JSONArray()
-                state.driverCompletedTrips.forEach { ct ->
-                    completedArr.put(JSONObject().apply {
-                        put("origin", ct.origin)
-                        put("destination", ct.destination)
-                        put("plateNumber", ct.plateNumber)
-                    })
+        synchronized(cacheLock) {
+            val dir = cacheDir ?: return
+            try {
+                val json = JSONObject().apply {
+                    put("cachedAt", System.currentTimeMillis())
+                    put("vehicleId", state.vehicleId ?: JSONObject.NULL)
+                    put("vehiclePlate", state.vehiclePlate)
+                    put("vehicleModel", state.vehicleModel)
+                    put("vehicleType", state.vehicleType ?: JSONObject.NULL)
+                    put("vehicleSeats", state.vehicleSeats)
+                    put("driverHasVehicle", state.driverHasVehicle)
+                    put("activeTrip", state.activeTrip?.let { tripToJson(it) } ?: JSONObject.NULL)
+                    val histArr = JSONArray()
+                    state.tripHistory.take(20).forEach { histArr.put(tripToJson(it)) }
+                    put("tripHistory", histArr)
+                    put("metrics", state.metrics?.let { metricsToJson(it) } ?: JSONObject.NULL)
+                    val completedArr = JSONArray()
+                    state.driverCompletedTrips.forEach { ct ->
+                        completedArr.put(JSONObject().apply {
+                            put("origin", ct.origin)
+                            put("destination", ct.destination)
+                            put("plateNumber", ct.plateNumber)
+                        })
+                    }
+                    put("driverCompletedTrips", completedArr)
                 }
-                put("driverCompletedTrips", completedArr)
+                writeFileAtomicallyLocked(File(dir, CACHE_FILE), json.toString())
+                Log.d(TAG, "Cache saved: activeTrip=${state.activeTrip != null}, history=${state.tripHistory.size}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save cache", e)
             }
-            File(dir, CACHE_FILE).writeText(json.toString())
-            Log.d(TAG, "Cache saved: activeTrip=${state.activeTrip != null}, history=${state.tripHistory.size}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save cache", e)
         }
     }
 
     fun clear() {
-        cacheDir?.listFiles()?.forEach { it.delete() }
+        synchronized(cacheLock) {
+            cacheDir?.listFiles()?.forEach { it.delete() }
+        }
     }
 
     // ── Serialization ──────────────────────────────────────────────────────────
@@ -255,19 +274,23 @@ object DriverTripCache {
         currentActiveTrip = if (json.has("currentActiveTrip") && !json.isNull("currentActiveTrip")) json.optLong("currentActiveTrip") else null
     )
 
-    private fun touch(file: File, json: JSONObject, cachedAt: Long) {
+    private fun touchLocked(file: File, json: JSONObject, cachedAt: Long) {
         val now = System.currentTimeMillis()
         if (now - cachedAt < TOUCH_THROTTLE_MS) return
         try {
             json.put("cachedAt", now)
-            file.writeText(json.toString())
+            writeFileAtomicallyLocked(file, json.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to touch cache", e)
         }
     }
 
-    private fun evictExpired() {
+    private fun evictExpiredLocked() {
         cacheDir?.listFiles()?.forEach { file ->
+            if (file.name.endsWith(".tmp")) {
+                file.delete()
+                return@forEach
+            }
             try {
                 val json = JSONObject(file.readText())
                 val cachedAt = json.optLong("cachedAt", 0L)
