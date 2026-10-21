@@ -91,6 +91,32 @@ class TripViewModel : ViewModel() {
     // Polls the driver-request status while a DRIVER awaits company approval so
     // the company gate unlocks automatically the moment a fleet manager approves.
     private var driverCompanyGatePoll: kotlinx.coroutines.Job? = null
+    private var driverRequestStatusJob: kotlinx.coroutines.Job? = null
+
+    // Tracks active collector jobs on NoticeRepository flows so collectNotices()
+    // never spawns duplicate collectors across session restores or re-logins.
+    private var noticesCollectJob: kotlinx.coroutines.Job? = null
+    private var unreadCountCollectJob: kotlinx.coroutines.Job? = null
+
+    // Tracks in-flight user search and public tracking requests so rapid typing or
+    // repeated taps cancel stale requests instead of resolving out of order.
+    private var userSearchJob: kotlinx.coroutines.Job? = null
+    private var publicTrackJob: kotlinx.coroutines.Job? = null
+
+    // Prevents restoreAuthSession() from running more than once per ViewModel instance.
+    @Volatile private var hasRestoredAuthSession = false
+
+    // Guards against duplicate vehicle sync requests when tapping "+" without a car.
+    @Volatile private var isRefreshingVehicleForCreateTrip = false
+
+    // Deduplicates concurrent client & driver package list fetches and single-package refreshes.
+    @Volatile private var isFetchingClientPackages = false
+    @Volatile private var lastClientPackagesFetchMs = 0L
+    @Volatile private var isFetchingDriverPackages = false
+    @Volatile private var lastDriverPackagesFetchMs = 0L
+    @Volatile private var isFetchingIncomingTransfers = false
+    private val inFlightSinglePackageIds: MutableSet<String> =
+        java.util.Collections.synchronizedSet(mutableSetOf())
 
     // Polls for new trips every 30 s when the driver has no active trip.
     // Acts as a fallback when the MQTT trip subscriber is unavailable.
@@ -163,6 +189,9 @@ class TripViewModel : ViewModel() {
         }
 
     fun restoreAuthSession() {
+        if (hasRestoredAuthSession) return
+        hasRestoredAuthSession = true
+
         // Load persisted settings immediately so the correct tab/theme is ready
         // even before the auth check completes
         _state.update {
@@ -244,7 +273,6 @@ class TripViewModel : ViewModel() {
                             driverCompanyGateLoaded = cachedDriverState != null
                         )
                     }
-                    restoreNavigationState()
                 }
                 else -> {
                     _state.update {
@@ -260,7 +288,6 @@ class TripViewModel : ViewModel() {
                             )
                         )
                     }
-                    restoreNavigationState()
                 }
             }
             _state.update { it.copy(isAuthInitialized = true) }
@@ -291,28 +318,24 @@ class TripViewModel : ViewModel() {
                 NoticeRepository.restart(this@TripViewModel.viewModelScope, AuthRepository.getAppContext())
                 collectNotices()
 
+                // Step 2c: restore navigation state now that token is valid
+                restoreNavigationState()
+
                 // Step 3: fetch initial data now that we have a valid session
                 when (cached.role.name) {
                     "DRIVER" -> {
-                        preloadDriverPackages()
-                        startPackageSubscription()
+                        // refreshDriverCompanyGate() orchestrates preloadDriverPackages(),
+                        // loadDriverTrips(), and startPackageSubscription() once company is verified.
                         refreshDriverCompanyGate()
                     }
                     else -> {
                         fetchClientPackages(isFreshLogin = false)
                         checkDriverRequestStatus()
-                        val resumedId = _state.value.clientSelectedPackageId
-                        if (_state.value.isTrackingPackage && !resumedId.isNullOrBlank()) {
-                            refreshSinglePackage(resumedId)
-                        }
                     }
                 }
-                // Schedule background sync worker & check for silent in-app updates
+                // Schedule background sync worker
                 AuthRepository.getAppContext()?.let { ctx ->
                     PackageSyncWorker.schedule(ctx)
-                    viewModelScope.launch {
-                        AppUpdateManager.checkForUpdatesAndDownload(ctx)
-                    }
                 }
 
                 // Step 4: sync with backend — if offline, keep cached user, just notify
@@ -325,13 +348,17 @@ class TripViewModel : ViewModel() {
                         // to the client screen on app open.
                         val backendRole = syncResult.user.role.name
                         val cachedRole = cached.role.name
-                        if (cachedRole == "DRIVER" && backendRole != "DRIVER") {
+                        val effectiveUser = if (cachedRole == "DRIVER" && backendRole != "DRIVER") {
                             Log.w(TAG, "restoreSession: backend role $backendRole < cached DRIVER — keeping DRIVER")
-                            applyUser(syncResult.user.copy(
-                                role = com.gocavgo.twese.data.dto.RoleDto.DRIVER
-                            ))
+                            syncResult.user.copy(role = com.gocavgo.twese.data.dto.RoleDto.DRIVER)
                         } else {
-                            applyUser(syncResult.user)
+                            syncResult.user
+                        }
+                        val roleChanged = effectiveUser.role.name != cachedRole
+                        applyUser(effectiveUser, triggerDriverGateRefresh = roleChanged)
+                        if (roleChanged && effectiveUser.role.name != "DRIVER") {
+                            fetchClientPackages(isFreshLogin = false)
+                            checkDriverRequestStatus()
                         }
                     }
                     is AuthResult.VerificationRequired -> {
@@ -359,7 +386,7 @@ class TripViewModel : ViewModel() {
         }
     }
 
-    private fun applyUser(user: AuthUserDto) {
+    private fun applyUser(user: AuthUserDto, triggerDriverGateRefresh: Boolean = true) {
         _state.update { it.copy(authUser = user) }
         val fullName = listOfNotNull(user.firstName, user.lastName)
             .filter { it.isNotBlank() }
@@ -390,10 +417,12 @@ class TripViewModel : ViewModel() {
                     )
                 }
                 restoreNavigationState()
-                // DRIVER users must belong to an approved company — refreshDriverCompanyGate()
-                // verifies company status first and ONLY loads vehicle, trips, and packages
-                // after company approval is confirmed.
-                refreshDriverCompanyGate()
+                if (triggerDriverGateRefresh) {
+                    // DRIVER users must belong to an approved company — refreshDriverCompanyGate()
+                    // verifies company status first and ONLY loads vehicle, trips, and packages
+                    // after company approval is confirmed.
+                    refreshDriverCompanyGate()
+                }
             }
             else -> {
                 _state.update {
@@ -412,17 +441,14 @@ class TripViewModel : ViewModel() {
                     )
                 }
                 restoreNavigationState()
-                // NOTE: fetchClientPackages() is NOT called here during restoreAuthSession()
-                // because it's handled separately after session restoration.
-                // It IS called during fresh login (handleAuthResult -> applyUser -> fetchClientPackages)
-                // where the session is already available.
             }
         }
     }
 
     fun signUp(email: String, password: String, fullName: String, phone: String?) {
+        if (_state.value.isAuthLoading) return
+        _state.update { it.copy(isAuthLoading = true, authResult = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isAuthLoading = true, authResult = null) }
             val result = AuthRepository.signUp(SignUpInput(email, password, fullName, phone))
             _state.update { it.copy(isAuthLoading = false, authResult = result) }
             handleAuthResult(result)
@@ -430,8 +456,9 @@ class TripViewModel : ViewModel() {
     }
 
     fun signIn(email: String, password: String) {
+        if (_state.value.isAuthLoading) return
+        _state.update { it.copy(isAuthLoading = true, authResult = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isAuthLoading = true, authResult = null) }
             val result = AuthRepository.signIn(SignInInput(email, password))
             _state.update { it.copy(isAuthLoading = false, authResult = result) }
             handleAuthResult(result)
@@ -448,9 +475,9 @@ class TripViewModel : ViewModel() {
 
     fun verifyOtp(code: String) {
         val email = _state.value.otpEmail
-        if (email.isBlank()) return
+        if (email.isBlank() || _state.value.isAuthLoading) return
+        _state.update { it.copy(isAuthLoading = true, authResult = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isAuthLoading = true, authResult = null) }
             val result = AuthRepository.verifyEmailOtpAndSync(email, code.trim())
             _state.update { it.copy(isAuthLoading = false, authResult = result, showOtpScreen = false, otpEmail = "") }
             handleAuthResult(result)
@@ -478,31 +505,40 @@ class TripViewModel : ViewModel() {
     }
 
     fun sendPasswordResetCode(email: String) {
+        if (email.isBlank() || _state.value.isAuthLoading) return
+        _state.update { it.copy(isAuthLoading = true) }
         viewModelScope.launch {
-            val error = AuthRepository.sendPasswordResetCode(email)
-            if (error != null) {
-                Log.e("TripViewModel", "sendPasswordResetCode failed for $email: $error")
-                _toastEvent.emit(error)
-            } else {
-                _state.update { it.copy(forgotPasswordEmail = email, forgotPasswordStep = 1) }
-                _toastEvent.emit("Reset code sent to $email")
+            try {
+                val error = AuthRepository.sendPasswordResetCode(email)
+                if (error != null) {
+                    Log.e("TripViewModel", "sendPasswordResetCode failed for $email: $error")
+                    _toastEvent.emit(error)
+                } else {
+                    _state.update { it.copy(forgotPasswordEmail = email, forgotPasswordStep = 1) }
+                    _toastEvent.emit("Reset code sent to $email")
+                }
+            } finally {
+                _state.update { it.copy(isAuthLoading = false) }
             }
         }
     }
 
     fun completePasswordReset(code: String, newPassword: String) {
         val email = _state.value.forgotPasswordEmail
-        if (email.isBlank()) return
+        if (email.isBlank() || _state.value.isAuthLoading) return
+        _state.update { it.copy(isAuthLoading = true) }
         viewModelScope.launch {
-            _state.update { it.copy(isAuthLoading = true) }
-            val error = AuthRepository.completePasswordReset(email, code.trim(), newPassword)
-            _state.update { it.copy(isAuthLoading = false) }
-            if (error != null) {
-                Log.e("TripViewModel", "completePasswordReset failed: $error")
-                _toastEvent.emit(error)
-            } else {
-                _state.update { it.copy(forgotPasswordStep = 2) }
-                _toastEvent.emit("Password reset successful")
+            try {
+                val error = AuthRepository.completePasswordReset(email, code.trim(), newPassword)
+                if (error != null) {
+                    Log.e("TripViewModel", "completePasswordReset failed: $error")
+                    _toastEvent.emit(error)
+                } else {
+                    _state.update { it.copy(forgotPasswordStep = 2) }
+                    _toastEvent.emit("Password reset successful")
+                }
+            } finally {
+                _state.update { it.copy(isAuthLoading = false) }
             }
         }
     }
@@ -606,12 +642,25 @@ class TripViewModel : ViewModel() {
         bumpSessionGeneration()
         driverCompanyGatePoll?.cancel()
         driverCompanyGatePoll = null
+        driverRequestStatusJob?.cancel()
+        driverRequestStatusJob = null
         tripPollJob?.cancel()
         tripPollJob = null
+        userSearchJob?.cancel()
+        userSearchJob = null
+        publicTrackJob?.cancel()
+        publicTrackJob = null
+        isFetchingClientPackages = false
+        lastClientPackagesFetchMs = 0L
+        isFetchingDriverPackages = false
+        lastDriverPackagesFetchMs = 0L
+        isFetchingIncomingTransfers = false
+        inFlightSinglePackageIds.clear()
         MqttTripSubscriber.disconnect()
         NoticeRepository.stop()
         stopPackageSubscription()
         autoShownDeliveryNotices.clear()
+        syncedNoticeIds.clear()
         ApolloClientProvider.resetClient()
         MqttLocationPublisher.disconnect()
         viewModelScope.launch {
@@ -1162,12 +1211,18 @@ class TripViewModel : ViewModel() {
         if (!s.driverHasVehicle) {
             // Re-check the assignment first — the worker fetch may still be in flight
             // (or stale) when the driver taps "+" right after login.
+            if (isRefreshingVehicleForCreateTrip) return
+            isRefreshingVehicleForCreateTrip = true
             viewModelScope.launch {
-                refreshDriverVehicle()
-                if (!_state.value.driverHasVehicle) {
-                    _toastEvent.emit("You have no car assigned to you")
-                } else {
-                    openDriverCreateTripModal()
+                try {
+                    refreshDriverVehicle()
+                    if (!_state.value.driverHasVehicle) {
+                        _toastEvent.emit("You have no car assigned to you")
+                    } else {
+                        openDriverCreateTripModal()
+                    }
+                } finally {
+                    isRefreshingVehicleForCreateTrip = false
                 }
             }
             return
@@ -1763,6 +1818,12 @@ class TripViewModel : ViewModel() {
 
     fun goBackToRoleSelect() {
         bumpSessionGeneration()
+        driverRequestStatusJob?.cancel()
+        driverRequestStatusJob = null
+        driverCompanyGatePoll?.cancel()
+        driverCompanyGatePoll = null
+        publicTrackJob?.cancel()
+        publicTrackJob = null
         NoticeRepository.stop()
         ApolloClientProvider.resetClient()
         viewModelScope.launch {
@@ -1792,8 +1853,18 @@ class TripViewModel : ViewModel() {
 
     fun clientLogout() {
         bumpSessionGeneration()
+        driverRequestStatusJob?.cancel()
+        driverRequestStatusJob = null
+        userSearchJob?.cancel()
+        userSearchJob = null
+        publicTrackJob?.cancel()
+        publicTrackJob = null
+        isFetchingClientPackages = false
+        lastClientPackagesFetchMs = 0L
+        inFlightSinglePackageIds.clear()
         NoticeRepository.stop()
         autoShownDeliveryNotices.clear()
+        syncedNoticeIds.clear()
         ApolloClientProvider.resetClient()
         MqttLocationPublisher.disconnect()
         viewModelScope.launch {
@@ -1862,7 +1933,8 @@ class TripViewModel : ViewModel() {
      * session/profile and flips the user to the DRIVER home — no re-login needed.
      */
     fun checkDriverRequestStatus() {
-        viewModelScope.launch {
+        driverRequestStatusJob?.cancel()
+        driverRequestStatusJob = viewModelScope.launch {
             try {
                 val result = com.gocavgo.twese.network.BackendStorage.getMyDriverRequestStatus()
                 val status = when (result) {
@@ -1901,6 +1973,8 @@ class TripViewModel : ViewModel() {
                     }
                     else -> Unit
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // Non-critical — just leave status as null
             }
@@ -1924,9 +1998,9 @@ class TripViewModel : ViewModel() {
     }
 
     fun submitDriverRequest(companyCode: String) {
-        if (companyCode.isBlank()) return
+        if (companyCode.isBlank() || _state.value.isSubmittingDriverRequest) return
+        _state.update { it.copy(isSubmittingDriverRequest = true, driverRequestError = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isSubmittingDriverRequest = true, driverRequestError = null) }
             try {
                 val result = com.gocavgo.twese.network.BackendStorage.submitDriverRequest(companyCode)
                 if (result == null) {
@@ -1935,6 +2009,7 @@ class TripViewModel : ViewModel() {
                         showRequestDriverDialog = false,
                         driverRequestStatus = "PENDING"
                     ) }
+                    checkDriverRequestStatus()
                 } else {
                     _state.update { it.copy(isSubmittingDriverRequest = false, driverRequestError = result) }
                 }
@@ -2112,8 +2187,8 @@ class TripViewModel : ViewModel() {
      */
     fun submitDriverCompanyRequest(companyCode: String) {
         if (companyCode.isBlank() || _state.value.isSubmittingDriverCompanyRequest) return
+        _state.update { it.copy(isSubmittingDriverCompanyRequest = true, driverCompanyGateError = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isSubmittingDriverCompanyRequest = true, driverCompanyGateError = null) }
             try {
                 val result = BackendStorage.submitDriverRequest(companyCode)
                 if (result == null) {
@@ -2454,7 +2529,9 @@ class TripViewModel : ViewModel() {
      * Refreshes a single package fresh from the backend and merges into in-memory state and disk cache.
      */
     fun refreshSinglePackage(packageIdOrUuid: String) {
-        if (!AuthRepository.isNetworkAvailable()) return
+        val key = packageIdOrUuid.trim().lowercase()
+        if (key.isBlank() || !AuthRepository.isNetworkAvailable()) return
+        if (!inFlightSinglePackageIds.add(key)) return
         viewModelScope.launch {
             try {
                 val matchFn: (ClientPackage) -> Boolean = {
@@ -2544,6 +2621,8 @@ class TripViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 Log.d("TripViewModel", "refreshSinglePackage failed: ${e.message}")
+            } finally {
+                inFlightSinglePackageIds.remove(key)
             }
         }
     }
@@ -2555,6 +2634,8 @@ class TripViewModel : ViewModel() {
     }
 
     fun fetchClientPackages(isFreshLogin: Boolean = false) {
+        if (isFetchingClientPackages) return
+        isFetchingClientPackages = true
         viewModelScope.launch {
             val gen = sessionGeneration
             _state.update { it.copy(clientCurrentPage = 0, clientDataState = DataState.LOADING) }
@@ -2601,6 +2682,7 @@ class TripViewModel : ViewModel() {
                         val page = result.page
                         withContext(Dispatchers.IO) { PackageCache.saveClient(page) }
                         if (gen != sessionGeneration) return@launch
+                        lastClientPackagesFetchMs = System.currentTimeMillis()
                         _state.update {
                             val merged = mergeClientPackagesWithPage(it.clientPackages, page.items, it.clientSelectedPackageId)
                             val hasActive = merged.any { pkg -> pkg.isActive() }
@@ -2640,6 +2722,7 @@ class TripViewModel : ViewModel() {
                     clientDataState = if (hasActiveCached) DataState.HAS_DATA else DataState.UNKNOWN
                 ) }
             } finally {
+                isFetchingClientPackages = false
                 if (gen == sessionGeneration) _state.update { it.copy(isClientInitialLoading = false) }
             }
         }
@@ -2651,6 +2734,8 @@ class TripViewModel : ViewModel() {
             viewModelScope.launch { _toastEvent.emit("You need an internet connection to refresh — showing saved data") }
             return
         }
+        if (isFetchingClientPackages || _state.value.isRefreshingPackages) return
+        isFetchingClientPackages = true
         _state.update { it.copy(isRefreshingPackages = true) }
         viewModelScope.launch {
             val gen = sessionGeneration
@@ -2660,6 +2745,7 @@ class TripViewModel : ViewModel() {
                         val page = result.page
                         withContext(Dispatchers.IO) { PackageCache.saveClient(page) }
                         if (gen != sessionGeneration) return@launch
+                        lastClientPackagesFetchMs = System.currentTimeMillis()
                         _state.update {
                             val merged = mergeClientPackagesWithPage(it.clientPackages, page.items, it.clientSelectedPackageId)
                             val hasActive = merged.any { pkg -> pkg.isActive() }
@@ -2689,6 +2775,7 @@ class TripViewModel : ViewModel() {
                     _toastEvent.emit("You need an internet connection to refresh — showing saved data")
                 }
             } finally {
+                isFetchingClientPackages = false
                 if (gen == sessionGeneration) _state.update { it.copy(isRefreshingPackages = false) }
             }
         }
@@ -2697,9 +2784,9 @@ class TripViewModel : ViewModel() {
     fun loadMoreClientPackages() {
         val s = _state.value
         if (s.isLoadingMorePackages || !s.clientHasMore) return
+        _state.update { it.copy(isLoadingMorePackages = true) }
         viewModelScope.launch {
             val gen = sessionGeneration
-            _state.update { it.copy(isLoadingMorePackages = true) }
             try {
                 val nextPage = s.clientCurrentPage + 1
                 val result = PackageRepository.fetchMyPackages(page = nextPage, order = com.gocavgo.twese.type.SortOrder.DESC)
@@ -3006,7 +3093,7 @@ class TripViewModel : ViewModel() {
                     withContext(Dispatchers.IO) {
                         PackageCache.saveIncomingTransfers(_state.value.driverIncomingTransfers)
                     }
-                    loadDriverPackages()
+                    loadDriverPackages(force = true)
                     _toastEvent.emit("Offer accepted")
                 } else {
                     _state.update { it.copy(isAcceptingTransfer = false, acceptTransferPackageId = null) }
@@ -3036,8 +3123,7 @@ class TripViewModel : ViewModel() {
             if (cachedTransfers != null && cachedTransfers.isNotEmpty()) {
                 _state.update { it.copy(driverIncomingTransfers = cachedTransfers) }
             }
-            // Preload incoming transfers in background
-            loadDriverIncomingTransfers()
+            loadDriverPackages()
         }
     }
 
@@ -3603,6 +3689,7 @@ class TripViewModel : ViewModel() {
             viewModelScope.launch { _toastEvent.emit("No internet connection — showing cached data") }
             return
         }
+        if (_state.value.isRefreshingDriverTrips || _state.value.isLoadingDriverTrips) return
         _state.update { it.copy(isRefreshingDriverTrips = true) }
         viewModelScope.launch {
             try {
@@ -3613,7 +3700,13 @@ class TripViewModel : ViewModel() {
         }
     }
 
-    fun loadDriverPackages() {
+    fun loadDriverPackages(force: Boolean = false) {
+        if (isFetchingDriverPackages) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastDriverPackagesFetchMs < 3_000L && _state.value.driverCurrentPackages.isNotEmpty()) {
+            return
+        }
+        isFetchingDriverPackages = true
         viewModelScope.launch {
             val gen = sessionGeneration
             _state.update { it.copy(
@@ -3651,6 +3744,7 @@ class TripViewModel : ViewModel() {
                     is FetchPackagesResult.Success -> {
                         withContext(Dispatchers.IO) { PackageCache.saveDriver(current.page) }
                         if (gen != sessionGeneration) return@launch
+                        lastDriverPackagesFetchMs = System.currentTimeMillis()
                         val activeNet = _state.value.activeDriverTrip
                         _state.update {
                             val merged = mergeClientPackagesWithPage(it.driverCurrentPackages, current.page.items, it.selectedDriverPackageId)
@@ -3698,6 +3792,7 @@ class TripViewModel : ViewModel() {
                 }
                 // Network failed — mark as fetched so UI doesn't show spinner forever
             } finally {
+                isFetchingDriverPackages = false
                 if (gen == sessionGeneration) _state.update { it.copy(isDriverInitialLoading = false) }
             }
         }
@@ -3709,6 +3804,8 @@ class TripViewModel : ViewModel() {
             viewModelScope.launch { _toastEvent.emit("You need an internet connection to refresh — showing saved data") }
             return
         }
+        if (isFetchingDriverPackages || _state.value.isRefreshingPackages) return
+        isFetchingDriverPackages = true
         _state.update { it.copy(isRefreshingPackages = true) }
         viewModelScope.launch {
             val gen = sessionGeneration
@@ -3718,6 +3815,7 @@ class TripViewModel : ViewModel() {
                     is FetchPackagesResult.Success -> {
                         withContext(Dispatchers.IO) { PackageCache.saveDriver(current.page) }
                         if (gen != sessionGeneration) return@launch
+                        lastDriverPackagesFetchMs = System.currentTimeMillis()
                         _state.update {
                             val merged = mergeClientPackagesWithPage(it.driverCurrentPackages, current.page.items, it.selectedDriverPackageId)
                             it.copy(
@@ -3759,6 +3857,7 @@ class TripViewModel : ViewModel() {
                     _toastEvent.emit("You need an internet connection to refresh — showing saved data")
                 }
             } finally {
+                isFetchingDriverPackages = false
                 if (gen == sessionGeneration) _state.update { it.copy(isRefreshingPackages = false) }
             }
         }
@@ -3767,9 +3866,9 @@ class TripViewModel : ViewModel() {
     fun loadMoreDriverCurrent() {
         val s = _state.value
         if (s.isLoadingMorePackages || !s.driverCurrentHasMore) return
+        _state.update { it.copy(isLoadingMorePackages = true) }
         viewModelScope.launch {
             val gen = sessionGeneration
-            _state.update { it.copy(isLoadingMorePackages = true) }
             try {
                 val nextPage = s.driverCurrentPage + 1
                 when (val result = PackageRepository.fetchMyPackages(page = nextPage, order = com.gocavgo.twese.type.SortOrder.DESC)) {
@@ -3814,9 +3913,9 @@ class TripViewModel : ViewModel() {
     fun loadMoreDriverOffers() {
         val s = _state.value
         if (s.isLoadingMorePackages || !s.driverOffersHasMore) return
+        _state.update { it.copy(isLoadingMorePackages = true) }
         viewModelScope.launch {
             val gen = sessionGeneration
-            _state.update { it.copy(isLoadingMorePackages = true) }
             try {
                 val nextPage = s.driverOffersPage + 1
                 when (val result = PackageRepository.fetchAvailablePackages(page = nextPage, order = com.gocavgo.twese.type.SortOrder.DESC)) {
@@ -3855,6 +3954,8 @@ class TripViewModel : ViewModel() {
      * and the driver needs to accept.
      */
     fun loadDriverIncomingTransfers() {
+        if (isFetchingIncomingTransfers) return
+        isFetchingIncomingTransfers = true
         viewModelScope.launch {
             val gen = sessionGeneration
             _state.update { it.copy(isLoadingTransfers = true) }
@@ -3872,6 +3973,8 @@ class TripViewModel : ViewModel() {
                     _state.update { it.copy(isLoadingTransfers = false) }
                     _toastEvent.emit("Couldn't load transfers")
                 }
+            } finally {
+                isFetchingIncomingTransfers = false
             }
         }
     }
@@ -3917,7 +4020,7 @@ class TripViewModel : ViewModel() {
                     withContext(Dispatchers.IO) {
                         PackageCache.saveIncomingTransfers(_state.value.driverIncomingTransfers)
                     }
-                    loadDriverPackages()
+                    loadDriverPackages(force = true)
                     _toastEvent.emit("Transfer accepted")
                 } else {
                     _state.update { s2 ->
@@ -4476,7 +4579,7 @@ class TripViewModel : ViewModel() {
                     withContext(Dispatchers.IO) {
                         PackageCache.saveIncomingTransfers(_state.value.driverIncomingTransfers)
                     }
-                    loadDriverPackages()
+                    loadDriverPackages(force = true)
                     _toastEvent.emit("Package accepted via transfer")
                 } else {
                     _state.update { it.copy(
@@ -4497,9 +4600,10 @@ class TripViewModel : ViewModel() {
 
     fun publicTrackPackage(code: String) {
         val trimmed = code.trim()
-        if (trimmed.isBlank()) return
-        viewModelScope.launch {
-            _state.update { it.copy(publicTrackingPackage = null, publicTrackingError = "", isPublicTrackingLoading = true) }
+        if (trimmed.isBlank() || _state.value.isPublicTrackingLoading) return
+        publicTrackJob?.cancel()
+        _state.update { it.copy(publicTrackingPackage = null, publicTrackingError = "", isPublicTrackingLoading = true) }
+        publicTrackJob = viewModelScope.launch {
             try {
                 when (val result = PackageRepository.trackByCode(trimmed)) {
                     is SingleResult.Success -> _state.update {
@@ -4523,16 +4627,19 @@ class TripViewModel : ViewModel() {
     }
 
     fun closePublicTracking() {
+        publicTrackJob?.cancel()
+        publicTrackJob = null
         _state.update { it.copy(publicTrackingPackage = null, publicTrackingError = "", isPublicTrackingLoading = false) }
     }
 
     fun searchUsers(query: String, role: com.gocavgo.twese.type.Role? = null) {
+        userSearchJob?.cancel()
         if (query.isBlank()) {
-            _state.update { it.copy(userSearchResults = emptyList()) }
+            _state.update { it.copy(userSearchResults = emptyList(), isSearchingUsers = false) }
             return
         }
-        viewModelScope.launch {
-            _state.update { it.copy(isSearchingUsers = true) }
+        _state.update { it.copy(isSearchingUsers = true) }
+        userSearchJob = viewModelScope.launch {
             try {
                 val response = ApolloClientProvider.client.query(
                     SearchUsersQuery(
@@ -4542,6 +4649,8 @@ class TripViewModel : ViewModel() {
                 ).execute()
                 val results = response.data?.searchUsers?.filterNotNull() ?: emptyList()
                 _state.update { it.copy(userSearchResults = results, isSearchingUsers = false) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _state.update { it.copy(isSearchingUsers = false) }
             }
@@ -4549,7 +4658,9 @@ class TripViewModel : ViewModel() {
     }
 
     fun clearUserSearch() {
-        _state.update { it.copy(userSearchResults = emptyList()) }
+        userSearchJob?.cancel()
+        userSearchJob = null
+        _state.update { it.copy(userSearchResults = emptyList(), isSearchingUsers = false) }
     }
 
     // ── Pickup Code Methods ────────────────────────────────────────────────
@@ -5244,10 +5355,12 @@ class TripViewModel : ViewModel() {
                                 s.driverCurrentPackages.map { if (it.packageUuid == pkg.packageUuid || it.id == pkg.id) mergePackagePreservingLocalFields(it, pkg) else it }.distinctBy { it.id }
                             } else {
                                 (listOf(pkg) + s.driverCurrentPackages).distinctBy { it.id }
-                            }
+                            },
+                            isPackageDetailSheetOpen = true,
+                            selectedDriverPackageId = pkg.id
                         )
                     }
-                    openPackageDetail(pkg.id)
+                    markNoticesForPackageAsRead(pkg.id)
                 }
                 AppRole.CLIENT -> {
                     _state.update { s ->
@@ -5258,16 +5371,15 @@ class TripViewModel : ViewModel() {
                             } else {
                                 (listOf(pkg) + s.clientPackages).distinctBy { it.id }
                             },
-                            clientSelectedPackageId = if (s.isTrackingPackage) pkg.id else s.clientSelectedPackageId,
+                            isTrackingPackage = true,
+                            isCreatingPackage = false,
+                            isProfileOpen = false,
+                            clientSelectedPackageId = pkg.id,
                             clientDataState = DataState.HAS_DATA
                         )
                     }
-                    if (_state.value.isTrackingPackage) {
-                        saveNavigationState()
-                        markNoticesForPackageAsRead(pkg.id)
-                    } else {
-                        trackPackage(pkg.id)
-                    }
+                    saveNavigationState()
+                    markNoticesForPackageAsRead(pkg.id)
                 }
                 else -> {}
             }
@@ -5278,11 +5390,13 @@ class TripViewModel : ViewModel() {
 
     /**
      * Start collecting flows from [NoticeRepository] into [TripUiState].
-     * Safe to call multiple times — subsequent calls are no-ops because
-     * collecting a StateFlow is idempotent.
+     * Cancels any existing collector jobs before launching so repeated calls never
+     * attach duplicate collectors.
      */
     private fun collectNotices() {
-        viewModelScope.launch {
+        noticesCollectJob?.cancel()
+        unreadCountCollectJob?.cancel()
+        noticesCollectJob = viewModelScope.launch {
             NoticeRepository.notices.collect { notices ->
                 var shouldCloseDriverDeliverDialog = false
                 var driverDeliveredPkgTitle: String? = null
@@ -5401,7 +5515,7 @@ class TripViewModel : ViewModel() {
                 syncLatestPackageFromNotice(notices)
             }
         }
-        viewModelScope.launch {
+        unreadCountCollectJob = viewModelScope.launch {
             NoticeRepository.unreadCount.collect { count ->
                 _state.update { it.copy(noticeCount = count) }
             }
@@ -5582,11 +5696,16 @@ class TripViewModel : ViewModel() {
      * Refreshes notices and subscription to pick up any missed events.
      */
     fun onAppForegrounded() {
-        if (_state.value.isLoggedIn || _state.value.isClientLoggedIn) {
+        val s = _state.value
+        if (!s.isAuthInitialized) return
+        if (s.isLoggedIn || s.isClientLoggedIn) {
             viewModelScope.launch {
                 NoticeRepository.start(this@TripViewModel.viewModelScope, AuthRepository.getAppContext())
                 if (_state.value.isClientLoggedIn) {
-                    refreshClientPackages()
+                    val now = System.currentTimeMillis()
+                    if (!isFetchingClientPackages && now - lastClientPackagesFetchMs > 5_000L) {
+                        refreshClientPackages()
+                    }
                 }
             }
         }

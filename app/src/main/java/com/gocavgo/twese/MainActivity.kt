@@ -597,6 +597,7 @@ class MainActivity : ComponentActivity() {
                                         isInitialLoading = state.isClientInitialLoading,
                                         onRefresh = vm::refreshClientPackages,
                                         isLoadingMore = state.isLoadingMorePackages,
+                                        hasMore = state.clientHasMore,
                                         onLoadMore = vm::loadMoreClientPackages,
                                         onThemeModeChange = vm::setThemeMode,
                                         onCloseSettings = vm::closeClientSettings,

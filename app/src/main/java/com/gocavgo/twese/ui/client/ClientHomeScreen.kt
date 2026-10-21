@@ -98,6 +98,7 @@ fun ClientHomeScreen(
     isInitialLoading: Boolean = false,
     onRefresh: () -> Unit = {},
     isLoadingMore: Boolean = false,
+    hasMore: Boolean = false,
     onLoadMore: () -> Unit = {},
     onCloseSettings: () -> Unit,
     onDismissMenus: () -> Unit,
@@ -302,9 +303,9 @@ fun ClientHomeScreen(
                                     modifier = Modifier.animateItem(tween(300))
                                 )
                             }
-                            item {
-                                if (!isRefreshing && !isLoadingMore && activePackages.isNotEmpty()) {
-                                    LaunchedEffect(Unit) { onLoadMore() }
+                            if (hasMore && !isRefreshing && !isLoadingMore && activePackages.isNotEmpty()) {
+                                item(key = "load_more_trigger") {
+                                    LaunchedEffect(activePackages.size) { onLoadMore() }
                                 }
                             }
                         }

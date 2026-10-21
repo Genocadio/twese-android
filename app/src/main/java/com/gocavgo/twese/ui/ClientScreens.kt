@@ -145,6 +145,7 @@ fun ClientHomeScreen(
     isInitialLoading: Boolean = false,
     onRefresh: () -> Unit = {},
     isLoadingMore: Boolean = false,
+    hasMore: Boolean = false,
     onLoadMore: () -> Unit = {},
     onCloseSettings: () -> Unit,
     onDismissMenus: () -> Unit,
@@ -165,7 +166,7 @@ fun ClientHomeScreen(
     driverRequestCompanyCode: String? = null,
     driverRequestCompanyName: String? = null,
     driverRequestRejectionReason: String? = null
-) = ClientHomeScreenImpl(client, packages, themeMode, isClientProfileMenuOpen, isClientSettingsOpen, onCreatePackage, onTrackPackage, onLogout, onProfileMenuClick, onSettingsClick, onProfileClick, onThemeModeChange, isRefreshing, isInitialLoading, onRefresh, isLoadingMore, onLoadMore, onCloseSettings, onDismissMenus, onCreateTransfer, onConfirmTransfer, onRejectTransfer, onGeneratePickupCode, hasUnsavedDraft, packagesFetchedOnce, clientDataState, onConfirmDeliveryDirect = onConfirmDeliveryDirect, onNoticesClick = onNoticesClick, onNoticeClick = onNoticeClick, noticeCount = noticeCount, notices = notices, onRequestDriver = onRequestDriver, driverRequestStatus = driverRequestStatus, driverRequestCompanyCode = driverRequestCompanyCode, driverRequestCompanyName = driverRequestCompanyName, driverRequestRejectionReason = driverRequestRejectionReason)
+) = ClientHomeScreenImpl(client, packages, themeMode, isClientProfileMenuOpen, isClientSettingsOpen, onCreatePackage, onTrackPackage, onLogout, onProfileMenuClick, onSettingsClick, onProfileClick, onThemeModeChange, isRefreshing, isInitialLoading, onRefresh, isLoadingMore, hasMore, onLoadMore, onCloseSettings, onDismissMenus, onCreateTransfer, onConfirmTransfer, onRejectTransfer, onGeneratePickupCode, hasUnsavedDraft, packagesFetchedOnce, clientDataState, onConfirmDeliveryDirect = onConfirmDeliveryDirect, onNoticesClick = onNoticesClick, onNoticeClick = onNoticeClick, noticeCount = noticeCount, notices = notices, onRequestDriver = onRequestDriver, driverRequestStatus = driverRequestStatus, driverRequestCompanyCode = driverRequestCompanyCode, driverRequestCompanyName = driverRequestCompanyName, driverRequestRejectionReason = driverRequestRejectionReason)
 
 @Composable
 fun CreatePackageScreen(

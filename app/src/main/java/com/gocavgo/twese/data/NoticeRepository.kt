@@ -96,19 +96,16 @@ object NoticeRepository {
         }
         started = true
 
-        // Initial fetch
-        scope.launch {
-            fetchNotices()
-        }
-
-        // GraphQL subscription — real-time push for new notices.
+        // GraphQL subscription — performs an initial fetchNotices() before subscribing
+        // and catches up automatically on any reconnect.
         subscriptionJob = scope.launch {
             startSubscription()
         }
 
         // Background polling — safety-net fallback for missed subscription events.
         pollJob = scope.launch {
-            while (isActive) {                    delay(POLL_INTERVAL_MS)
+            while (isActive) {
+                delay(POLL_INTERVAL_MS)
                 fetchNotices()
             }
         }
@@ -316,7 +313,13 @@ object NoticeRepository {
 
     // ── GraphQL queries ─────────────────────────────────────────────────────────
 
+    @Volatile
+    private var isFetchingNotices = false
+    private val inFlightMarkReadIds: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
+
     private suspend fun fetchNotices() {
+        if (isFetchingNotices) return
+        isFetchingNotices = true
         try {
             val response = ApolloClientProvider.client
                 .query(MyNoticesQuery())
@@ -366,6 +369,8 @@ object NoticeRepository {
             if (BuildConfig.DEBUG) Log.d(TAG, "fetched ${_notices.value.size} notices, ${derivedUnreadCount.value} unread (derived)")
         } catch (e: Exception) {
             Log.e(TAG, "fetchNotices: ${e.message}", e)
+        } finally {
+            isFetchingNotices = false
         }
     }
 
@@ -400,6 +405,7 @@ object NoticeRepository {
      */
     suspend fun markRead(notice: Notice) {
         val viewerId = notice.viewerId
+        if (viewerId.isBlank() || !inFlightMarkReadIds.add(viewerId)) return
         _notices.update { list ->
             applyMarkRead(list, viewerId).sortedBy { it.viewerReadAt != null }
         }
@@ -427,6 +433,8 @@ object NoticeRepository {
             // Persist failed — the optimistic update above stays, so the UI will
             // appear read until the next fetch returns the server state (unread).
             Log.e(TAG, "markRead: mutation failed for viewerId=$viewerId — ${e.message}", e)
+        } finally {
+            inFlightMarkReadIds.remove(viewerId)
         }
     }
 }
